@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:CLOUDFLARED_NO_AUTOUPDATE = "true"
 
 $cloudflared = Get-Command cloudflared -ErrorAction SilentlyContinue
 if (-not $cloudflared) {
@@ -20,7 +21,7 @@ if (-not (Test-Path -LiteralPath $certPath)) {
 
 New-Item -ItemType Directory -Force -Path $cloudflaredDir | Out-Null
 
-$existing = cloudflared tunnel list 2>$null | Select-String -Pattern "\b$([regex]::Escape($TunnelName))\b"
+$existing = (& cloudflared tunnel list 2>&1 | Out-String) | Select-String -Pattern "\b$([regex]::Escape($TunnelName))\b"
 if (-not $existing) {
   cloudflared tunnel create $TunnelName
 }
