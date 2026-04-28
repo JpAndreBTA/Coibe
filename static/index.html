@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>COIBE.IA - Análise de CNPJ</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #070707;
+        --panel: #171717;
+        --panel-2: #101010;
+        --line: #2a2a2a;
+        --text: #f5f5f5;
+        --muted: #a3a3a3;
+        --red: #ef3333;
+        --red-dark: #b91c1c;
+        --amber: #f59e0b;
+        --green: #22c55e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        border-bottom: 1px solid var(--line);
+        background: #000;
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .topbar {
+        min-height: 64px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+        letter-spacing: 4px;
+        font-size: 24px;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border: 3px solid var(--red);
+        border-radius: 999px;
+        position: relative;
+      }
+
+      .brand-mark::before,
+      .brand-mark::after {
+        content: "";
+        position: absolute;
+        inset: 5px;
+        border: 3px solid var(--red);
+        border-radius: inherit;
+      }
+
+      .brand-mark::after {
+        inset: 12px;
+        background: var(--red);
+      }
+
+      .brand small {
+        color: var(--red);
+        letter-spacing: 0;
+        font-size: 13px;
+        margin-left: -6px;
+      }
+
+      main {
+        padding: 28px 0 56px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+        gap: 28px;
+        align-items: start;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        max-width: 760px;
+        font-size: clamp(32px, 5vw, 56px);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        margin: 0 0 24px;
+        max-width: 690px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      form.panel {
+        padding: 20px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        color: #d4d4d4;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      input {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid #333;
+        border-radius: 8px;
+        background: #0d0d0d;
+        color: var(--text);
+        padding: 10px 12px;
+        font-size: 15px;
+        outline: none;
+      }
+
+      input:focus {
+        border-color: var(--red);
+        box-shadow: 0 0 0 3px rgba(239, 51, 51, 0.18);
+      }
+
+      .field {
+        margin-bottom: 16px;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      button {
+        width: 100%;
+        min-height: 46px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--red);
+        color: white;
+        font-weight: 800;
+        font-size: 15px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--red-dark);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 22px;
+      }
+
+      .stat {
+        padding: 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .stat span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 24px;
+      }
+
+      .result {
+        margin-top: 28px;
+        display: none;
+      }
+
+      .result.visible {
+        display: block;
+      }
+
+      .result-head {
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .result-head h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+
+      .result-head p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .badge {
+        align-self: flex-start;
+        white-space: nowrap;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--green);
+      }
+
+      .badge.high {
+        color: var(--red);
+      }
+
+      .badge.medium {
+        color: var(--amber);
+      }
+
+      .result-body {
+        padding: 20px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.75fr);
+        gap: 20px;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .kv div,
+      .qsa li,
+      .flag {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .kv span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+
+      .kv strong {
+        overflow-wrap: anywhere;
+      }
+
+      h3 {
+        margin: 0 0 12px;
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 0;
+        color: #d4d4d4;
+      }
+
+      .flag {
+        border-color: rgba(239, 51, 51, 0.45);
+      }
+
+      .flag p {
+        margin: 8px 0 0;
+        color: #e5e5e5;
+        line-height: 1.45;
+      }
+
+      .qsa {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .qsa small {
+        display: block;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      .error {
+        display: none;
+        margin-top: 14px;
+        color: #fecaca;
+        background: rgba(239, 51, 51, 0.12);
+        border: 1px solid rgba(239, 51, 51, 0.45);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .error.visible {
+        display: block;
+      }
+
+      @media (max-width: 860px) {
+        .hero,
+        .result-body {
+          grid-template-columns: 1fr;
+        }
+
+        .stats,
+        .grid-2,
+        .kv {
+          grid-template-columns: 1fr;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 14px 0;
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span>COIBE<small>.IA</small></div>
+        <div style="color: var(--muted); font-size: 14px">Dados públicos, análise clara, controle social.</div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <div>
+          <h1>Análise pública de risco em CNPJs contratados pelo poder público</h1>
+          <p class="lead">
+            Consulte a Brasil API, veja a data de abertura, o quadro de sócios e receba um parecer automático da Red Flag 01 para contratos de alto valor.
+          </p>
+
+          <div class="stats">
+            <div class="stat"><span>Fonte</span><strong>Brasil API</strong></div>
+            <div class="stat"><span>Red Flag 01</span><strong>180 dias</strong></div>
+            <div class="stat"><span>Contrato grande</span><strong>R$ 500 mil</strong></div>
+          </div>
+        </div>
+
+        <form class="panel" id="analysisForm">
+          <div class="field">
+            <label for="cnpj">CNPJ</label>
+            <input id="cnpj" name="cnpj" inputmode="numeric" placeholder="00.000.000/0001-00" required />
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="valor">Valor do contrato</label>
+              <input id="valor" name="valor" inputmode="decimal" placeholder="750000.00" value="750000" />
+            </div>
+            <div class="field">
+              <label for="data">Data de assinatura</label>
+              <input id="data" name="data" type="date" />
+            </div>
+          </div>
+
+          <button id="submitButton" type="submit">Analisar CNPJ</button>
+          <div class="error" id="errorBox"></div>
+        </form>
+      </section>
+
+      <section class="result panel" id="result">
+        <div class="result-head">
+          <div>
+            <h2 id="companyName"></h2>
+            <p id="companySubtitle"></p>
+          </div>
+          <span class="badge" id="riskBadge"></span>
+        </div>
+
+        <div class="result-body">
+          <div>
+            <h3>Dados do CNPJ</h3>
+            <div class="kv" id="companyFacts"></div>
+          </div>
+
+          <aside>
+            <h3>Red Flag 01</h3>
+            <div class="flag" id="flagBox"></div>
+          </aside>
+
+          <div style="grid-column: 1 / -1">
+            <h3>Quadro de Sócios</h3>
+            <ul class="qsa" id="qsaList"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.querySelector("#analysisForm");
+      const button = document.querySelector("#submitButton");
+      const errorBox = document.querySelector("#errorBox");
+      const result = document.querySelector("#result");
+      const dateInput = document.querySelector("#data");
+
+      dateInput.valueAsDate = new Date();
+
+      const currency = new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+
+      function onlyDigits(value) {
+        return value.replace(/\D/g, "");
+      }
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.add("visible");
+      }
+
+      function clearError() {
+        errorBox.textContent = "";
+        errorBox.classList.remove("visible");
+      }
+
+      function formatDate(value) {
+        if (!value) return "Não informado";
+        return new Date(value + "T00:00:00").toLocaleDateString("pt-BR");
+      }
+
+      function renderAnalysis(data) {
+        const flag = data.red_flags[0];
+        const isHigh = flag.risk_level === "alto";
+        const isMedium = flag.risk_level === "médio";
+        const capital = data.capital_social ? currency.format(Number(data.capital_social)) : "Não informado";
+
+        document.querySelector("#companyName").textContent = data.razao_social || data.nome_fantasia || "Empresa sem nome informado";
+        document.querySelector("#companySubtitle").textContent = `${data.cnpj} • ${data.municipio || "Município não informado"}${data.uf ? `/${data.uf}` : ""}`;
+
+        const badge = document.querySelector("#riskBadge");
+        badge.textContent = flag.risk_level.toUpperCase();
+        badge.className = `badge ${isHigh ? "high" : isMedium ? "medium" : ""}`;
+
+        document.querySelector("#companyFacts").innerHTML = `
+          <div><span>Data de abertura</span><strong>${formatDate(data.abertura)}</strong></div>
+          <div><span>Idade na assinatura</span><strong>${flag.cnpj_age_days ?? "Indeterminada"} dias</strong></div>
+          <div><span>Capital social</span><strong>${capital}</strong></div>
+          <div><span>Valor analisado</span><strong>${currency.format(Number(flag.contract_value))}</strong></div>
+        `;
+
+        document.querySelector("#flagBox").innerHTML = `
+          <strong>${flag.title}</strong>
+          <p>${flag.message}</p>
+          <p>Critério: ${flag.criteria.rule}.</p>
+        `;
+
+        const socios = data.qsa || [];
+        document.querySelector("#qsaList").innerHTML = socios.length
+          ? socios.map((socio) => `
+              <li>
+                <strong>${socio.nome_socio || socio.nome || "Sócio sem nome informado"}</strong>
+                <small>${socio.qualificacao_socio || socio.qualificacao || "Qualificação não informada"}</small>
+              </li>
+            `).join("")
+          : "<li>Nenhum sócio retornado pela Brasil API.</li>";
+
+        result.classList.add("visible");
+        result.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearError();
+
+        const cnpj = onlyDigits(new FormData(form).get("cnpj"));
+        const valor = String(new FormData(form).get("valor") || "0").replace(",", ".");
+        const data = new FormData(form).get("data");
+
+        if (cnpj.length !== 14) {
+          showError("Informe um CNPJ com 14 dígitos.");
+          return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Consultando dados públicos...";
+
+        try {
+          const params = new URLSearchParams({ valor_contrato: valor, data_assinatura: data });
+          const response = await fetch(`/api/analyze-cnpj/${cnpj}?${params}`);
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload.detail || "Não foi possível concluir a análise.");
+          }
+
+          renderAnalysis(payload);
+        } catch (error) {
+          showError(error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Analisar CNPJ";
+        }
+      });
+    </script>
+  </body>
+</html>

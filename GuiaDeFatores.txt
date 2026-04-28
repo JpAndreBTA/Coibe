@@ -1,0 +1,95 @@
+Guia de Fatores de Atenção (Red Flags) - COIBE.IA
+
+Este documento detalha as regras de negócio e os algoritmos necessários para identificar anomalias em contratos públicos.
+
+Nota Legal Importante para a IA: O sistema nunca acusa formalmente corrupção ou fraude. O código deve sempre classificar os achados como Fatores de Atenção, Risco Potencial ou Variação Atípica.
+
+Abaixo estão os 5 principais Fatores de Atenção que o backend deve ser capaz de calcular e sinalizar.
+
+1. Fator: Risco de Superfaturamento (Anomalia de Preço)
+
+Conceito: A entidade pública comprou um item ou serviço por um valor absurdamente acima da média do mercado daquela região.
+
+Como o código deve calcular:
+
+Usar NLP (Embeddings) para agrupar itens descritos de forma diferente, mas que são o mesmo produto (ex: "Dipirona 500mg" e "Remédio Dipirona").
+
+Para o grupo de produtos, calcular a Média e o Desvio Padrão dos preços no estado nos últimos 12 meses.
+
+Calcular o Z-Score do contrato atual: Z = (Preço_Contrato - Média) / Desvio_Padrao.
+
+Gatilho de Alerta: Se Z-Score > 3.0 (o preço está 3 desvios padrão acima da média).
+
+2. Fator: Maturidade Suspeita (Risco de Empresa de Fachada)
+
+Conceito: Empresas "laranjas" ou de fachada são frequentemente abertas semanas antes de ganharem licitações milionárias.
+
+Como o código deve calcular:
+
+Obter a Data de Abertura do CNPJ vencedor (via Brasil API ou Receita Federal).
+
+Obter a Data de Assinatura do contrato.
+
+Calcular a diferença em dias corridos.
+
+Gatilho de Alerta: Se Idade do CNPJ < 180 dias E Valor do Contrato > R$ 500.000,00 (ou valor incompatível com o Capital Social da empresa).
+
+3. Fator: Inviabilidade Logística (Risco de Empresa Fantasma)
+
+Conceito: Uma empresa com sede num estado distante ganha uma licitação para um serviço que exige presença física diária e pesada, sem ter filiais no local.
+
+Como o código deve calcular:
+
+Extrair o código CNAE (Atividade Económica) do CNPJ. Filtrar apenas CNAEs de serviços físicos (Obras, Limpeza Urbana, Merenda Escolar).
+
+Usar PostGIS (ST_DistanceSphere) para calcular a distância rodoviária/esférica entre o CEP da sede da empresa e o CEP da prefeitura.
+
+Gatilho de Alerta: Se CNAE = Serviço Físico E Distância > 800 km E Empresa não possui filiais no estado.
+
+4. Fator: Fracionamento de Despesas (Fuga de Licitação)
+
+Conceito: A Nova Lei de Licitações (Lei 14.133) estipula limites para dispensa de licitação (ex: aprox. R$ 57 mil para serviços gerais e R$ 114 mil para obras). Gestores mal-intencionados fazem 3 contratos de R$ 50 mil seguidos com a mesma empresa para fugir da licitação.
+
+Como o código deve calcular:
+
+Agrupar os contratos de uma mesma Prefeitura (mesmo CNPJ pagador).
+
+Filtrar pelo mesmo fornecedor (CNPJ recebedor) num intervalo de 60 dias.
+
+Somar os valores dos contratos com "Dispensa de Licitação".
+
+Gatilho de Alerta: Se Soma de Dispensas num curto período > Limite Legal da Categoria.
+
+5. Fator: Indício de Conflito de Interesses (Doações/Relações)
+
+Conceito: O prefeito ou secretário contrata uma empresa cujos donos financiaram a sua campanha eleitoral.
+
+Como o código deve calcular:
+
+O sistema deve ter uma tabela com os Doadores de Campanha do TSE.
+
+O sistema extrai o QSA (Quadro de Sócios e Administradores) da empresa vencedora.
+
+O backend faz um INNER JOIN (ou cruza em banco de grafos) o CPF do Sócio com o CPF do Doador.
+
+Gatilho de Alerta: Se CPF Sócio ou CNPJ Empresa consta na lista de financiadores da campanha da atual gestão.
+
+🛠️ Prompts para a sua IA (Geração de Código)
+
+Cole os textos abaixo no seu editor (Cursor, Copilot, etc.) para que a IA crie as funções de detecção:
+
+Prompt para o Fator 1 (Z-Score):
+
+"Crie uma função em Python chamada calculate_price_anomaly. Ela deve receber um pandas DataFrame com histórico de preços de um item agrupado por NLP. Calcule o Z-Score para a compra mais recente. Se o Z-Score for superior a 3, a função deve retornar um dicionário com risk_level: 'high', factor: 'Variação atípica de preço' e a estimativa percentual de quanto o valor está acima da média."
+
+Prompt para o Fator 2 (Maturidade da Empresa):
+
+"Escreva um método no backend FastAPI que receba a data_abertura_cnpj e data_contrato em formato ISO, e o valor_contrato em float. Se a diferença de tempo for menor que 6 meses (180 dias) e o valor for maior que 500 mil, retorne um objeto de alerta (Red Flag) indicando 'Atenção: Empresa com tempo de maturidade incompatível com o volume financeiro do contrato'."
+
+Prompt para o Fator 4 (Fracionamento):
+
+"Escreva uma query SQLAlchemy avançada (ou raw SQL para PostgreSQL) que analise uma tabela contratos. Eu preciso encontrar casos de possível 'Fracionamento de Licitação'. A query deve agrupar contratos pelo mesmo cnpj_orgao e cnpj_fornecedor assinados num intervalo de 30 dias. Se a soma desses contratos sob a modalidade 'DISPENSA' ultrapassar 57.200 reais, retorne essas linhas como suspeitas."
+
+Prompt para o Fator 5 (Conflito de Interesses):
+
+"Assuma que temos duas tabelas no banco de dados: socios_empresas (cnpj_empresa, cpf_socio, nome_socio) e doacoes_campanha (cpf_doador, id_politico, valor). Escreva uma query SQL e uma função Python que receba o CNPJ de uma empresa vencedora e o ID do político gestor do órgão. A função deve verificar se algum sócio dessa empresa fez doação para este político. Se sim, retorne um alerta de Risco de Conflito de Interesses."

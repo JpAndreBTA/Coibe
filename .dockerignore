@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.git
+.serena
+.venv
+__pycache__
+*.pyc
+node_modules
+dist
+data
+data_test
+logs
+*.log
+Coibe.rar
