@@ -9,3 +9,5 @@ data_test/
 logs/
 *.log
 Coibe.rar
+*.zip
+hostinger-frontend-source/

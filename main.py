@@ -2956,6 +2956,58 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/storage/status")
+async def storage_status() -> dict[str, Any]:
+    expected_files: list[dict[str, Any]] = []
+    for relative_key, local_path in S3_DATA_FILES:
+        bucket_key = s3_key_for_data_file(relative_key)
+        file_status: dict[str, Any] = {
+            "local_path": str(local_path),
+            "bucket_key": bucket_key,
+            "exists": data_path_exists(local_path),
+            "size_bytes": None,
+        }
+        if DATA_S3_SYNC_ENABLED and DATA_S3_BUCKET:
+            s3 = s3_client()
+            if s3 is not None:
+                try:
+                    head = s3.head_object(Bucket=DATA_S3_BUCKET, Key=bucket_key)
+                    file_status["size_bytes"] = int(head.get("ContentLength") or 0)
+                except Exception:
+                    pass
+        elif local_path.exists():
+            file_status["size_bytes"] = local_path.stat().st_size
+        expected_files.append(file_status)
+
+    sample_keys: list[str] = []
+    is_truncated = False
+    if DATA_S3_SYNC_ENABLED and DATA_S3_BUCKET:
+        s3 = s3_client()
+        if s3 is not None:
+            try:
+                response = s3.list_objects_v2(
+                    Bucket=DATA_S3_BUCKET,
+                    Prefix=s3_key_for_data_file(""),
+                    MaxKeys=25,
+                )
+                sample_keys = [item["Key"] for item in response.get("Contents", []) if item.get("Key")]
+                is_truncated = bool(response.get("IsTruncated"))
+            except Exception as exc:
+                sample_keys = [f"Erro ao listar bucket: {exc}"]
+
+    return {
+        "mode": "s3" if DATA_S3_SYNC_ENABLED else "local",
+        "bucket": DATA_S3_BUCKET or None,
+        "prefix": DATA_S3_PREFIX,
+        "endpoint_configured": bool(DATA_S3_ENDPOINT_URL),
+        "write_through": DATA_S3_WRITE_THROUGH_ENABLED,
+        "local_cache": DATA_LOCAL_CACHE_ENABLED,
+        "expected_files": expected_files,
+        "sample_keys": sample_keys,
+        "sample_truncated": is_truncated,
+    }
+
+
 @app.get("/api/sources", response_model=list[PublicDataSourceStatus])
 async def public_sources() -> list[PublicDataSourceStatus]:
     return [

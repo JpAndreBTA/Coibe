@@ -274,6 +274,18 @@ Se usar AWS S3 oficial, normalmente `COIBE_DATA_S3_ENDPOINT_URL` pode ficar vazi
 
 Com `COIBE_DATA_LOCAL_CACHE=false`, o Render/hosting não mantém cache persistente em disco: as leituras e gravações da pasta `data/` vão direto ao bucket. Isso inclui `data/cache/search`, usado pelas consultas de APIs públicas.
 
+Para enviar toda a pasta `data/` local para o Mega S4 no prefixo correto:
+
+```powershell
+.\upload-data-mega-s4.ps1 -Bucket "coibe" -EndpointUrl "https://s3.g.s4.mega.io" -Prefix "data"
+```
+
+Depois do deploy, valide se a API está vendo os arquivos:
+
+```text
+https://sua-api.onrender.com/api/storage/status
+```
+
 ## Monitoramento contínuo
 
 O monitor segue a ordem correta do projeto: primeiro coleta dados públicos e salva snapshots da plataforma, depois aplica regras e ML nos dados coletados.
