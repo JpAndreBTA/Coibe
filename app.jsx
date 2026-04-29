@@ -745,7 +745,7 @@ export default function CoibeApp() {
         query: payload.id || payload.supplier_cnpj || result.title,
         uf: payload.uf || '',
         label: result.title,
-        detail: payload.estimated_variation ? `Variação estimada R$ ${Number(payload.estimated_variation || 0).toLocaleString('pt-BR')}` : 'Risco de Superfaturamento',
+        detail: payload.estimated_variation ? `Superfaturamento estimado R$ ${Number(payload.estimated_variation || 0).toLocaleString('pt-BR')}` : 'Risco de Superfaturamento',
         scan: false
       };
     }
@@ -1187,7 +1187,7 @@ export default function CoibeApp() {
                           <strong className="text-white">{alert.formatted_value}</strong>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs font-bold text-red-400">Variação Estimada (IA)</p>
+                          <p className="text-xs font-bold text-red-400">Superfaturamento Estimado (IA)</p>
                           <strong className="text-red-500">{alert.formatted_variation}</strong>
                         </div>
                         <ChevronRight className="hidden h-5 w-5 text-neutral-500 sm:block" />
