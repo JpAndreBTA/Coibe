@@ -488,6 +488,8 @@ export default function CoibeApp() {
   const loadMoreRef = useRef(null);
   const suppressSearchEffectRef = useRef(false);
   const searchRequestIdRef = useRef(0);
+  const loadedPoliticalTabsRef = useRef({ parties: false, politicians: false });
+  const politicalDataStampRef = useRef({ parties: '', politicians: '' });
 
   const analyzedCount = Math.max(
     Number(monitorStatus?.items_analyzed || 0),
@@ -637,21 +639,26 @@ export default function CoibeApp() {
     }
   }
 
-  async function loadPoliticalData(kind = activeTab) {
+  async function loadPoliticalData(kind = activeTab, force = false) {
+    if (!force && loadedPoliticalTabsRef.current[kind]) return;
     setLoadingPolitical(true);
     setError('');
     try {
       if (kind === 'parties') {
-        const params = new URLSearchParams({ limit: '24' });
-        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        const params = new URLSearchParams({ limit: '24', source: 'local' });
         const data = await apiGet(`/api/political/parties?${params}`);
-        setPoliticalParties(data.items || []);
+        const nextItems = data.items || [];
+        setPoliticalParties(nextItems);
+        loadedPoliticalTabsRef.current.parties = nextItems.length > 0;
+        politicalDataStampRef.current.parties = data.generated_at || politicalDataStampRef.current.parties;
       }
       if (kind === 'politicians') {
-        const params = new URLSearchParams({ limit: '36' });
-        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        const params = new URLSearchParams({ limit: '36', source: 'local' });
         const data = await apiGet(`/api/political/politicians?${params}`);
-        setPoliticalPeople(data.items || []);
+        const nextItems = data.items || [];
+        setPoliticalPeople(nextItems);
+        loadedPoliticalTabsRef.current.politicians = nextItems.length > 0;
+        politicalDataStampRef.current.politicians = data.generated_at || politicalDataStampRef.current.politicians;
       }
     } catch {
       setError('Não foi possível carregar a varredura política pública agora.');
@@ -941,12 +948,11 @@ function queryFromResult(result) {
   }, [activeTab, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
 
   useEffect(() => {
-    if (activeTab !== 'parties' && activeTab !== 'politicians') return undefined;
-    const timeout = window.setTimeout(() => {
-      loadPoliticalData(activeTab);
-    }, 500);
-    return () => window.clearTimeout(timeout);
-  }, [politicalSearch]);
+    if (activeTab !== 'parties' && activeTab !== 'politicians') return;
+    const stamp = monitorStatus?.generated_at || '';
+    if (!stamp || politicalDataStampRef.current[activeTab] === stamp) return;
+    loadPoliticalData(activeTab, true);
+  }, [activeTab, monitorStatus?.generated_at]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -955,7 +961,6 @@ function queryFromResult(result) {
         loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
       }
       if (activeTab === 'map') loadMap();
-      if (activeTab === 'parties' || activeTab === 'politicians') loadPoliticalData(activeTab);
     }, 20000);
     return () => window.clearInterval(interval);
   }, [activeTab, page, loadingFeed, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
@@ -1565,7 +1570,7 @@ function queryFromResult(result) {
                 {loadingPolitical && (
                   <div className="flex h-44 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400">
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Consultando fontes oficiais...
+                    Carregando base ja analisada...
                   </div>
                 )}
 
@@ -1618,7 +1623,7 @@ function queryFromResult(result) {
 
                 {!loadingPolitical && filteredPoliticalItems.length === 0 && (
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-sm text-neutral-400">
-                    Nenhum registro encontrado nesta varredura agora.
+                    Nenhum registro consolidado ainda. A varredura em segundo plano vai preencher esta aba.
                   </div>
                 )}
               </div>

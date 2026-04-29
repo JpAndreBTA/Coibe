@@ -167,6 +167,8 @@ Fontes usadas nesta etapa:
 ```http
 GET /api/political/parties?limit=12
 GET /api/political/politicians?limit=18
+GET /api/political/parties?limit=24&source=live
+GET /api/political/politicians?limit=36&source=live
 ```
 
 As abas **Partido** e **Político** mostram fatores de atenção em linguagem simples,
@@ -178,6 +180,10 @@ viagens/deslocamentos, concentração de fornecedores, pessoas e empresas
 envolvidas e fontes oficiais para conferência de processos, contas e controle
 externo. A plataforma lista consultas oficiais; não conclui crime, culpa,
 suborno, corrupção ou desfecho judicial.
+
+Por padrao, essas abas leem a base local consolidada em segundo plano pelo
+monitor, como o feed. Use `source=live` apenas no coletor ou em manutencao
+manual para consultar novamente as fontes oficiais e atualizar o cache.
 
 ### CNPJ + Red Flag 01
 
@@ -401,13 +407,13 @@ Rodar uma vez:
 py -3.10 local_monitor.py --once --pages 10 --page-size 50
 ```
 
-Rodar em varredura constante, sem pausa entre ciclos:
+Rodar em varredura de fundo periodica:
 
 ```powershell
-py -3.10 local_monitor.py --interval-minutes 0 --pages 10 --page-size 50
+py -3.10 local_monitor.py --interval-minutes 15 --pages 10 --page-size 50
 ```
 
-Para reduzir carga nas APIs publicas, informe outro intervalo, por exemplo `--interval-minutes 60`.
+Para reduzir ainda mais a carga nas APIs publicas, informe outro intervalo, por exemplo `--interval-minutes 60`.
 
 Rodar como painel visual direto no prompt, sem abrir a plataforma web:
 

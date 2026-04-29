@@ -75,7 +75,7 @@ PLATFORM_PUBLIC_CODES_PATH = Path(os.getenv("COIBE_PUBLIC_CODES_PATH", "data/lib
 SEARCH_CACHE_DIR = Path(os.getenv("COIBE_SEARCH_CACHE_DIR", "data/cache/search"))
 SEARCH_CACHE_TTL_HOURS = float(os.getenv("COIBE_SEARCH_CACHE_TTL_HOURS", "24"))
 AUTO_MONITOR_ENABLED = os.getenv("COIBE_AUTO_MONITOR", "true").lower() not in {"0", "false", "no"}
-AUTO_MONITOR_INTERVAL_MINUTES = float(os.getenv("COIBE_AUTO_MONITOR_INTERVAL_MINUTES", "0"))
+AUTO_MONITOR_INTERVAL_MINUTES = float(os.getenv("COIBE_AUTO_MONITOR_INTERVAL_MINUTES", "15"))
 AUTO_MONITOR_PAGES = int(os.getenv("COIBE_AUTO_MONITOR_PAGES", "10"))
 AUTO_MONITOR_PAGE_SIZE = int(os.getenv("COIBE_AUTO_MONITOR_PAGE_SIZE", "50"))
 AUTO_MONITOR_API_BASE = os.getenv("COIBE_AUTO_MONITOR_API_BASE", "http://127.0.0.1:8000")
@@ -3985,6 +3985,100 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
     return list(items)
 
 
+POLITICAL_PARTY_SOURCES = [
+    "Câmara dos Deputados Dados Abertos",
+    "TSE - Partidos Políticos",
+    "TSE Divulgação de Candidaturas e Contas",
+    "TCU Pesquisa de Processos",
+    "COIBE.IA - cruzamento preventivo de despesas públicas",
+]
+
+POLITICAL_PEOPLE_SOURCES = [
+    "Câmara dos Deputados Dados Abertos",
+    "Senado Federal Dados Abertos",
+    "STF Consulta Processual/Jurisprudência",
+    "TCU Pesquisa de Processos",
+    "TSE Divulgação de Candidaturas e Contas",
+    "COIBE.IA - cruzamento preventivo de despesas públicas",
+]
+
+
+def cached_political_items(
+    record_type: str,
+    q: str | None = None,
+    party: str | None = None,
+    limit: int = 24,
+) -> tuple[list[PoliticalScanItem], datetime | None]:
+    records = sorted(
+        (
+            record
+            for record in load_public_records()
+            if record.get("record_type") == record_type and isinstance(record.get("payload"), dict)
+        ),
+        key=lambda record: str(record.get("collected_at") or ""),
+        reverse=True,
+    )
+    normalized_query = normalize_text(q)
+    normalized_party = normalize_text(party)
+    by_key: dict[str, PoliticalScanItem] = {}
+    latest_collected_at: datetime | None = None
+
+    for record in records:
+        try:
+            item = PoliticalScanItem.model_validate(record["payload"])
+        except Exception:
+            continue
+
+        if normalized_party and normalize_text(item.party) != normalized_party:
+            continue
+
+        detail_text = " ".join(
+            " ".join(
+                str(detail.get(key) or "")
+                for key in ("title", "description", "supplier", "person", "party", "type")
+            )
+            for detail in item.analysis_details
+            if isinstance(detail, dict)
+        )
+        searchable = normalize_text(
+            " ".join([
+                item.id,
+                item.type,
+                item.name,
+                item.subtitle or "",
+                item.party or "",
+                item.role or "",
+                item.summary,
+                detail_text,
+                " ".join(item.people),
+                " ".join(item.analysis_types),
+            ])
+        )
+        if normalized_query and normalized_query not in searchable:
+            continue
+
+        parsed_collected_at = parse_iso_datetime(str(record.get("collected_at") or ""))
+        if parsed_collected_at and (latest_collected_at is None or parsed_collected_at > latest_collected_at):
+            latest_collected_at = parsed_collected_at
+
+        key = f"{item.type}:{item.id or normalize_text(item.name)}"
+        if key not in by_key:
+            by_key[key] = item
+
+    risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
+    items = list(by_key.values())
+    items.sort(
+        key=lambda item: (
+            risk_rank.get(normalize_text(item.attention_level), 0),
+            item.total_public_money,
+            item.records_count,
+            item.name,
+        ),
+        reverse=True,
+    )
+    return items[:limit], latest_collected_at
+
+
 async def get_state_name_map() -> dict[str, str]:
     try:
         states = await get_json(IBGE_STATES_URL)
@@ -4560,17 +4654,22 @@ async def monitoring_search(
 async def political_parties(
     q: str | None = Query(None, min_length=2),
     limit: int = Query(12, ge=1, le=24),
+    source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> PoliticalScanResponse:
+    if source != "live":
+        cached_items, generated_at = cached_political_items("political_parties", q=q, limit=limit)
+        if cached_items or source == "local":
+            return PoliticalScanResponse(
+                generated_at=generated_at or brasilia_now(),
+                kind="partidos",
+                sources=["Base COIBE.IA autoatualizável", *POLITICAL_PARTY_SOURCES],
+                items=cached_items,
+            )
+
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="partidos",
-        sources=[
-            "Câmara dos Deputados Dados Abertos",
-            "TSE - Partidos Políticos",
-            "TSE Divulgação de Candidaturas e Contas",
-            "TCU Pesquisa de Processos",
-            "COIBE.IA - cruzamento preventivo de despesas públicas",
-        ],
+        sources=POLITICAL_PARTY_SOURCES,
         items=await political_parties_scan(limit=limit, q=q),
     )
 
@@ -4580,18 +4679,22 @@ async def political_politicians(
     q: str | None = Query(None, min_length=2),
     party: str | None = Query(None, min_length=2, max_length=12),
     limit: int = Query(18, ge=1, le=36),
+    source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> PoliticalScanResponse:
+    if source != "live":
+        cached_items, generated_at = cached_political_items("political_people", q=q, party=party, limit=limit)
+        if cached_items or source == "local":
+            return PoliticalScanResponse(
+                generated_at=generated_at or brasilia_now(),
+                kind="politicos",
+                sources=["Base COIBE.IA autoatualizável", *POLITICAL_PEOPLE_SOURCES],
+                items=cached_items,
+            )
+
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="politicos",
-        sources=[
-            "Câmara dos Deputados Dados Abertos",
-            "Senado Federal Dados Abertos",
-            "STF Consulta Processual/Jurisprudência",
-            "TCU Pesquisa de Processos",
-            "TSE Divulgação de Candidaturas e Contas",
-            "COIBE.IA - cruzamento preventivo de despesas públicas",
-        ],
+        sources=POLITICAL_PEOPLE_SOURCES,
         items=await political_people_scan(limit=limit, q=q, party=party),
     )
 

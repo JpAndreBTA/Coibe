@@ -1,5 +1,5 @@
 param(
-  [double]$MonitorIntervalMinutes = 0,
+  [double]$MonitorIntervalMinutes = 15,
   [int]$MonitorPages = 10,
   [int]$MonitorPageSize = 50,
   [int]$BackendPort = 8000,

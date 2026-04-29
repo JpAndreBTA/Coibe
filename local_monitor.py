@@ -200,7 +200,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_parties_scan",
-            "/api/political/parties?limit=12",
+            "/api/political/parties?limit=24&source=live",
             "public_political_risk_scan",
         )
         if political_parties is not None:
@@ -210,7 +210,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_people_scan",
-            "/api/political/politicians?limit=18",
+            "/api/political/politicians?limit=36&source=live",
             "public_political_risk_scan",
         )
         if political_people is not None:
@@ -331,7 +331,7 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             records.append(
                 {
-                    "record_key": f"{bucket_name}:{item.get('id')}:{item.get('attention_level')}",
+                    "record_key": f"{bucket_name}:{item.get('type')}:{item.get('id') or normalize_text(item.get('name'))}",
                     "record_type": bucket_name,
                     "collected_at": collected_at,
                     "source": source_name,
@@ -1094,7 +1094,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="COIBE.IA collector and risk monitor")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE)
     parser.add_argument("--data-dir", default="data")
-    parser.add_argument("--interval-minutes", type=float, default=0)
+    parser.add_argument("--interval-minutes", type=float, default=15)
     parser.add_argument("--pages", type=int, default=10)
     parser.add_argument("--page-size", type=int, default=DEFAULT_FEED_PAGE_SIZE)
     parser.add_argument("--startup-delay-seconds", type=float, default=0)
