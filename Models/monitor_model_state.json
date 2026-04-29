@@ -1,14 +1,14 @@
 {
   "version": "coibe-monitor-v1",
-  "updated_at": "2026-04-29T18:55:33.672908-03:00",
-  "cycles": 11,
+  "updated_at": "2026-04-29T19:08:42.692632-03:00",
+  "cycles": 12,
   "learned_terms": [
     {
       "term": "Luiz Inacio Lula",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 315.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -16,10 +16,10 @@
     },
     {
       "term": "Inacio Lula Silva",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 315.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -27,10 +27,10 @@
     },
     {
       "term": "Luiz Inacio",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 315.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -38,10 +38,10 @@
     },
     {
       "term": "Inacio Lula",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 315.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -49,10 +49,10 @@
     },
     {
       "term": "Lula Silva",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 315.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -60,10 +60,10 @@
     },
     {
       "term": "Geraldo Alckmin",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 312.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -71,10 +71,10 @@
     },
     {
       "term": "Jair Messias Bolsonaro",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 312.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -82,10 +82,10 @@
     },
     {
       "term": "Jair Messias",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 312.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -93,10 +93,10 @@
     },
     {
       "term": "Messias Bolsonaro",
-      "hits": 5,
-      "score": 260.0,
+      "hits": 6,
+      "score": 312.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -104,10 +104,10 @@
     },
     {
       "term": "Clinicas Ribeirao Preto",
-      "hits": 5,
-      "score": 255.0,
+      "hits": 6,
+      "score": 306.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items"
@@ -115,10 +115,10 @@
     },
     {
       "term": "Clinicas Ribeirao",
-      "hits": 3,
-      "score": 153.0,
+      "hits": 4,
+      "score": 204.0,
       "first_seen_at": "2026-04-29T18:49:28.491065-03:00",
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items"
@@ -144,6 +144,18 @@
       "sources": [
         "political_people"
       ]
+    },
+    {
+      "term": "Generos Alimenticios",
+      "hits": 1,
+      "score": 51.0,
+      "first_seen_at": "2026-04-29T19:08:42.692632-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "public_records"
+      ]
     }
   ],
   "learned_checks": [
@@ -161,8 +173,8 @@
         "partido",
         "politico"
       ],
-      "hits": 2,
-      "score": 4420.0,
+      "hits": 3,
+      "score": 6523.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -250,7 +262,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -272,8 +284,8 @@
         "fornecedor recorrente",
         "pagamento concentrado"
       ],
-      "hits": 2,
-      "score": 4416.0,
+      "hits": 3,
+      "score": 6514.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -361,7 +373,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -385,8 +397,8 @@
         "tcu",
         "tse"
       ],
-      "hits": 2,
-      "score": 4062.0,
+      "hits": 3,
+      "score": 5963.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -450,7 +462,7 @@
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -473,8 +485,8 @@
         "pessoa proxima",
         "vinculos"
       ],
-      "hits": 2,
-      "score": 2302.0,
+      "hits": 3,
+      "score": 3323.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -562,7 +574,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -585,8 +597,8 @@
         "doacao",
         "tse"
       ],
-      "hits": 2,
-      "score": 2200.0,
+      "hits": 3,
+      "score": 3172.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -622,23 +634,23 @@
           "type": "political_parties"
         },
         {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
+        {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
         },
         {
-          "title": "SOLIDARIEDADE - Solidariedade",
+          "title": "PV - Partido Verde",
           "type": "political_parties"
         },
         {
           "title": "PSD - Partido Social Democrático",
           "type": "political_parties"
-        },
-        {
-          "title": "PRD - Partido Renovação Democrática",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -660,8 +672,8 @@
         "passagem",
         "viagem"
       ],
-      "hits": 2,
-      "score": 2160.0,
+      "hits": 3,
+      "score": 3111.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -704,19 +716,19 @@
           "type": "political_parties"
         },
         {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
+        {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
         },
         {
-          "title": "SOLIDARIEDADE - Solidariedade",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
+          "title": "PV - Partido Verde",
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -738,8 +750,8 @@
         "superfaturamento",
         "valor acima da referencia"
       ],
-      "hits": 2,
-      "score": 1922.0,
+      "hits": 3,
+      "score": 2721.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -827,7 +839,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -850,8 +862,8 @@
         "fonte incompleta",
         "sem documento"
       ],
-      "hits": 2,
-      "score": 1488.0,
+      "hits": 3,
+      "score": 1998.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -883,11 +895,11 @@
           "type": "political_parties"
         },
         {
-          "title": "PL - Partido Liberal",
+          "title": "PSDB - Partido da Social Democracia Brasileira",
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "title": "UNIÃO - União Brasil",
           "type": "political_parties"
         },
         {
@@ -895,7 +907,7 @@
           "type": "political_parties"
         },
         {
-          "title": "SOLIDARIEDADE - Solidariedade",
+          "title": "PV - Partido Verde",
           "type": "political_parties"
         },
         {
@@ -903,7 +915,7 @@
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "latest_seen_at": "2026-04-29T19:08:42.692632-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -913,7 +925,7 @@
     }
   ],
   "last_training": {
-    "generated_at": "2026-04-29T18:00:29.499742-03:00",
+    "generated_at": "2026-04-29T19:08:40.421347-03:00",
     "items_analyzed": 7390,
     "alerts_count": 578,
     "learned_terms_added": 12,
@@ -927,7 +939,32 @@
       "medicamento",
       "Tiririca",
       "São Paulo",
-      "00000000000191"
+      "00000000000191",
+      "Luiz Inacio Lula",
+      "Inacio Lula Silva",
+      "Luiz Inacio",
+      "Inacio Lula",
+      "Lula Silva",
+      "Geraldo Alckmin",
+      "Jair Messias Bolsonaro",
+      "Jair Messias",
+      "Messias Bolsonaro",
+      "Clinicas Ribeirao Preto",
+      "Clinicas Ribeirao",
+      "Ribeirao Preto",
+      "Presidente Republica",
+      "politico contratos compras publicas",
+      "partido fornecedor contrato",
+      "fornecedor concentrado pagamentos",
+      "cnpj contratos repetidos",
+      "processo controle externo",
+      "stf tcu tse pessoa publica",
+      "pessoa proxima alto valor",
+      "fornecedor relacionado alto valor",
+      "doacao eleitoral fornecedor",
+      "contas eleitorais partido candidato",
+      "passagens hospedagem locomoção",
+      "viagens deslocamento parlamentar"
     ],
     "optimized_search_terms_next_cycle": [
       "contrato",
@@ -963,7 +1000,8 @@
       "doacao eleitoral fornecedor",
       "contas eleitorais partido candidato",
       "passagens hospedagem locomoção",
-      "viagens deslocamento parlamentar"
+      "viagens deslocamento parlamentar",
+      "Generos Alimenticios"
     ],
     "gpu": {
       "enabled_by_env": true,

@@ -429,6 +429,36 @@ function politicalSuperpricingRisk(detail = {}) {
   return { label, color, message, score, value };
 }
 
+function politicalDetailReview(detail = {}) {
+  const type = String(detail.type || 'outros');
+  const value = numericValue(detail.value);
+  const checksByType = {
+    contratos: 'Verificar objeto, fornecedor, CNPJ, órgão pagador, valor total, repetição em outros registros e documento oficial vinculado.',
+    despesas: 'Conferir tipo da despesa, fornecedor, data, documento fiscal e se o valor conversa com o padrão do recorte.',
+    servicos: 'Ler a descrição do serviço, entregável, fornecedor, recorrência e compatibilidade do valor com serviços parecidos.',
+    comunicacao: 'Checar conteúdo contratado, fornecedor, recorrência, documento fiscal e eventual concentração de pagamentos.',
+    estrutura: 'Conferir item de estrutura/gabinete, fornecedor, data, documento e relação com outros pagamentos próximos.',
+    viagem: 'Verificar destino, motivo, dias, fornecedor, documento fiscal e concentração de passagens, hospedagem ou locomoção.',
+    processos: 'Abrir a fonte oficial e conferir se há homônimo, classe processual, partes, data e situação atual antes de qualquer conclusão.',
+    contas: 'Conferir registros eleitorais, origem/destino de recursos, fornecedor, partido/candidato e prestação oficial no TSE.',
+    doacoes: 'Cruzar doador, recebedor, partido, campanha, fornecedor e valor na fonte oficial eleitoral.',
+    vinculos: 'Tratar como proximidade textual/operacional: conferir documentos antes de presumir parentesco, favorecimento ou irregularidade.',
+    controle: 'Ler órgão de controle, processo, acórdão ou relatório oficial e conferir escopo, data e situação.',
+    prioridade: 'Prioridade apenas ordena a leitura. A verificação depende dos registros financeiros e fontes oficiais associados.'
+  };
+  const hiddenSignals = [];
+  if (value >= 1000000) hiddenSignals.push('valor alto para abrir comparação com registros semelhantes');
+  if (detail.supplier || detail.supplier_document) hiddenSignals.push('fornecedor/CNPJ deve ser cruzado com contratos recorrentes');
+  if (detail.matched_records) hiddenSignals.push(`${Number(detail.matched_records || 0).toLocaleString('pt-BR')} registro(s) relacionado(s) na base`);
+  if (detail.risk_score) hiddenSignals.push(`score de risco ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}`);
+  if (detail.document_url) hiddenSignals.push('documento oficial disponível para leitura humana');
+
+  return {
+    title: checksByType[type] || 'Conferir fonte oficial, valor, data, pessoa/partido, fornecedor e recorrência no conjunto analisado.',
+    hiddenSignals
+  };
+}
+
 function evidenceNumber(evidence, key) {
   const value = evidence?.[key];
   if (value === undefined || value === null || value === '') return null;
@@ -536,6 +566,7 @@ export default function CoibeApp() {
   });
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [politicalDetailPage, setPoliticalDetailPage] = useState(1);
+  const [selectedPoliticalDetailIndex, setSelectedPoliticalDetailIndex] = useState(0);
   const [geoJson, setGeoJson] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
@@ -659,6 +690,9 @@ export default function CoibeApp() {
     (selectedPoliticalDetailPage - 1) * POLITICAL_DETAIL_PAGE_SIZE,
     selectedPoliticalDetailPage * POLITICAL_DETAIL_PAGE_SIZE
   );
+  const selectedPoliticalDetail = selectedPoliticalDetails[selectedPoliticalDetailIndex] || selectedPoliticalDetails[0] || null;
+  const selectedPoliticalDetailRisk = selectedPoliticalDetail ? politicalSuperpricingRisk(selectedPoliticalDetail) : null;
+  const selectedPoliticalDetailReview = selectedPoliticalDetail ? politicalDetailReview(selectedPoliticalDetail) : null;
   const selectedPoliticalMetrics = useMemo(() => {
     if (!selectedPoliticalItem) return null;
     const details = selectedPoliticalItem.analysis_details || [];
@@ -1077,6 +1111,7 @@ function queryFromResult(result) {
 
   useEffect(() => {
     setPoliticalDetailPage(1);
+    setSelectedPoliticalDetailIndex(0);
   }, [selectedPoliticalItem?.id, selectedPoliticalItem?.type]);
 
   useEffect(() => {
@@ -2010,8 +2045,23 @@ function queryFromResult(result) {
                   <section>
                     <h3 className="text-xs font-black uppercase text-neutral-500">Descrições da análise</h3>
                     <div className="mt-3 space-y-3">
-                      {pagedPoliticalDetails.map((detail, index) => (
-                        <div key={`${detail.title || detail.type}-${index}`} className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200">
+                      {pagedPoliticalDetails.map((detail, index) => {
+                        const absoluteDetailIndex = (selectedPoliticalDetailPage - 1) * POLITICAL_DETAIL_PAGE_SIZE + index;
+                        const isSelectedDetail = absoluteDetailIndex === selectedPoliticalDetailIndex;
+                        return (
+                        <div
+                          key={`${detail.title || detail.type}-${index}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedPoliticalDetailIndex(absoluteDetailIndex)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedPoliticalDetailIndex(absoluteDetailIndex);
+                            }
+                          }}
+                          className={`cursor-pointer rounded border p-3 text-left text-sm text-neutral-200 transition ${isSelectedDetail ? 'border-red-700 bg-red-950/20' : 'border-neutral-800 bg-neutral-900 hover:border-red-800'}`}
+                        >
                           {(() => {
                             const superpricingRisk = politicalSuperpricingRisk(detail);
                             return (
@@ -2061,13 +2111,15 @@ function queryFromResult(result) {
                               href={detail.document_url}
                               target="_blank"
                               rel="noreferrer"
+                              onClick={(event) => event.stopPropagation()}
                               className="mt-3 inline-flex items-center gap-2 rounded border border-neutral-700 px-3 py-1.5 text-xs font-bold text-neutral-200 hover:border-red-700"
                             >
                               Documento oficial <ExternalLink className="h-3 w-3 text-red-400" />
                             </a>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-400">
                       <span>
@@ -2076,7 +2128,11 @@ function queryFromResult(result) {
                       <span className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setPoliticalDetailPage((current) => Math.max(1, current - 1))}
+                          onClick={() => setPoliticalDetailPage((current) => {
+                            const nextPage = Math.max(1, current - 1);
+                            setSelectedPoliticalDetailIndex((nextPage - 1) * POLITICAL_DETAIL_PAGE_SIZE);
+                            return nextPage;
+                          })}
                           disabled={selectedPoliticalDetailPage <= 1}
                           className="rounded border border-neutral-700 px-3 py-1 font-bold text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -2084,7 +2140,11 @@ function queryFromResult(result) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setPoliticalDetailPage((current) => Math.min(selectedPoliticalDetailPages, current + 1))}
+                          onClick={() => setPoliticalDetailPage((current) => {
+                            const nextPage = Math.min(selectedPoliticalDetailPages, current + 1);
+                            setSelectedPoliticalDetailIndex((nextPage - 1) * POLITICAL_DETAIL_PAGE_SIZE);
+                            return nextPage;
+                          })}
                           disabled={selectedPoliticalDetailPage >= selectedPoliticalDetailPages}
                           className="rounded border border-neutral-700 px-3 py-1 font-bold text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -2151,7 +2211,74 @@ function queryFromResult(result) {
                 </div>
                 </section>
 
-                <aside className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:sticky lg:top-4 lg:self-start">
+                <aside className="max-h-[calc(100dvh-8rem)] space-y-4 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:sticky lg:top-4 lg:self-start">
+                  {selectedPoliticalDetail && (
+                    <section className="rounded-lg border border-red-900/60 bg-red-950/20">
+                      <div className="border-b border-red-900/50 px-4 py-3">
+                        <h3 className="flex items-center gap-2 text-sm font-black text-red-100">
+                          <AlertTriangle className="h-4 w-4 text-red-400" />
+                          Parecer Analítico do COIBE
+                        </h3>
+                        <p className="mt-1 text-xs text-red-100/70">{politicalTypeLabel(selectedPoliticalDetail.type)}</p>
+                      </div>
+                      <div className="max-h-[42vh] space-y-3 overflow-y-auto p-4 text-sm text-neutral-200">
+                        <div>
+                          <strong className="block text-white">{selectedPoliticalDetail.title || politicalTypeLabel(selectedPoliticalDetail.type)}</strong>
+                          {selectedPoliticalDetail.description && (
+                            <p className="mt-2 leading-6 text-neutral-300">{selectedPoliticalDetail.description}</p>
+                          )}
+                        </div>
+                        {selectedPoliticalDetailRisk && (
+                          <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-black uppercase text-neutral-500">Superfaturamento no registro</span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${selectedPoliticalDetailRisk.color}`}>
+                                {selectedPoliticalDetailRisk.label}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-neutral-400">{selectedPoliticalDetailRisk.message}</p>
+                          </div>
+                        )}
+                        {selectedPoliticalDetailReview && (
+                          <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                            <p className="text-xs font-black uppercase text-neutral-500">Como verificar</p>
+                            <p className="mt-2 leading-6 text-neutral-300">{selectedPoliticalDetailReview.title}</p>
+                            {selectedPoliticalDetailReview.hiddenSignals.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                {selectedPoliticalDetailReview.hiddenSignals.map((signal) => (
+                                  <p key={signal} className="rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300">
+                                    {signal}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div className="grid gap-2 text-xs text-neutral-400">
+                          {selectedPoliticalDetail.value !== undefined && selectedPoliticalDetail.value !== null && selectedPoliticalDetail.value !== '' && (
+                            <p><strong className="text-neutral-300">Valor:</strong> {compactValue(selectedPoliticalDetail.value, 'value')}</p>
+                          )}
+                          <p><strong className="text-neutral-300">Data:</strong> {selectedPoliticalDetail.date ? formatDate(selectedPoliticalDetail.date) : selectedPoliticalDetail.month && selectedPoliticalDetail.year ? `${String(selectedPoliticalDetail.month).padStart(2, '0')}/${selectedPoliticalDetail.year}` : 'Não informada'}</p>
+                          {selectedPoliticalDetail.person && <p><strong className="text-neutral-300">Pessoa:</strong> {selectedPoliticalDetail.person}</p>}
+                          {selectedPoliticalDetail.party && <p><strong className="text-neutral-300">Partido:</strong> {selectedPoliticalDetail.party}</p>}
+                          {selectedPoliticalDetail.supplier && <p><strong className="text-neutral-300">Fornecedor:</strong> {selectedPoliticalDetail.supplier}</p>}
+                          {selectedPoliticalDetail.supplier_document && <p><strong className="text-neutral-300">CPF/CNPJ:</strong> {selectedPoliticalDetail.supplier_document}</p>}
+                          {selectedPoliticalDetail.entity && <p><strong className="text-neutral-300">Órgão:</strong> {selectedPoliticalDetail.entity}</p>}
+                        </div>
+                        {selectedPoliticalDetail.document_url && (
+                          <a
+                            href={selectedPoliticalDetail.document_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-800 bg-red-600 px-3 py-2 text-xs font-black text-white hover:bg-red-500"
+                          >
+                            Abrir documento oficial <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
                   <div>
                     <p className="text-xs font-black uppercase text-red-400">Dinheiro e numeros</p>
                     <h3 className="mt-1 font-black text-white">Resumo financeiro do recorte</h3>
