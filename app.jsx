@@ -324,6 +324,7 @@ const DETAIL_LABELS = {
   supplier_location: 'Sede do fornecedor',
   agency_location: 'Local do órgão',
   distance_km: 'Distância aproximada',
+  logistic_reason: 'Motivo logístico',
   cnae: 'Atividade econômica',
   related_contracts: 'Contratos relacionados',
   total_window_value: 'Valor somado no período',

@@ -291,6 +291,7 @@ def load_monitor_model_state() -> dict[str, Any]:
 def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -> list[str]:
     learned = model_state.get("learned_terms") if isinstance(model_state.get("learned_terms"), list) else []
     learned_checks = model_state.get("learned_checks") if isinstance(model_state.get("learned_checks"), list) else []
+    learned_targets = model_state.get("learned_targets") if isinstance(model_state.get("learned_targets"), list) else []
     learned_terms = [
         str(term.get("term") or "").strip()
         for term in sorted(learned, key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)
@@ -307,9 +308,14 @@ def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -
             clean_hint = str(hint or "").strip()
             if clean_hint:
                 learned_check_terms.append(clean_hint)
+    learned_target_terms = [
+        str(target.get("query") or target.get("term") or "").strip()
+        for target in sorted(learned_targets, key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)
+        if isinstance(target, dict) and str(target.get("query") or target.get("term") or "").strip()
+    ]
     output: list[str] = []
     seen: set[str] = set()
-    for term in [*default_terms, *learned_terms[:20], *learned_check_terms[:12]]:
+    for term in [*default_terms, *learned_terms[:20], *learned_target_terms[:16], *learned_check_terms[:12]]:
         normalized = normalize_text(term)
         if normalized and normalized not in seen:
             seen.add(normalized)
@@ -500,6 +506,67 @@ def infer_verification_checks_from_text(
         add_verification_check(candidates, "official_process_control_check", weight, source, evidence)
 
 
+def add_investigation_target(
+    targets: dict[str, dict[str, Any]],
+    target_type: str,
+    query: Any,
+    weight: float,
+    source: str,
+    evidence: dict[str, Any] | None = None,
+) -> None:
+    clean_query = " ".join(str(query or "").split())
+    normalized = normalize_text(clean_query)
+    if len(normalized) < 3:
+        return
+    key = f"{target_type}:{normalized}"
+    bucket = targets.setdefault(
+        key,
+        {
+            "id": key,
+            "type": target_type,
+            "query": clean_query,
+            "term": clean_query,
+            "hits": 0,
+            "score": 0,
+            "sources": set(),
+            "examples": [],
+        },
+    )
+    bucket["score"] += weight
+    bucket["sources"].add(source)
+    if evidence:
+        compact_evidence = {
+            key: str(value)
+            for key, value in evidence.items()
+            if value not in (None, "") and key in {"title", "entity", "supplier", "person", "party", "value", "risk_level", "type", "date"}
+        }
+        if compact_evidence and len(bucket["examples"]) < 12:
+            bucket["examples"].append(compact_evidence)
+
+
+def collect_date_window(*blocks: Any) -> dict[str, Any]:
+    dates: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key in {"date", "dataDocumento", "contract_date", "collected_at", "generated_at", "analyzed_at"}:
+                    text = str(nested or "")[:10]
+                    if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+                        dates.append(text)
+                elif isinstance(nested, (dict, list)):
+                    walk(nested)
+        elif isinstance(value, list):
+            for nested in value[:500]:
+                walk(nested)
+
+    for block in blocks:
+        walk(block)
+    if not dates:
+        return {"start": None, "end": None, "dates_found": 0}
+    return {"start": min(dates), "end": max(dates), "dates_found": len(dates)}
+
+
 def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = load_monitor_model_state()
@@ -518,9 +585,17 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         check_id = str(check.get("id") or "").strip()
         if check_id:
             learned_checks_by_id[check_id] = check
+    learned_targets_by_id: dict[str, dict[str, Any]] = {}
+    for target in state.get("learned_targets", []) if isinstance(state.get("learned_targets"), list) else []:
+        if not isinstance(target, dict):
+            continue
+        target_id = str(target.get("id") or "").strip()
+        if target_id:
+            learned_targets_by_id[target_id] = target
 
     candidates: dict[str, dict[str, Any]] = {}
     check_candidates: dict[str, dict[str, Any]] = {}
+    target_candidates: dict[str, dict[str, Any]] = {}
     for alert in analysis.get("alerts", [])[:80]:
         if not isinstance(alert, dict):
             continue
@@ -535,6 +610,9 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         infer_verification_checks_from_text(check_candidates, json.dumps(alert, ensure_ascii=False), weight, "alerts", alert_evidence)
         for source_value in [alert.get("title"), alert.get("entity"), alert.get("supplier_name")]:
             add_model_candidates(candidates, source_value, weight, "alerts")
+        add_investigation_target(target_candidates, "contrato", alert.get("title"), weight, "alerts", alert_evidence)
+        add_investigation_target(target_candidates, "fornecedor", alert.get("supplier_name"), weight + 1, "alerts", alert_evidence)
+        add_investigation_target(target_candidates, "orgao", alert.get("entity"), weight, "alerts", alert_evidence)
         for flag in alert.get("red_flags", []) or []:
             if isinstance(flag, dict):
                 add_model_candidates(candidates, flag.get("title") or flag.get("message"), weight, "risk_flags")
@@ -546,6 +624,9 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         add_model_candidates(candidates, record.get("title") or record.get("query"), 1, "public_records")
         payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
         add_model_candidates(candidates, payload.get("nomeFornecedor") or payload.get("objeto") or payload.get("nome"), 1, "public_records")
+        record_type = str(record.get("record_type") or "registro")
+        add_investigation_target(target_candidates, record_type, record.get("title") or record.get("query"), 1, "public_records", {"title": record.get("title"), "type": record_type})
+        add_investigation_target(target_candidates, "fornecedor", payload.get("nomeFornecedor") or payload.get("supplier_name"), 2, "public_records", {"title": record.get("title"), "type": record_type})
         infer_verification_checks_from_text(
             check_candidates,
             json.dumps(record, ensure_ascii=False),
@@ -567,6 +648,8 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         }
         for source_value in [item.get("title"), item.get("entity"), item.get("supplier_name"), item.get("object")]:
             add_model_candidates(candidates, source_value, weight, "monitoring_items")
+        add_investigation_target(target_candidates, "contrato", item.get("title") or item.get("object"), weight, "monitoring_items", item_evidence)
+        add_investigation_target(target_candidates, "fornecedor", item.get("supplier_name"), weight + 1, "monitoring_items", item_evidence)
         infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, "monitoring_items", item_evidence)
 
     for block_name in ("political_parties", "political_people"):
@@ -584,9 +667,12 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             }
             for source_value in [item.get("name"), item.get("party"), item.get("role")]:
                 add_model_candidates(candidates, source_value, weight, block_name)
+            add_investigation_target(target_candidates, "politico", item.get("name"), weight, block_name, political_evidence)
+            add_investigation_target(target_candidates, "partido", item.get("party"), weight, block_name, political_evidence)
             add_model_candidates(candidates, item.get("summary"), 1, block_name)
             for person in item.get("people", [])[:8] if isinstance(item.get("people"), list) else []:
                 add_model_candidates(candidates, person, 1, block_name)
+                add_investigation_target(target_candidates, "pessoa_ou_fornecedor", person, 2, block_name, political_evidence)
             infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, block_name, political_evidence)
 
     now = brasilia_now().isoformat()
@@ -624,22 +710,60 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         existing["examples"] = [*(existing.get("examples") or []), *candidate["examples"]][-12:]
         learned_checks_by_id[check_id] = existing
 
+    for target_id, candidate in sorted(target_candidates.items(), key=lambda row: row[1]["score"], reverse=True)[: max(learned_limit * 2, 16)]:
+        existing = learned_targets_by_id.get(
+            target_id,
+            {
+                "id": target_id,
+                "type": candidate["type"],
+                "query": candidate["query"],
+                "term": candidate["term"],
+                "hits": 0,
+                "score": 0,
+                "first_seen_at": now,
+                "examples": [],
+            },
+        )
+        existing["hits"] = int(existing.get("hits") or 0) + 1
+        existing["score"] = float(existing.get("score") or 0) + float(candidate["score"])
+        existing["latest_seen_at"] = now
+        existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
+        existing["examples"] = [*(existing.get("examples") or []), *candidate["examples"]][-12:]
+        learned_targets_by_id[target_id] = existing
+
     learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
     learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:80]
+    learned_targets = sorted(learned_targets_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:120]
+    date_window = collect_date_window(analysis.get("items"), analysis.get("alerts"), analysis.get("public_records"), snapshot.get("political_parties"), snapshot.get("political_people"))
+    record_types: dict[str, int] = {}
+    for record in analysis.get("public_records", []) if isinstance(analysis.get("public_records"), list) else []:
+        record_type = str(record.get("record_type") or "desconhecido")
+        record_types[record_type] = record_types.get(record_type, 0) + 1
     model_state = {
         "version": "coibe-monitor-v1",
         "updated_at": now,
         "cycles": int(state.get("cycles") or 0) + 1,
         "learned_terms": learned_terms,
         "learned_checks": learned_checks,
+        "learned_targets": learned_targets,
+        "cache_profile": {
+            "date_window": date_window,
+            "public_record_types": record_types,
+            "public_records_seen": len(analysis.get("public_records", []) or []),
+            "alerts_seen": len(analysis.get("alerts", []) or []),
+            "items_seen": len(analysis.get("items", []) or []),
+        },
         "last_training": {
             "generated_at": analysis.get("generated_at"),
             "items_analyzed": analysis.get("items_analyzed"),
             "alerts_count": analysis.get("alerts_count"),
             "learned_terms_added": min(len(candidates), learned_limit),
             "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
+            "learned_targets_added": min(len(target_candidates), max(learned_limit * 2, 16)),
             "search_terms_used": search_terms,
-            "optimized_search_terms_next_cycle": merged_search_terms(search_terms, {"learned_terms": learned_terms, "learned_checks": learned_checks})[:60],
+            "optimized_search_terms_next_cycle": merged_search_terms(search_terms, {"learned_terms": learned_terms, "learned_checks": learned_checks, "learned_targets": learned_targets})[:60],
+            "date_window": date_window,
+            "public_record_types": record_types,
             "gpu": gpu,
             "config": config,
             "model_storage": str(MODELS_DIR),

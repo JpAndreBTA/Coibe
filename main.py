@@ -76,6 +76,70 @@ FALLBACK_CONTRACTS_END = "2025-09-30"
 AUTO_CONTRACT_WINDOWS_DAYS = (45, 120, 240)
 RED_FLAG_01_MAX_AGE_DAYS = 180
 RED_FLAG_01_MIN_CONTRACT_VALUE = Decimal("500000")
+LOGISTIC_DISTANCE_THRESHOLD_KM = 1000
+LOGISTIC_MIN_CONTRACT_VALUE = Decimal("500000")
+LOGISTIC_FIXED_PRESENCE_TERMS = (
+    "OBRA",
+    "CONSTRUCAO",
+    "REFORMA",
+    "AMPLIACAO",
+    "ENGENHARIA",
+    "PAVIMENTACAO",
+    "ASFALTO",
+    "MANUTENCAO PREDIAL",
+    "MANUTENCAO PREVENTIVA",
+    "MANUTENCAO CORRETIVA",
+    "INSTALACAO",
+    "IMPLANTACAO",
+    "LIMPEZA",
+    "CONSERVACAO",
+    "JARDINAGEM",
+    "VIGILANCIA",
+    "SEGURANCA PATRIMONIAL",
+    "CONTROLE DE ACESSO",
+    "PORTARIA",
+    "TERCEIRIZACAO DE MAO DE OBRA",
+    "MAO DE OBRA DEDICADA",
+    "POSTOS FIXOS",
+    "MERENDA ESCOLAR",
+    "ALIMENTACAO ESCOLAR",
+)
+LOGISTIC_MOBILE_OR_DELIVERY_TERMS = (
+    "TRANSPORTE",
+    "FRETE",
+    "ENTREGA",
+    "DISTRIBUICAO",
+    "LOGISTICA",
+    "MUDANCA",
+    "REMOCAO",
+    "DESLOCAMENTO",
+    "VIAGEM",
+    "PASSAGEM",
+    "LOCOMOCAO",
+    "MOTORISTA",
+    "VEICULO",
+    "VEICULOS",
+    "ONIBUS",
+    "AMBULANCIA",
+    "CAMINHAO",
+    "COLETA",
+    "CORREIOS",
+    "POSTAGEM",
+)
+LOGISTIC_SUPPLY_ONLY_TERMS = (
+    "AQUISICAO",
+    "COMPRA",
+    "FORNECIMENTO",
+    "MATERIAL",
+    "MATERIAIS",
+    "EQUIPAMENTO",
+    "EQUIPAMENTOS",
+    "INSUMO",
+    "INSUMOS",
+    "GENEROS ALIMENTICIOS",
+    "MEDICAMENTO",
+    "MEDICAMENTOS",
+)
 UASG_LOCATION_CACHE: dict[str, dict[str, Any] | None] = {}
 CNPJ_DETAILS_CACHE: dict[str, dict[str, Any] | None] = {}
 LOCAL_MONITOR_LATEST_PATH = Path(os.getenv("COIBE_MONITOR_LATEST_PATH", "data/processed/latest_analysis.json"))
@@ -2127,7 +2191,16 @@ def read_library_status(latest_analysis: dict[str, Any] | None = None) -> Librar
 
 
 def read_monitor_model_state() -> dict[str, Any]:
-    empty_state = {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "learned_checks": [], "last_training": None}
+    empty_state = {
+        "version": "coibe-monitor-v1",
+        "updated_at": None,
+        "cycles": 0,
+        "learned_terms": [],
+        "learned_checks": [],
+        "learned_targets": [],
+        "cache_profile": {},
+        "last_training": None,
+    }
     if not MONITOR_MODEL_STATE_PATH.exists():
         state = empty_state
     else:
@@ -2141,11 +2214,17 @@ def read_monitor_model_state() -> dict[str, Any]:
     recovered = latest.get("model") if isinstance(latest, dict) and isinstance(latest.get("model"), dict) else {}
     recovered_terms = recovered.get("learned_terms") if isinstance(recovered.get("learned_terms"), list) else []
     recovered_checks = recovered.get("learned_checks") if isinstance(recovered.get("learned_checks"), list) else []
+    recovered_targets = recovered.get("learned_targets") if isinstance(recovered.get("learned_targets"), list) else []
     current_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     current_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
+    current_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
     should_recover = False
-    if recovered_terms or recovered_checks:
-        should_recover = len(recovered_terms) > len(current_terms) or len(recovered_checks) > len(current_checks)
+    if recovered_terms or recovered_checks or recovered_targets:
+        should_recover = (
+            len(recovered_terms) > len(current_terms)
+            or len(recovered_checks) > len(current_checks)
+            or len(recovered_targets) > len(current_targets)
+        )
         try:
             current_updated = datetime.fromisoformat(str(state.get("updated_at")).replace("Z", "+00:00")) if state.get("updated_at") else None
             recovered_updated = datetime.fromisoformat(str(recovered.get("updated_at")).replace("Z", "+00:00")) if recovered.get("updated_at") else None
@@ -2366,6 +2445,7 @@ def monitor_model_status() -> dict[str, Any]:
             training_lines = 0
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
+    learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
     return {
         "models_dir": str(MODELS_DIR),
         "state_path": str(MONITOR_MODEL_STATE_PATH),
@@ -2382,6 +2462,9 @@ def monitor_model_status() -> dict[str, Any]:
         "learned_terms": learned_terms[:25],
         "learned_checks_count": len(learned_checks),
         "learned_checks": learned_checks[:25],
+        "learned_targets_count": len(learned_targets),
+        "learned_targets": learned_targets[:25],
+        "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
         "training_process": monitor_training_status(),
@@ -2393,12 +2476,15 @@ def public_monitor_model_summary() -> dict[str, Any]:
     state = read_monitor_model_state()
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
+    learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
     return {
         "version": state.get("version") or "coibe-monitor-v1",
         "updated_at": state.get("updated_at"),
         "cycles": int(state.get("cycles") or 0),
         "learned_terms_count": len(learned_terms),
         "learned_checks_count": len(learned_checks),
+        "learned_targets_count": len(learned_targets),
+        "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
     }
 
@@ -2719,21 +2805,30 @@ def haversine_distance_km(origin_lat: float, origin_lng: float, target_lat: floa
     return radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def requires_physical_presence(activity: str) -> bool:
+def contains_normalized_term(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
+def logistic_presence_profile(activity: str) -> tuple[bool, str]:
     normalized = normalize_text(activity)
-    physical_terms = [
-        "OBRA",
-        "CONSTRUCAO",
-        "LIMPEZA",
-        "JARDINAGEM",
-        "PAVIMENTACAO",
-        "ASFALTO",
-        "MERENDA",
-        "TRANSPORTE",
-        "MANUTENCAO",
-        "SERVICO",
-    ]
-    return any(term in normalized for term in physical_terms)
+    if not normalized:
+        return False, "sem texto de objeto/atividade"
+
+    fixed_presence = contains_normalized_term(normalized, LOGISTIC_FIXED_PRESENCE_TERMS)
+    mobile_or_delivery = contains_normalized_term(normalized, LOGISTIC_MOBILE_OR_DELIVERY_TERMS)
+    supply_only = contains_normalized_term(normalized, LOGISTIC_SUPPLY_ONLY_TERMS)
+
+    if mobile_or_delivery:
+        return False, "objeto envolve transporte, entrega ou deslocamento"
+    if supply_only and not fixed_presence:
+        return False, "objeto parece compra/fornecimento sem execucao presencial obrigatoria"
+    if fixed_presence:
+        return True, "objeto exige equipe ou execucao presencial no local"
+    return False, "sem indicio forte de execucao presencial fixa"
+
+
+def requires_physical_presence(activity: str) -> bool:
+    return logistic_presence_profile(activity)[0]
 
 
 def item_source_url(item: MonitoringItem) -> str | None:
@@ -3195,7 +3290,9 @@ def company_cnae_text(company: dict[str, Any] | None) -> str:
 
 
 def company_physical_activity(company: dict[str, Any] | None, object_text: str) -> bool:
-    return requires_physical_presence(object_text) or requires_physical_presence(company_cnae_text(company))
+    if str(object_text or "").strip():
+        return requires_physical_presence(object_text)
+    return requires_physical_presence(company_cnae_text(company))
 
 
 def maturity_attention_flag(company: dict[str, Any] | None, supplier_cnpj: str | None, value: Decimal, contract_date: date) -> RedFlagResult | None:
@@ -3251,7 +3348,13 @@ def maturity_attention_flag(company: dict[str, Any] | None, supplier_cnpj: str |
 
 
 def logistic_attention_flag(company: dict[str, Any] | None, item_city: str | None, item_uf: str | None, object_text: str, value: Decimal) -> RedFlagResult | None:
-    if not company or not company_physical_activity(company, object_text):
+    if not company:
+        return None
+    object_requires_presence, logistic_reason = logistic_presence_profile(object_text)
+    if str(object_text or "").strip():
+        if not object_requires_presence:
+            return None
+    elif not company_physical_activity(company, object_text):
         return None
     company_city = company.get("municipio")
     company_uf = company.get("uf")
@@ -3260,7 +3363,11 @@ def logistic_attention_flag(company: dict[str, Any] | None, item_city: str | Non
     company_lat, company_lng = coords_for(str(company_city), str(company_uf))
     agency_lat, agency_lng = coords_for(item_city, item_uf)
     distance = haversine_distance_km(company_lat, company_lng, agency_lat, agency_lng)
-    has_risk = distance > 800 and str(company_uf).upper() != str(item_uf).upper() and value >= Decimal("500000")
+    has_risk = (
+        distance > LOGISTIC_DISTANCE_THRESHOLD_KM
+        and str(company_uf).upper() != str(item_uf).upper()
+        and value >= LOGISTIC_MIN_CONTRACT_VALUE
+    )
     if not has_risk:
         return None
     return RedFlagResult(
@@ -3268,16 +3375,17 @@ def logistic_attention_flag(company: dict[str, Any] | None, item_city: str | Non
         title="Inviabilidade Logistica Potencial",
         has_risk=True,
         risk_level="alto",
-        message=f"Fornecedor em {company_city}/{company_uf} esta a aproximadamente {distance:.0f} km do orgao em {item_city or 'municipio nao informado'}/{item_uf} para objeto com presenca fisica.",
+        message=f"Fornecedor em {company_city}/{company_uf} esta a aproximadamente {distance:.0f} km do orgao em {item_city or 'municipio nao informado'}/{item_uf}; o objeto indica execucao presencial fixa.",
         evidence={
             "supplier_location": f"{company_city}/{company_uf}",
             "agency_location": f"{item_city or ''}/{item_uf or ''}",
             "distance_km": round(distance, 2),
             "valor_global": str(value),
+            "logistic_reason": logistic_reason,
             "cnae": company_cnae_text(company)[:240],
             "branch_registry_available": False,
         },
-        criteria={"rule": "CNAE/objeto fisico E distancia > 800 km E valor >= R$ 500.000; filial local pendente de base cadastral ampliada"},
+        criteria={"rule": f"objeto com execucao presencial fixa E distancia > {LOGISTIC_DISTANCE_THRESHOLD_KM} km E UF diferente E valor >= R$ 500.000; ignora transporte, entrega, frete e compra/fornecimento sem execucao local"},
     )
 
 
@@ -3871,6 +3979,57 @@ def political_attention_level(score: int) -> str:
     return "baixo"
 
 
+def political_attention_rank(level: str | None) -> int:
+    return {"alto": 3, "medio": 2, "baixo": 1}.get(normalize_text(level).lower(), 0)
+
+
+def recompute_political_attention(item: PoliticalScanItem) -> PoliticalScanItem:
+    score = 0
+    has_medium_or_high_risk = False
+    has_high_risk = False
+    for risk in item.risks or []:
+        level_rank = political_attention_rank(risk.level)
+        if level_rank >= 3:
+            score += 45
+            has_high_risk = True
+        elif level_rank >= 2:
+            score += 25
+            has_medium_or_high_risk = True
+        elif level_rank == 1:
+            score += 5
+
+    total = item.total_public_money or Decimal("0")
+    travel = item.travel_public_money or Decimal("0")
+    records = int(item.records_count or 0)
+    if total >= Decimal("1000000"):
+        score += 35
+    elif total >= Decimal("350000"):
+        score += 20
+    if travel >= Decimal("90000"):
+        score += 15
+    if records >= 300:
+        score += 15
+    elif records >= 100:
+        score += 8
+
+    detail_types = {
+        normalize_text(detail.get("type")).lower()
+        for detail in item.analysis_details
+        if isinstance(detail, dict)
+    }
+    if detail_types.intersection({"contratos", "doacoes", "contas", "processos", "controle", "vinculos"}):
+        score += 10
+
+    computed = political_attention_level(min(score, 100))
+    if has_high_risk:
+        computed = "alto"
+    elif has_medium_or_high_risk and political_attention_rank(computed) < 2:
+        computed = "médio"
+    if political_attention_rank(computed) > political_attention_rank(item.attention_level):
+        item.attention_level = computed
+    return item
+
+
 def political_priority_for(name: str, role: str | None = None, party: str | None = None, item_type: str | None = None) -> tuple[int, str | None]:
     normalized_name = normalize_text(name)
     normalized_role = normalize_text(role)
@@ -3930,7 +4089,7 @@ def apply_political_priority(item: PoliticalScanItem) -> PoliticalScanItem:
         )
         if "prioridade" not in item.analysis_types:
             item.analysis_types.append("prioridade")
-    return item
+    return recompute_political_attention(item)
 
 
 def political_sort_key(item: PoliticalScanItem) -> tuple[int, int, Decimal, int, str]:
@@ -4316,6 +4475,16 @@ async def fetch_deputy_expenses(deputy_id: Any, years: list[int] | None = None, 
     return expenses
 
 
+async def gather_limited(limit: int, coroutines: list[Any]) -> list[Any]:
+    semaphore = asyncio.Semaphore(max(1, limit))
+
+    async def run(coroutine: Any) -> Any:
+        async with semaphore:
+            return await coroutine
+
+    return await asyncio.gather(*(run(coroutine) for coroutine in coroutines))
+
+
 def expense_sources_for_deputy(deputy_id: Any) -> list[MonitoringSource]:
     return [
         MonitoringSource(
@@ -4655,8 +4824,8 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
         ]
     current_ids = {str(deputy.get("id")) for deputy in deputies}
     former_deputies = [deputy for deputy in former_deputies if str(deputy.get("id")) not in current_ids][:former_target]
-    expense_batches = await asyncio.gather(*(fetch_deputy_expenses(deputy.get("id")) for deputy in deputies))
-    former_expense_batches = await asyncio.gather(*(fetch_deputy_expenses(deputy.get("id")) for deputy in former_deputies))
+    expense_batches = await gather_limited(4, [fetch_deputy_expenses(deputy.get("id")) for deputy in deputies])
+    former_expense_batches = await gather_limited(3, [fetch_deputy_expenses(deputy.get("id")) for deputy in former_deputies])
     items = [political_item_from_deputy(deputy, expenses, current=True) for deputy, expenses in zip(deputies, expense_batches)]
     items.extend(political_item_from_deputy(deputy, expenses, current=False) for deputy, expenses in zip(former_deputies, former_expense_batches))
 
@@ -4787,7 +4956,7 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
     async def build_party_item(party: dict[str, Any]) -> PoliticalScanItem:
         sigla = str(party.get("sigla") or "")
         members = await fetch_current_deputies(limit=10, party=sigla)
-        expense_batches = await asyncio.gather(*(fetch_deputy_expenses(member.get("id"), limit_per_year=35) for member in members[:8]))
+        expense_batches = await gather_limited(3, [fetch_deputy_expenses(member.get("id"), limit_per_year=35) for member in members[:8]])
         member_items = [political_item_from_deputy(member, expenses) for member, expenses in zip(members[:8], expense_batches)]
         total = sum((item.total_public_money for item in member_items), Decimal("0"))
         travel_total = sum((item.travel_public_money for item in member_items), Decimal("0"))
@@ -4902,7 +5071,7 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
             risks=risks,
         ))
 
-    items = await asyncio.gather(*(build_party_item(party) for party in parties))
+    items = await gather_limited(3, [build_party_item(party) for party in parties])
     items.sort(key=political_sort_key, reverse=True)
     return list(items)[:limit]
 
@@ -4925,6 +5094,177 @@ POLITICAL_PEOPLE_SOURCES = [
 ]
 
 
+def political_item_cache_quality(item: PoliticalScanItem) -> tuple[int, Decimal, int, int]:
+    detail_count = len(item.analysis_details or [])
+    people_count = len(item.people or [])
+    return (
+        int(item.records_count or 0),
+        item.total_public_money or Decimal("0"),
+        detail_count,
+        people_count,
+    )
+
+
+def political_detail_key(detail: dict[str, Any]) -> str:
+    if detail.get("document_url"):
+        return f"doc:{detail.get('document_url')}"
+    return "|".join(
+        normalize_text(detail.get(key))
+        for key in ("type", "title", "date", "supplier", "person", "party", "value", "source")
+    )
+
+
+def political_source_key(source: MonitoringSource) -> str:
+    return f"{source.label}|{source.url}|{source.kind}"
+
+
+def political_risk_key(risk: PoliticalRiskFactor) -> str:
+    return f"{risk.title}|{risk.source}|{risk.url}|{json.dumps(risk.evidence, sort_keys=True, default=str)}"
+
+
+def merge_cached_political_item(existing: PoliticalScanItem, incoming: PoliticalScanItem) -> PoliticalScanItem:
+    richer = incoming if political_item_cache_quality(incoming) > political_item_cache_quality(existing) else existing
+    existing.name = richer.name or existing.name
+    existing.subtitle = richer.subtitle or existing.subtitle
+    existing.party = richer.party or existing.party
+    existing.role = richer.role or existing.role
+    existing.uf = richer.uf or existing.uf
+
+    existing.total_public_money = max(existing.total_public_money or Decimal("0"), incoming.total_public_money or Decimal("0"))
+    existing.travel_public_money = max(existing.travel_public_money or Decimal("0"), incoming.travel_public_money or Decimal("0"))
+
+    detail_by_key: dict[str, dict[str, Any]] = {}
+    for detail in [*(existing.analysis_details or []), *(incoming.analysis_details or [])]:
+        if not isinstance(detail, dict):
+            continue
+        key = political_detail_key(detail)
+        if key and key not in detail_by_key:
+            detail_by_key[key] = detail
+    existing.analysis_details = list(detail_by_key.values())[:60]
+
+    existing.records_count = max(
+        int(existing.records_count or 0),
+        int(incoming.records_count or 0),
+        len(existing.analysis_details or []),
+    )
+    existing.people = list(dict.fromkeys([*existing.people, *incoming.people]))[:24]
+    existing.analysis_types = sorted(set([*existing.analysis_types, *incoming.analysis_types]))
+
+    source_by_key: dict[str, MonitoringSource] = {}
+    for source in [*existing.sources, *incoming.sources]:
+        key = political_source_key(source)
+        if key not in source_by_key:
+            source_by_key[key] = source
+    existing.sources = list(source_by_key.values())[:16]
+
+    risk_by_key: dict[str, PoliticalRiskFactor] = {}
+    for risk in [*existing.risks, *incoming.risks]:
+        key = political_risk_key(risk)
+        if key not in risk_by_key:
+            risk_by_key[key] = risk
+    existing.risks = list(risk_by_key.values())[:16]
+
+    rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
+    existing_level = rank.get(normalize_text(existing.attention_level).lower(), 0)
+    incoming_level = rank.get(normalize_text(incoming.attention_level).lower(), 0)
+    if incoming_level > existing_level:
+        existing.attention_level = incoming.attention_level
+
+    if existing.type == "partido":
+        existing.summary = (
+            f"{money(existing.total_public_money)} em despesas dos parlamentares analisados; "
+            f"{money(existing.travel_public_money)} em viagens/deslocamentos. "
+            f"{existing.records_count} registro(s) preservado(s) no acumulado."
+        )
+    return existing
+
+
+def cached_parliamentary_people_for_party(records: list[dict[str, Any]], party: str | None) -> list[PoliticalScanItem]:
+    normalized_party = normalize_text(party)
+    if not normalized_party:
+        return []
+    people_by_key: dict[str, PoliticalScanItem] = {}
+    for record in records:
+        if record.get("record_type") != "political_people" or not isinstance(record.get("payload"), dict):
+            continue
+        try:
+            person = PoliticalScanItem.model_validate(record["payload"])
+        except Exception:
+            continue
+        if normalize_text(person.party) != normalized_party:
+            continue
+        role_text = normalize_text(f"{person.role} {person.subtitle}")
+        if not any(term in role_text for term in ("DEPUTADO", "SENADOR", "PARLAMENTAR")):
+            continue
+        key = f"{person.type}:{person.id or normalize_text(person.name)}"
+        existing = people_by_key.get(key)
+        if existing is None:
+            people_by_key[key] = person
+        else:
+            people_by_key[key] = merge_cached_political_item(existing, person)
+    return list(people_by_key.values())
+
+
+def enrich_party_from_cached_people(item: PoliticalScanItem, records: list[dict[str, Any]]) -> PoliticalScanItem:
+    if item.type != "partido":
+        return item
+    people_items = cached_parliamentary_people_for_party(records, item.party)
+    if not people_items:
+        return item
+
+    people_total = sum((person.total_public_money or Decimal("0") for person in people_items), Decimal("0"))
+    travel_total = sum((person.travel_public_money or Decimal("0") for person in people_items), Decimal("0"))
+    people_records = sum(int(person.records_count or 0) for person in people_items)
+
+    if people_total > (item.total_public_money or Decimal("0")):
+        item.total_public_money = people_total
+    if travel_total > (item.travel_public_money or Decimal("0")):
+        item.travel_public_money = travel_total
+    if people_records > int(item.records_count or 0):
+        item.records_count = people_records
+
+    item.people = list(dict.fromkeys([*item.people, *[person.name for person in people_items if person.name]]))[:24]
+    item.analysis_types = sorted(set([*item.analysis_types, *[kind for person in people_items for kind in person.analysis_types]]))
+
+    detail_by_key = {
+        political_detail_key(detail): detail
+        for detail in item.analysis_details
+        if isinstance(detail, dict)
+    }
+    for person in people_items:
+        for detail in (person.analysis_details or [])[:6]:
+            if not isinstance(detail, dict):
+                continue
+            enriched_detail = {**detail, "person": detail.get("person") or person.name, "party": item.party}
+            key = political_detail_key(enriched_detail)
+            if key and key not in detail_by_key:
+                detail_by_key[key] = enriched_detail
+    item.analysis_details = list(detail_by_key.values())[:60]
+
+    attention_members = sum(1 for person in people_items if political_attention_rank(person.attention_level) >= 2)
+    aggregate_level = "médio" if item.total_public_money >= Decimal("350000") or attention_members > 0 else "baixo"
+    for risk in item.risks:
+        if risk.title == "Leitura agregada de despesas do partido":
+            risk.level = aggregate_level
+            risk.evidence = {
+                **risk.evidence,
+                "members_checked": len(people_items),
+                "attention_members": attention_members,
+                "total_public_money": str(item.total_public_money),
+                "travel_public_money": str(item.travel_public_money),
+                "records_count": item.records_count,
+            }
+            risk.message = "Soma acumulada das despesas e sinais dos parlamentares encontrados no cache e nas coletas recentes."
+            break
+
+    item.summary = (
+        f"{money(item.total_public_money)} em despesas dos parlamentares analisados; "
+        f"{money(item.travel_public_money)} em viagens/deslocamentos. "
+        f"{item.records_count} registro(s) no acumulado."
+    )
+    return item
+
+
 def cached_political_items(
     record_type: str,
     q: str | None = None,
@@ -4934,10 +5274,11 @@ def cached_political_items(
     size_order: str | None = None,
     limit: int = 24,
 ) -> tuple[list[PoliticalScanItem], datetime | None]:
+    all_records = load_public_records()
     records = sorted(
         (
             record
-            for record in load_public_records()
+            for record in all_records
             if record.get("record_type") == record_type and isinstance(record.get("payload"), dict)
         ),
         key=lambda record: str(record.get("collected_at") or ""),
@@ -5007,8 +5348,11 @@ def cached_political_items(
             item.analyzed_at = parsed_collected_at
 
         key = f"{item.type}:{item.id or normalize_text(item.name)}"
-        if key not in by_key:
+        existing = by_key.get(key)
+        if existing is None:
             by_key[key] = item
+        else:
+            by_key[key] = merge_cached_political_item(existing, item)
 
     if record_type == "political_people":
         for person in POLITICAL_RELATED_PEOPLE:
@@ -5041,6 +5385,8 @@ def cached_political_items(
 
     risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
     items = list(by_key.values())
+    if record_type == "political_parties":
+        items = [enrich_party_from_cached_people(item, all_records) for item in items]
     for item in items:
         apply_political_priority(item)
 
