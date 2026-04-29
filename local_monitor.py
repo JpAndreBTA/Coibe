@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import site
 import subprocess
 import unicodedata
 from datetime import datetime, timezone
@@ -14,6 +15,13 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
 
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
@@ -42,6 +50,7 @@ RESEARCH_TIMEOUT_SECONDS = int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90")
 MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12"))
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
+CUDA_DLL_HANDLES: list[Any] = []
 
 
 def now_slug() -> str:
@@ -50,6 +59,40 @@ def now_slug() -> str:
 
 def brasilia_now() -> datetime:
     return datetime.now(BRASILIA_TZ)
+
+
+def monitor_print(message: str) -> None:
+    print(f"[{brasilia_now().strftime('%Y-%m-%d %H:%M:%S')}] {message}", flush=True)
+
+
+def records_per_second(records: int, elapsed_seconds: float) -> float:
+    if elapsed_seconds <= 0:
+        return float(records)
+    return round(records / elapsed_seconds, 2)
+
+
+def prepare_cuda_dll_paths() -> None:
+    if os.name != "nt":
+        return
+    candidates: list[Path] = []
+    for base in site.getsitepackages():
+        site_path = Path(base)
+        candidates.extend(
+            [
+                site_path / "nvidia" / "cuda_nvrtc" / "bin",
+                site_path / "nvidia" / "cuda_runtime" / "bin",
+            ]
+        )
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        candidate_text = str(candidate)
+        if candidate_text.lower() not in os.environ.get("PATH", "").lower():
+            os.environ["PATH"] = candidate_text + os.pathsep + os.environ.get("PATH", "")
+        try:
+            CUDA_DLL_HANDLES.append(os.add_dll_directory(candidate_text))
+        except Exception:
+            pass
 
 
 def safe_filename_part(value: Any) -> str:
@@ -129,15 +172,19 @@ def load_monitor_config() -> dict[str, Any]:
 
 def gpu_runtime_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or load_monitor_config()
+    prepare_cuda_dll_paths()
     status = {
         "enabled_by_env": ML_USE_GPU,
-        "enabled": bool(config.get("use_gpu")),
+        "enabled_by_config": bool(config.get("use_gpu")),
+        "enabled": bool(ML_USE_GPU and config.get("use_gpu")),
         "memory_limit_mb": int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB),
         "shared_memory_enabled": bool(config.get("use_shared_memory")),
         "shared_memory_limit_mb": int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB),
         "available": False,
         "name": None,
         "memory_total_mb": None,
+        "gpu_library": None,
+        "gpu_runtime_ready": False,
     }
     try:
         result = subprocess.run(
@@ -158,18 +205,33 @@ def gpu_runtime_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
             )
     except Exception:
         pass
+    try:
+        import cupy
+
+        status["gpu_library"] = f"cupy {cupy.__version__}"
+        probe = cupy.asarray([1, 2, 3], dtype=cupy.float32)
+        status["gpu_runtime_ready"] = bool(float(cupy.sum(probe).get()) == 6.0)
+    except Exception:
+        pass
     return status
 
 
 def configure_gpu_runtime(config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or load_monitor_config()
+    prepare_cuda_dll_paths()
     os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true")
     gpu_limit = int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
     shared_limit = int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB)
-    if gpu_limit > 0:
+    if bool(ML_USE_GPU and config.get("use_gpu")) and gpu_limit > 0:
         os.environ["COIBE_GPU_MEMORY_LIMIT_MB"] = str(gpu_limit)
         os.environ["RAPIDS_MEMORY_LIMIT"] = str(gpu_limit * 1024 * 1024)
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"max_split_size_mb:{min(gpu_limit, 1024)}"
+        try:
+            import cupy
+
+            cupy.get_default_memory_pool().set_limit(size=gpu_limit * 1024 * 1024)
+        except Exception:
+            pass
     if bool(config.get("use_shared_memory")) and shared_limit > 0:
         os.environ["COIBE_SHARED_MEMORY_LIMIT_MB"] = str(shared_limit)
         os.environ.setdefault("JOBLIB_TEMP_FOLDER", str(MODELS_DIR / "shared_memory_cache"))
@@ -306,6 +368,8 @@ async def collect_connector(
     kind: str,
 ) -> Any:
     started_at = brasilia_now()
+    start_perf = asyncio.get_running_loop().time()
+    monitor_print(f"Analisando {name} | tipo={kind} | endpoint={path}")
     try:
         payload = await get_json(client, path)
         record_count = 0
@@ -329,8 +393,13 @@ async def collect_connector(
                 "finished_at": brasilia_now().isoformat(),
             }
         )
+        elapsed = asyncio.get_running_loop().time() - start_perf
+        monitor_print(
+            f"OK {name} | registros={record_count} | tempo={elapsed:.2f}s | velocidade={records_per_second(record_count, elapsed)} reg/s"
+        )
         return payload
     except Exception as exc:
+        elapsed = asyncio.get_running_loop().time() - start_perf
         snapshot["connectors"].append(
             {
                 "name": name,
@@ -344,6 +413,7 @@ async def collect_connector(
             }
         )
         snapshot["errors"].append({"connector": name, "error": str(exc)})
+        monitor_print(f"ERRO {name} | tempo={elapsed:.2f}s | detalhe={exc}")
         return None
 
 
@@ -616,7 +686,9 @@ def ml_value_anomalies(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
         return {}
 
     try:
-        if ML_USE_GPU:
+        monitor_config = load_monitor_config()
+        if bool(ML_USE_GPU and monitor_config.get("use_gpu")):
+            prepare_cuda_dll_paths()
             try:
                 import cudf
                 from cuml.ensemble import IsolationForest as GpuIsolationForest
@@ -627,14 +699,29 @@ def ml_value_anomalies(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
                 scores = model.decision_function(frame[["value"]]).to_numpy()
                 model_name = "cuML IsolationForest (GPU)"
             except Exception:
-                import pandas as pd
-                from sklearn.ensemble import IsolationForest
+                try:
+                    import cupy
 
-                frame = pd.DataFrame({"value": values})
-                model = IsolationForest(n_estimators=150, contamination=0.15, random_state=42)
-                predictions = model.fit_predict(frame[["value"]])
-                scores = model.decision_function(frame[["value"]])
-                model_name = "IsolationForest (CPU fallback; GPU indisponivel)"
+                    gpu_limit = int(monitor_config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
+                    if gpu_limit > 0:
+                        cupy.get_default_memory_pool().set_limit(size=gpu_limit * 1024 * 1024)
+                    gpu_values = cupy.asarray(values, dtype=cupy.float32)
+                    baseline_gpu = cupy.mean(gpu_values)
+                    deviation_gpu = cupy.std(gpu_values)
+                    deviation_gpu = cupy.where(deviation_gpu == 0, cupy.asarray(1.0, dtype=cupy.float32), deviation_gpu)
+                    z_scores = cupy.abs((gpu_values - baseline_gpu) / deviation_gpu)
+                    scores = cupy.asnumpy(z_scores)
+                    predictions = cupy.asnumpy(cupy.where(z_scores > 1.7, -1, 1))
+                    model_name = "CuPy z-score (GPU)"
+                except Exception:
+                    import pandas as pd
+                    from sklearn.ensemble import IsolationForest
+
+                    frame = pd.DataFrame({"value": values})
+                    model = IsolationForest(n_estimators=150, contamination=0.15, random_state=42)
+                    predictions = model.fit_predict(frame[["value"]])
+                    scores = model.decision_function(frame[["value"]])
+                    model_name = "IsolationForest (CPU fallback; GPU indisponivel)"
         else:
             import pandas as pd
             from sklearn.ensemble import IsolationForest
@@ -1228,6 +1315,7 @@ def append_platform_library(paths: dict[str, Path], library_records: list[dict[s
 
 
 async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
+    cycle_started = asyncio.get_running_loop().time()
     stamp = now_slug()
     monitor_config = load_monitor_config()
     gpu = configure_gpu_runtime(monitor_config)
@@ -1240,6 +1328,13 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     political_party_limit = int(monitor_config.get("political_party_scan_limit") or POLITICAL_PARTY_SCAN_LIMIT)
     political_people_limit = int(monitor_config.get("political_people_scan_limit") or POLITICAL_PEOPLE_SCAN_LIMIT)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
+    monitor_print(
+        "Iniciando ciclo de monitoramento | "
+        f"paginas={pages} | itens_por_pagina={page_size} | pagina_inicial={start_page} | "
+        f"partidos={political_party_limit} | politicos={political_people_limit} | "
+        f"gpu={'ativa' if gpu.get('enabled') else 'desativada'} | "
+        f"memoria_compartilhada={'ativa' if gpu.get('shared_memory_enabled') else 'desativada'}"
+    )
     snapshot = await collect_snapshot(
         args.api_base,
         search_terms,
@@ -1339,7 +1434,15 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     with (paths["logs"] / "monitor.log").open("a", encoding="utf-8") as log:
         log.write(log_line)
 
-    print(log_line.strip())
+    elapsed = asyncio.get_running_loop().time() - cycle_started
+    scanned_total = feed_items_collected + int(public_records_count or 0)
+    monitor_print(
+        "Ciclo concluido | "
+        f"tempo={elapsed:.2f}s | velocidade={records_per_second(scanned_total, elapsed)} reg/s | "
+        f"itens_feed={feed_items_collected} | novos={len(new_feed_items)} | "
+        f"base_total={database_count} | registros_publicos={public_records_count} | alertas={analysis['alerts_count']}"
+    )
+    monitor_print(log_line.strip())
 
 
 async def main() -> None:
@@ -1358,6 +1461,11 @@ async def main() -> None:
     if args.startup_delay_seconds > 0:
         await asyncio.sleep(args.startup_delay_seconds)
 
+    monitor_print(
+        "Treinamento/monitoramento iniciado | "
+        f"api={args.api_base} | intervalo_min={args.interval_minutes} | "
+        f"rodadas={args.pages} | page_size={args.page_size}"
+    )
     while True:
         try:
             await run_once(args, paths)
@@ -1365,11 +1473,12 @@ async def main() -> None:
             error_line = f"{brasilia_now().isoformat()} ERROR {exc}\n"
             with (paths["logs"] / "monitor.log").open("a", encoding="utf-8") as log:
                 log.write(error_line)
-            print(error_line.strip())
+            monitor_print(error_line.strip())
 
         if args.once:
             break
         if args.interval_minutes > 0:
+            monitor_print(f"Aguardando proximo ciclo por {args.interval_minutes} minuto(s).")
             await asyncio.sleep(args.interval_minutes * 60)
 
 

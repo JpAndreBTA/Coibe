@@ -281,6 +281,15 @@ $env:COIBE_GPU_MEMORY_LIMIT_MB="2048"
 ```
 
 Sem GPU, o monitor continua em CPU com `scikit-learn` ou fallback estatístico.
+Em Windows com NVIDIA/CUDA, instale as dependências opcionais de GPU com:
+
+```powershell
+py -3.10 -m pip install -r requirements-gpu.txt
+```
+
+O backend controla o limite de memória da GPU pela UI local em
+`/backend`, salvando o valor em `Models/monitor_config.json`.
+
 A UI do backend fica em `http://127.0.0.1:8000/backend` e o status JSON em
 `/api/models/status`. Essas rotas são locais: não ficam disponíveis pelo domínio
 público/túnel.
@@ -288,7 +297,10 @@ público/túnel.
 Na UI local do backend é possível configurar limite de memória da GPU, uso de
 memória compartilhada/RAM, tempo máximo de pesquisa, rodadas por ciclo e limites
 de varredura política. Também há botões para iniciar/parar o treinamento sem
-parar o backend e reiniciar o backend em um novo terminal visível.
+parar o backend, iniciar o backend em terminal visível e reiniciar o backend.
+No Windows, o treinamento abre uma janela própria do terminal com o que está
+sendo analisado, quantidade de registros lidos, tempo por fonte e velocidade
+aproximada da varredura.
 
 ### Risco espacial/logistico
 

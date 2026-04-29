@@ -12,6 +12,7 @@ import {
   Github,
   Loader2,
   MapPin,
+  Power,
   Search,
   ShieldCheck,
   Target,
@@ -1189,6 +1190,10 @@ function queryFromResult(result) {
     }
   }
 
+  function openLocalBackendPanel() {
+    window.open('http://127.0.0.1:8000/backend', '_blank', 'noopener,noreferrer');
+  }
+
   const selectedRisk = riskCopy[selectedAlert?.risk_level] || riskCopy.indeterminado;
   const selectedOfficialSources = officialSourcesForAlert(selectedAlert);
   const selectedPublicEvidence = Array.isArray(selectedAlert?.report?.public_evidence)
@@ -1233,8 +1238,17 @@ function queryFromResult(result) {
 
       <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
         {error && (
-          <div className="mb-5 rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-100">
-            {error}
+          <div className="mb-5 flex flex-col gap-3 rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-100 sm:flex-row sm:items-center sm:justify-between">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={openLocalBackendPanel}
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-red-800 bg-red-600 px-3 text-xs font-black text-white transition hover:bg-red-500"
+              title="Abrir painel local do backend"
+            >
+              <Power className="h-4 w-4" />
+              Iniciar backend
+            </button>
           </div>
         )}
 

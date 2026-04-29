@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import math
 import re
+import site
 import signal
 import socket
 import subprocess
@@ -69,6 +70,7 @@ COIBE_ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true
 COIBE_GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
 COIBE_ML_USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {"1", "true", "yes"}
 COIBE_SHARED_MEMORY_LIMIT_MB = int(os.getenv("COIBE_SHARED_MEMORY_LIMIT_MB", "4096"))
+CUDA_DLL_HANDLES: list[Any] = []
 FALLBACK_CONTRACTS_START = "2025-09-01"
 FALLBACK_CONTRACTS_END = "2025-09-30"
 AUTO_CONTRACT_WINDOWS_DAYS = (45, 120, 240)
@@ -654,6 +656,30 @@ def require_local_request(request: Request) -> None:
     if host in {"127.0.0.1", "localhost", "::1"}:
         return
     raise HTTPException(status_code=404, detail="Recurso disponivel apenas localmente.")
+
+
+def prepare_cuda_dll_paths() -> None:
+    if os.name != "nt":
+        return
+    candidates: list[Path] = []
+    for base in site.getsitepackages():
+        site_path = Path(base)
+        candidates.extend(
+            [
+                site_path / "nvidia" / "cuda_nvrtc" / "bin",
+                site_path / "nvidia" / "cuda_runtime" / "bin",
+            ]
+        )
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        candidate_text = str(candidate)
+        if candidate_text.lower() not in os.environ.get("PATH", "").lower():
+            os.environ["PATH"] = candidate_text + os.pathsep + os.environ.get("PATH", "")
+        try:
+            CUDA_DLL_HANDLES.append(os.add_dll_directory(candidate_text))
+        except Exception:
+            pass
 
 
 def blocked_ip_address(value: str) -> bool:
@@ -2133,16 +2159,20 @@ def write_monitor_model_config(config: MonitorModelConfig) -> MonitorModelConfig
 
 def gpu_status() -> dict[str, Any]:
     config = read_monitor_model_config()
+    prepare_cuda_dll_paths()
     status = {
         "enabled_by_env": COIBE_ML_USE_GPU,
-        "enabled": config.use_gpu,
+        "enabled_by_config": config.use_gpu,
+        "enabled": bool(COIBE_ML_USE_GPU and config.use_gpu),
         "memory_limit_mb": config.gpu_memory_limit_mb,
         "shared_memory_enabled": config.use_shared_memory,
         "shared_memory_limit_mb": config.shared_memory_limit_mb,
         "available": False,
         "name": None,
         "memory_total_mb": None,
-        "note": "GPU usada somente se COIBE_ML_USE_GPU=true e bibliotecas compatíveis estiverem instaladas.",
+        "gpu_library": None,
+        "gpu_runtime_ready": False,
+        "note": "GPU usada somente se COIBE_ML_USE_GPU=true, configuracao local use_gpu=true e bibliotecas compativeis estiverem instaladas.",
     }
     try:
         result = subprocess.run(
@@ -2161,6 +2191,14 @@ def gpu_status() -> dict[str, Any]:
                     "memory_total_mb": int(memory.strip()) if memory.strip().isdigit() else None,
                 }
             )
+    except Exception:
+        pass
+    try:
+        import cupy  # type: ignore
+
+        status["gpu_library"] = f"cupy {cupy.__version__}"
+        probe = cupy.asarray([1, 2, 3], dtype=cupy.float32)
+        status["gpu_runtime_ready"] = bool(float(cupy.sum(probe).get()) == 6.0)
     except Exception:
         pass
     return status
@@ -2205,26 +2243,34 @@ def start_monitor_training_process() -> dict[str, Any]:
         "--page-size",
         str(config.feed_page_size),
     ]
-    stdout = (logs_dir / "training.out.log").open("a", encoding="utf-8")
-    stderr = (logs_dir / "training.err.log").open("a", encoding="utf-8")
     creationflags = 0
+    terminal_mode = "log_file"
+    stdout_target: Any = (logs_dir / "training.out.log").open("a", encoding="utf-8")
+    stderr_target: Any = (logs_dir / "training.err.log").open("a", encoding="utf-8")
     if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        terminal_mode = "visible_console"
+        stdout_target.close()
+        stderr_target.close()
+        stdout_target = None
+        stderr_target = None
     try:
         process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
-            stdout=stdout,
-            stderr=stderr,
+            stdout=stdout_target,
+            stderr=stderr_target,
             cwd=str(Path.cwd()),
             close_fds=True,
             creationflags=creationflags,
         )
     finally:
-        stdout.close()
-        stderr.close()
+        if stdout_target is not None:
+            stdout_target.close()
+        if stderr_target is not None:
+            stderr_target.close()
     AUTO_MONITOR_PID_PATH.write_text(str(process.pid), encoding="utf-8")
-    return {"running": True, "pid": process.pid, "pid_path": str(AUTO_MONITOR_PID_PATH)}
+    return {"running": True, "pid": process.pid, "pid_path": str(AUTO_MONITOR_PID_PATH), "terminal": terminal_mode}
 
 
 def stop_monitor_training_process() -> dict[str, Any]:
@@ -4986,6 +5032,7 @@ async def backend_ui(request: Request) -> HTMLResponse:
     </form>
     <h2>Controle local</h2>
     <section class="card">
+      <button id="startBackend" type="button">Iniciar backend visível</button>
       <button id="startTraining" type="button">Iniciar treinamento</button>
       <button id="stopTraining" class="secondary" type="button">Parar treinamento</button>
       <button id="restartBackend" class="danger" type="button">Reiniciar backend</button>
@@ -5043,7 +5090,7 @@ async def backend_ui(request: Request) -> HTMLResponse:
     document.getElementById('startTraining').addEventListener('click', async () => {
       document.getElementById('controlStatus').textContent = 'Iniciando treinamento...';
       const result = await postJson('/api/models/training/start', {});
-      document.getElementById('controlStatus').textContent = result.running ? `Treinamento rodando. PID ${result.pid}` : 'Treinamento não iniciou.';
+      document.getElementById('controlStatus').textContent = result.running ? `Treinamento rodando em terminal visível. PID ${result.pid}` : 'Treinamento não iniciou.';
       await load();
     });
     document.getElementById('stopTraining').addEventListener('click', async () => {
@@ -5051,6 +5098,11 @@ async def backend_ui(request: Request) -> HTMLResponse:
       await postJson('/api/models/training/stop', {});
       document.getElementById('controlStatus').textContent = 'Treinamento parado. Backend continua ativo.';
       await load();
+    });
+    document.getElementById('startBackend').addEventListener('click', async () => {
+      if(!confirm('Abrir o backend em um terminal visível? O script remove processos duplicados na porta 8000.')) return;
+      document.getElementById('controlStatus').textContent = 'Abrindo backend em terminal visível...';
+      await postJson('/api/backend/start', {});
     });
     document.getElementById('restartBackend').addEventListener('click', async () => {
       if(!confirm('Reiniciar o backend local em um novo terminal visível?')) return;
@@ -5107,6 +5159,16 @@ async def restart_backend(request: Request, background_tasks: BackgroundTasks) -
     return {
         "status": "restarting",
         "message": "Backend será reiniciado em um novo terminal visível. Fechar o terminal encerra o backend.",
+    }
+
+
+@app.post("/api/backend/start")
+async def start_backend_visible(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    require_local_request(request)
+    background_tasks.add_task(restart_backend_visible_terminal)
+    return {
+        "status": "starting",
+        "message": "Backend será aberto em um terminal visível. O script remove duplicações na porta 8000.",
     }
 
 
