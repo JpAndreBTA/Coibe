@@ -1,0 +1,11 @@
+{
+  "version": "coibe-monitor-v1",
+  "updated_at": null,
+  "cycles": 0,
+  "learned_terms": [],
+  "last_training": {
+    "status": "aguardando primeiro ciclo real do local_monitor.py",
+    "model_storage": "Models",
+    "legal_safety": "Aprendizado usado para priorizar busca e triagem; não conclui crime, culpa ou vínculo familiar."
+  }
+}

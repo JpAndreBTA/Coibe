@@ -185,6 +185,12 @@ e movimentos de alto valor em pessoas ou nomes próximos. Esses sinais aparecem
 como fatores de conferência humana, sem afirmar parentesco, favorecimento ou
 irregularidade automaticamente.
 
+A ordem padrão da varredura política usa prioridade institucional: Presidência,
+Vice-Presidência, partido da Presidência atual, partido da Vice-Presidência,
+ex-presidentes, Senado, Câmara e demais registros. Isso só define prioridade de
+fila; a plataforma continua varrendo outros políticos e partidos conforme a
+base cresce.
+
 Por padrao, essas abas leem a base local consolidada em segundo plano pelo
 monitor, como o feed. A consulta publica das abas nao dispara nova varredura:
 se o termo nao estiver no cache, retorna vazio. O modo `source=live` fica
@@ -257,6 +263,25 @@ O parecer tecnico nunca acusa formalmente corrupcao ou fraude. Os achados aparec
 - Conflito de interesses potencial: somente quando houver base publica eleitoral/relacional carregada e cruzamento positivo com CNPJ/CPF.
 
 Além dos fatores do guia, o monitor contínuo aplica uma camada adaptativa de machine learning sobre a base acumulada. Ela cria fatores emergentes apenas quando há evidência estatística, como concentração atípica por fornecedor ou recorrência incomum do mesmo fornecedor no mesmo órgão em janela curta. Esses fatores aparecem como `ML-NEW-*` e devem ser tratados como triagem para revisão humana.
+
+O estado do aprendizado fica em `Models/`:
+
+```text
+Models/monitor_model_state.json
+Models/monitor_training_history.jsonl
+```
+
+O monitor reaproveita termos aprendidos nos ciclos seguintes para buscar mais
+rápido. Se houver GPU NVIDIA e bibliotecas compatíveis (`cudf`/`cuml`), defina:
+
+```powershell
+$env:COIBE_ML_USE_GPU="true"
+$env:COIBE_GPU_MEMORY_LIMIT_MB="2048"
+```
+
+Sem GPU, o monitor continua em CPU com `scikit-learn` ou fallback estatístico.
+A UI do backend fica em `http://127.0.0.1:8000/backend` e o status JSON em
+`/api/models/status`.
 
 ### Risco espacial/logistico
 

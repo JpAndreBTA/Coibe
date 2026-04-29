@@ -2,7 +2,9 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import re
+import subprocess
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -28,6 +30,14 @@ DEFAULT_SEARCH_TERMS = [
     "São Paulo",
     "00000000000191",
 ]
+MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
+MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
+MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
+GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
+MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12"))
+POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
+POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
 
 
 def now_slug() -> str:
@@ -86,7 +96,160 @@ def ensure_dirs(base_dir: Path) -> dict[str, Path]:
     }
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
     return paths
+
+
+def gpu_runtime_status() -> dict[str, Any]:
+    status = {
+        "enabled_by_env": ML_USE_GPU,
+        "memory_limit_mb": GPU_MEMORY_LIMIT_MB,
+        "available": False,
+        "name": None,
+        "memory_total_mb": None,
+    }
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            name, _, memory = result.stdout.strip().splitlines()[0].partition(",")
+            status.update(
+                {
+                    "available": True,
+                    "name": name.strip(),
+                    "memory_total_mb": int(memory.strip()) if memory.strip().isdigit() else None,
+                }
+            )
+    except Exception:
+        pass
+    return status
+
+
+def configure_gpu_runtime() -> dict[str, Any]:
+    os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true")
+    if GPU_MEMORY_LIMIT_MB > 0:
+        os.environ.setdefault("COIBE_GPU_MEMORY_LIMIT_MB", str(GPU_MEMORY_LIMIT_MB))
+        os.environ.setdefault("RAPIDS_MEMORY_LIMIT", str(GPU_MEMORY_LIMIT_MB * 1024 * 1024))
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", f"max_split_size_mb:{min(GPU_MEMORY_LIMIT_MB, 1024)}")
+    return gpu_runtime_status()
+
+
+def load_monitor_model_state() -> dict[str, Any]:
+    if not MONITOR_MODEL_STATE_PATH.exists():
+        return {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
+    try:
+        loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
+    return loaded if isinstance(loaded, dict) else {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
+
+
+def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -> list[str]:
+    learned = model_state.get("learned_terms") if isinstance(model_state.get("learned_terms"), list) else []
+    learned_terms = [
+        str(term.get("term") or "").strip()
+        for term in sorted(learned, key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)
+        if isinstance(term, dict) and str(term.get("term") or "").strip()
+    ]
+    output: list[str] = []
+    seen: set[str] = set()
+    for term in [*default_terms, *learned_terms[:20]]:
+        normalized = normalize_text(term)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            output.append(term)
+    return output[:60]
+
+
+def candidate_terms_from_text(value: Any) -> list[str]:
+    text = normalize_text(value)
+    stopwords = {"CONTRATO", "CONTRATACAO", "AQUISICAO", "SERVICO", "SERVICOS", "PUBLICO", "PUBLICA", "PARA", "COM", "DOS", "DAS", "DE", "DA", "DO", "EM", "E"}
+    tokens = [token for token in text.split() if len(token) >= 4 and token not in stopwords]
+    phrases = []
+    for size in (3, 2):
+        for index in range(0, max(0, len(tokens) - size + 1)):
+            phrase = " ".join(tokens[index : index + size])
+            if len(phrase) >= 8:
+                phrases.append(phrase.title())
+    phrases.extend(token.title() for token in tokens[:8])
+    return phrases[:12]
+
+
+def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any]) -> dict[str, Any]:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_monitor_model_state()
+    learned_by_key: dict[str, dict[str, Any]] = {}
+    for item in state.get("learned_terms", []) if isinstance(state.get("learned_terms"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        term = str(item.get("term") or "").strip()
+        normalized = normalize_text(term)
+        if normalized:
+            learned_by_key[normalized] = item
+
+    candidates: dict[str, dict[str, Any]] = {}
+    for alert in analysis.get("alerts", [])[:80]:
+        if not isinstance(alert, dict):
+            continue
+        weight = 3 if str(alert.get("risk_level") or "").lower() == "alto" else 1
+        for source_value in [alert.get("title"), alert.get("entity"), alert.get("supplier_name")]:
+            for term in candidate_terms_from_text(source_value):
+                normalized = normalize_text(term)
+                bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
+                bucket["score"] += weight
+                bucket["sources"].add("alerts")
+        for flag in alert.get("red_flags", []) or []:
+            if isinstance(flag, dict):
+                for term in candidate_terms_from_text(flag.get("title") or flag.get("message")):
+                    normalized = normalize_text(term)
+                    bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
+                    bucket["score"] += weight
+                    bucket["sources"].add("risk_flags")
+
+    for record in analysis.get("public_records", [])[:120]:
+        if not isinstance(record, dict):
+            continue
+        for term in candidate_terms_from_text(record.get("title") or record.get("query")):
+            normalized = normalize_text(term)
+            bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
+            bucket["score"] += 1
+            bucket["sources"].add("public_records")
+
+    now = brasilia_now().isoformat()
+    for normalized, candidate in sorted(candidates.items(), key=lambda row: row[1]["score"], reverse=True)[:MAX_LEARNED_TERMS_PER_CYCLE]:
+        existing = learned_by_key.get(normalized, {"term": candidate["term"], "hits": 0, "score": 0, "first_seen_at": now})
+        existing["term"] = existing.get("term") or candidate["term"]
+        existing["hits"] = int(existing.get("hits") or 0) + 1
+        existing["score"] = float(existing.get("score") or 0) + float(candidate["score"])
+        existing["latest_seen_at"] = now
+        existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
+        learned_by_key[normalized] = existing
+
+    learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
+    model_state = {
+        "version": "coibe-monitor-v1",
+        "updated_at": now,
+        "cycles": int(state.get("cycles") or 0) + 1,
+        "learned_terms": learned_terms,
+        "last_training": {
+            "generated_at": analysis.get("generated_at"),
+            "items_analyzed": analysis.get("items_analyzed"),
+            "alerts_count": analysis.get("alerts_count"),
+            "search_terms_used": search_terms,
+            "gpu": gpu,
+            "model_storage": str(MODELS_DIR),
+            "legal_safety": "Aprendizado usado para priorizar busca e triagem; não conclui crime, culpa ou vínculo familiar.",
+        },
+    }
+    MONITOR_MODEL_STATE_PATH.write_text(json.dumps(model_state, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+    with MONITOR_MODEL_TRAINING_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(model_state["last_training"], ensure_ascii=False, default=json_default) + "\n")
+    return model_state
 
 
 async def get_json(client: httpx.AsyncClient, path: str) -> Any:
@@ -200,7 +363,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_parties_scan",
-            "/api/political/parties?limit=24&source=live",
+            f"/api/political/parties?limit={POLITICAL_PARTY_SCAN_LIMIT}&source=live",
             "public_political_risk_scan",
         )
         if political_parties is not None:
@@ -210,7 +373,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_people_scan",
-            "/api/political/politicians?limit=36&source=live",
+            f"/api/political/politicians?limit={POLITICAL_PEOPLE_SCAN_LIMIT}&source=live",
             "public_political_risk_scan",
         )
         if political_people is not None:
@@ -403,14 +566,34 @@ def ml_value_anomalies(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
         return {}
 
     try:
-        import pandas as pd
-        from sklearn.ensemble import IsolationForest
+        if ML_USE_GPU:
+            try:
+                import cudf
+                from cuml.ensemble import IsolationForest as GpuIsolationForest
 
-        frame = pd.DataFrame({"value": values})
-        model = IsolationForest(n_estimators=150, contamination=0.15, random_state=42)
-        predictions = model.fit_predict(frame[["value"]])
-        scores = model.decision_function(frame[["value"]])
-        model_name = "IsolationForest"
+                frame = cudf.DataFrame({"value": values})
+                model = GpuIsolationForest(n_estimators=150, contamination=0.15, random_state=42)
+                predictions = model.fit_predict(frame[["value"]]).to_numpy()
+                scores = model.decision_function(frame[["value"]]).to_numpy()
+                model_name = "cuML IsolationForest (GPU)"
+            except Exception:
+                import pandas as pd
+                from sklearn.ensemble import IsolationForest
+
+                frame = pd.DataFrame({"value": values})
+                model = IsolationForest(n_estimators=150, contamination=0.15, random_state=42)
+                predictions = model.fit_predict(frame[["value"]])
+                scores = model.decision_function(frame[["value"]])
+                model_name = "IsolationForest (CPU fallback; GPU indisponivel)"
+        else:
+            import pandas as pd
+            from sklearn.ensemble import IsolationForest
+
+            frame = pd.DataFrame({"value": values})
+            model = IsolationForest(n_estimators=150, contamination=0.15, random_state=42)
+            predictions = model.fit_predict(frame[["value"]])
+            scores = model.decision_function(frame[["value"]])
+            model_name = "IsolationForest"
     except Exception:
         avg = mean(values)
         deviation = pstdev(values) or 1
@@ -996,9 +1179,12 @@ def append_platform_library(paths: dict[str, Path], library_records: list[dict[s
 
 async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     stamp = now_slug()
-    state = load_collection_state(paths)
-    start_page = max(int(state.get("next_feed_page") or 1), 1)
-    snapshot = await collect_snapshot(args.api_base, args.search_terms, args.pages, args.page_size, start_page=start_page)
+    gpu = configure_gpu_runtime()
+    collection_state = load_collection_state(paths)
+    model_state = load_monitor_model_state()
+    search_terms = merged_search_terms(args.search_terms, model_state)
+    start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
+    snapshot = await collect_snapshot(args.api_base, search_terms, args.pages, args.page_size, start_page=start_page)
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
 
@@ -1066,6 +1252,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "feed_pages_failed": feed_pages_failed,
         "reset_reason": reset_reason,
     }
+    analysis["model"] = update_monitor_model_state(analysis, snapshot, search_terms, gpu)
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
     write_json(processed_path, analysis)
     write_json(latest_path, analysis)

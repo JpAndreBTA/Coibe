@@ -72,6 +72,7 @@ const POLITICAL_TYPE_LABELS = {
   contratos: 'Contratos/compras',
   doacoes: 'Doações eleitorais',
   vinculos: 'Vínculos próximos',
+  prioridade: 'Prioridade pública',
   partido: 'Partido',
   outros: 'Outros'
 };
@@ -525,7 +526,7 @@ export default function CoibeApp() {
   const [politicalPeople, setPoliticalPeople] = useState([]);
   const [politicalSearch, setPoliticalSearch] = useState('');
   const [politicalRiskFilter, setPoliticalRiskFilter] = useState('todos');
-  const [politicalSizeOrder, setPoliticalSizeOrder] = useState('valor');
+  const [politicalSizeOrder, setPoliticalSizeOrder] = useState('prioridade');
   const [politicalTypeFilter, setPoliticalTypeFilter] = useState('todos');
   const [loadingPolitical, setLoadingPolitical] = useState(false);
   const [politicalPagination, setPoliticalPagination] = useState({
@@ -589,6 +590,11 @@ export default function CoibeApp() {
         return text.includes(query);
       })
       .sort((left, right) => {
+        if (politicalSizeOrder === 'prioridade') {
+          return (Number(right.priority_score || 0) - Number(left.priority_score || 0))
+            || ((riskOrder[String(right.attention_level || '').toLowerCase()] || 0) - (riskOrder[String(left.attention_level || '').toLowerCase()] || 0))
+            || (Number(right.total_public_money || 0) - Number(left.total_public_money || 0));
+        }
         if (politicalSizeOrder === 'risco') {
           return (riskOrder[String(right.attention_level || '').toLowerCase()] || 0) - (riskOrder[String(left.attention_level || '').toLowerCase()] || 0);
         }
@@ -1698,6 +1704,7 @@ function queryFromResult(result) {
                         onChange={(event) => setPoliticalSizeOrder(event.target.value)}
                         className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
                       >
+                        <option className="bg-neutral-950" value="prioridade">Prioridade pública</option>
                         <option className="bg-neutral-950" value="valor">Maior dinheiro publico</option>
                         <option className="bg-neutral-950" value="viagens">Maior valor em viagens</option>
                         <option className="bg-neutral-950" value="registros">Mais registros</option>

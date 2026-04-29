@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -61,6 +61,11 @@ IBGE_STATES_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
 IBGE_STATES_GEOJSON_URL = "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR"
 POLITICAL_HIGH_VALUE_CONTRACT_THRESHOLD = Decimal(os.getenv("COIBE_POLITICAL_HIGH_VALUE_CONTRACT_THRESHOLD", "1000000"))
 POLITICAL_HIGH_VALUE_PERSON_THRESHOLD = Decimal(os.getenv("COIBE_POLITICAL_HIGH_VALUE_PERSON_THRESHOLD", "250000"))
+MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
+MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
+MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+COIBE_ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
+COIBE_GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
 FALLBACK_CONTRACTS_START = "2025-09-01"
 FALLBACK_CONTRACTS_END = "2025-09-30"
 AUTO_CONTRACT_WINDOWS_DAYS = (45, 120, 240)
@@ -148,18 +153,40 @@ POLITICAL_RELATED_PEOPLE = [
     {
         "title": "Luiz Inacio Lula da Silva",
         "aliases": ["lula", "luiz inacio", "luiz inacio lula", "lula da silva"],
-        "subtitle": "Pessoa publica/politica relacionada a busca",
+        "subtitle": "Presidente da Republica - prioridade de monitoramento",
+        "role": "Presidente da Republica",
+        "party": "PT",
+        "priority_score": 100,
         "related_queries": ["Lula", "Luiz Inacio Lula da Silva", "PT", "Presidencia", "Governo Federal"],
         "url": "https://www.gov.br/planalto/",
     },
     {
+        "title": "Geraldo Alckmin",
+        "aliases": ["geraldo alckmin", "alckmin", "geraldo jose rodrigues alckmin filho"],
+        "subtitle": "Vice-presidente da Republica - prioridade de monitoramento",
+        "role": "Vice-presidente da Republica",
+        "party": "PSB",
+        "priority_score": 95,
+        "related_queries": ["Geraldo Alckmin", "Alckmin", "PSB", "Vice-Presidencia", "MDIC"],
+        "url": "https://www.gov.br/planalto/pt-br/vice-presidencia",
+    },
+    {
         "title": "Jair Messias Bolsonaro",
         "aliases": ["jair bolsonaro", "bolsonaro", "jair messias bolsonaro"],
-        "subtitle": "Pessoa publica/politica relacionada a busca",
+        "subtitle": "Ex-presidente da Republica - prioridade de monitoramento historico",
+        "role": "Ex-presidente da Republica",
+        "party": "PL",
+        "priority_score": 80,
         "related_queries": ["Jair Bolsonaro", "Bolsonaro", "PL", "Presidencia", "Governo Federal"],
         "url": "https://www.tse.jus.br/",
     },
 ]
+
+POLITICAL_PRIORITY_PARTIES = {
+    "PT": 100,
+    "PSB": 85,
+    "PL": 75,
+}
 
 
 REFERENCE_PRICES = {
@@ -418,6 +445,7 @@ class LocalMonitorStatus(BaseModel):
     high_alerts_count: int = 0
     monitored_entities_count: int = 0
     collector_state: dict[str, Any] = Field(default_factory=dict)
+    model_status: dict[str, Any] = Field(default_factory=dict)
     acquisition_first: bool = True
     message: str
 
@@ -525,6 +553,8 @@ class PoliticalScanItem(BaseModel):
     analysis_types: list[str] = Field(default_factory=list)
     analysis_details: list[dict[str, Any]] = Field(default_factory=list)
     analyzed_at: datetime | None = None
+    priority_score: int = 0
+    priority_reason: str | None = None
     sources: list[MonitoringSource] = Field(default_factory=list)
     risks: list[PoliticalRiskFactor] = Field(default_factory=list)
 
@@ -2033,6 +2063,76 @@ def read_library_status(latest_analysis: dict[str, Any] | None = None) -> Librar
     )
 
 
+def read_monitor_model_state() -> dict[str, Any]:
+    if not MONITOR_MODEL_STATE_PATH.exists():
+        return {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "last_training": None}
+    try:
+        loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "last_training": None}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def gpu_status() -> dict[str, Any]:
+    status = {
+        "enabled_by_env": COIBE_ML_USE_GPU,
+        "memory_limit_mb": COIBE_GPU_MEMORY_LIMIT_MB,
+        "available": False,
+        "name": None,
+        "memory_total_mb": None,
+        "note": "GPU usada somente se COIBE_ML_USE_GPU=true e bibliotecas compatíveis estiverem instaladas.",
+    }
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            name, _, memory = result.stdout.strip().splitlines()[0].partition(",")
+            status.update(
+                {
+                    "available": True,
+                    "name": name.strip(),
+                    "memory_total_mb": int(memory.strip()) if memory.strip().isdigit() else None,
+                }
+            )
+    except Exception:
+        pass
+    return status
+
+
+def monitor_model_status() -> dict[str, Any]:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    state = read_monitor_model_state()
+    training_lines = 0
+    if MONITOR_MODEL_TRAINING_PATH.exists():
+        try:
+            with MONITOR_MODEL_TRAINING_PATH.open("r", encoding="utf-8") as handle:
+                training_lines = sum(1 for _ in handle)
+        except Exception:
+            training_lines = 0
+    learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    return {
+        "models_dir": str(MODELS_DIR),
+        "state_path": str(MONITOR_MODEL_STATE_PATH),
+        "training_path": str(MONITOR_MODEL_TRAINING_PATH),
+        "state_exists": MONITOR_MODEL_STATE_PATH.exists(),
+        "training_history_exists": MONITOR_MODEL_TRAINING_PATH.exists(),
+        "training_events": training_lines,
+        "version": state.get("version") or "coibe-monitor-v1",
+        "updated_at": state.get("updated_at"),
+        "cycles": int(state.get("cycles") or 0),
+        "learned_terms_count": len(learned_terms),
+        "learned_terms": learned_terms[:25],
+        "last_training": state.get("last_training"),
+        "gpu": gpu_status(),
+        "legal_safety": "O modelo aprende termos e prioridades para triagem; não conclui crime, culpa, parentesco ou irregularidade sem validação humana.",
+    }
+
+
 def normalize_text(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
     text = "".join(char for char in text if not unicodedata.combining(char))
@@ -3455,6 +3555,77 @@ def political_attention_level(score: int) -> str:
     return "baixo"
 
 
+def political_priority_for(name: str, role: str | None = None, party: str | None = None, item_type: str | None = None) -> tuple[int, str | None]:
+    normalized_name = normalize_text(name)
+    normalized_role = normalize_text(role)
+    normalized_party = normalize_text(party)
+    if any(term in normalized_role for term in ("PRESIDENTE DA REPUBLICA", "PRESIDENTE DO BRASIL")) and "VICE" not in normalized_role and "EX" not in normalized_role:
+        return 100, "Presidencia da Republica atual"
+    if "VICE PRESIDENTE" in normalized_role or "VICE-PRESIDENTE" in normalized_role:
+        return 95, "Vice-presidencia da Republica atual"
+    if "EX PRESIDENTE" in normalized_role or "EX-PRESIDENTE" in normalized_role:
+        return 80, "Ex-presidente da Republica"
+
+    for person in POLITICAL_RELATED_PEOPLE:
+        names = [person.get("title"), *(person.get("aliases") or [])]
+        if any(normalized_name == normalize_text(value) or normalize_text(value) in normalized_name for value in names if value):
+            return int(person.get("priority_score") or 70), str(person.get("subtitle") or "Pessoa publica prioritaria")
+
+    if normalized_party in POLITICAL_PRIORITY_PARTIES:
+        return POLITICAL_PRIORITY_PARTIES[normalized_party], f"Partido prioritario: {normalized_party}"
+    if "SENADOR" in normalized_role:
+        return 65, "Senado Federal"
+    if "DEPUTADO FEDERAL" in normalized_role and "EX" not in normalized_role:
+        return 55, "Camara dos Deputados - mandato atual"
+    if "EX DEPUTADO" in normalized_role:
+        return 40, "Ex-mandato federal"
+    if item_type == "partido":
+        return POLITICAL_PRIORITY_PARTIES.get(normalized_party, 35), "Partido politico monitorado"
+    return 25, None
+
+
+def apply_political_priority(item: PoliticalScanItem) -> PoliticalScanItem:
+    score, reason = political_priority_for(item.name, item.role, item.party, item.type)
+    item.priority_score = max(item.priority_score or 0, score)
+    if reason and not item.priority_reason:
+        item.priority_reason = reason
+    already_has_priority_detail = any(
+        isinstance(detail, dict) and detail.get("type") == "prioridade"
+        for detail in item.analysis_details
+    )
+    if item.priority_reason and not already_has_priority_detail:
+        item.analysis_details.append(
+            {
+                "type": "prioridade",
+                "title": "Prioridade de varredura",
+                "description": (
+                    "Este item aparece antes por prioridade institucional do monitor. "
+                    "A ordem prioriza cargos maiores, Presidencia, Vice-Presidencia, partidos ligados ao Executivo federal e ex-presidentes, sem limitar a varredura a eles."
+                ),
+                "person": item.name,
+                "party": item.party,
+                "role": item.role,
+                "priority_score": item.priority_score,
+                "priority_reason": item.priority_reason,
+            }
+        )
+        if "prioridade" not in item.analysis_types:
+            item.analysis_types.append("prioridade")
+    return item
+
+
+def political_sort_key(item: PoliticalScanItem) -> tuple[int, int, Decimal, int, str]:
+    risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
+    priority = item.priority_score or political_priority_for(item.name, item.role, item.party, item.type)[0]
+    return (
+        priority,
+        risk_rank.get(normalize_text(item.attention_level).lower(), 0),
+        item.total_public_money,
+        item.records_count,
+        item.name,
+    )
+
+
 def expense_value(expense: dict[str, Any]) -> Decimal:
     return parse_decimal(expense.get("valorLiquido") or expense.get("valorDocumento") or expense.get("valorGlosa") or 0) or Decimal("0")
 
@@ -3875,17 +4046,19 @@ def legal_attention_factor(name: str, role: str | None = None) -> PoliticalRiskF
 
 def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
     title = str(person.get("title") or "Pessoa pública")
+    role = str(person.get("role") or "Pessoa pública ou política relacionada")
+    party = str(person.get("party") or "")
     related_people = [title, *[str(query) for query in person.get("related_queries", [])[:5]]]
     contract_details, contract_risks, contract_people = local_contract_crosscheck_for_political(
         title,
-        "Pessoa pública ou política relacionada",
-        None,
+        role,
+        party,
         related_people,
     )
     donation_details, donation_risks = electoral_donation_crosscheck_for_political(
         title,
-        "Pessoa pública ou política relacionada",
-        None,
+        role,
+        party,
         related_people,
     )
     sources = [
@@ -3896,12 +4069,13 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
             kind="Fonte oficial ou institucional para contexto",
         ),
     ]
-    return PoliticalScanItem(
+    item = PoliticalScanItem(
         id=record_fingerprint([title, "related_public_person"]),
         type="politico",
         name=title,
         subtitle=str(person.get("subtitle") or "Pessoa pública relacionada"),
-        role="Pessoa pública ou política relacionada",
+        party=party or None,
+        role=role,
         attention_level="baixo",
         summary="Nome incluído para cruzamento preventivo com fontes legais, eleitorais, contratos e controle público.",
         people=list(dict.fromkeys([*related_people, *contract_people]))[:16],
@@ -3913,13 +4087,13 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
                 "description": "Links oficiais para conferência humana de processos públicos, jurisprudência, contas eleitorais e controle externo.",
                 "person": title,
             },
-            contract_crosscheck_detail(title, "Pessoa pública ou política relacionada"),
+            contract_crosscheck_detail(title, role, party),
             *contract_details,
             *donation_details,
         ],
         sources=sources,
         risks=[
-            legal_attention_factor(title, "Pessoa pública ou política relacionada"),
+            legal_attention_factor(title, role),
             *contract_risks,
             *donation_risks,
             PoliticalRiskFactor(
@@ -3932,6 +4106,7 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
             ),
         ],
     )
+    return apply_political_priority(item)
 
 
 def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, Any]], current: bool = True) -> PoliticalScanItem:
@@ -4057,7 +4232,7 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
         score += 15
         level = political_attention_level(score)
 
-    return PoliticalScanItem(
+    return apply_political_priority(PoliticalScanItem(
         id=str(deputy.get("id")),
         type="politico",
         name=str(deputy.get("nome") or "Parlamentar"),
@@ -4075,7 +4250,7 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
         analysis_details=analysis_details,
         sources=[*expense_sources_for_deputy(deputy.get("id")), *legal_public_sources_for_name(str(deputy.get("nome") or ""))],
         risks=risks,
-    )
+    ))
 
 
 async def fetch_current_deputies(limit: int = 24, party: str | None = None, legislature: int | None = None) -> list[dict[str, Any]]:
@@ -4163,7 +4338,7 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
             senator_people,
         )
         items.append(
-            PoliticalScanItem(
+            apply_political_priority(PoliticalScanItem(
                 id=str(ident.get("CodigoParlamentar") or name),
                 type="politico",
                 name=str(name),
@@ -4207,7 +4382,7 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                         url="https://legis.senado.leg.br/dadosabertos/senador/lista/atual",
                     )
                 ],
-            )
+            ))
         )
 
     if not party:
@@ -4216,7 +4391,7 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 continue
             items.append(public_related_political_item(person))
 
-    items.sort(key=lambda item: ({"alto": 3, "médio": 2, "baixo": 1}.get(item.attention_level, 0), item.total_public_money), reverse=True)
+    items.sort(key=political_sort_key, reverse=True)
     return items[:limit]
 
 
@@ -4232,6 +4407,13 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
             party for party in parties
             if normalized_query in normalize_text(f"{party.get('sigla')} {party.get('nome')}")
         ]
+    parties.sort(
+        key=lambda party: (
+            POLITICAL_PRIORITY_PARTIES.get(normalize_text(party.get("sigla")), 35),
+            normalize_text(party.get("sigla")),
+        ),
+        reverse=True,
+    )
     parties = parties[:limit]
 
     async def build_party_item(party: dict[str, Any]) -> PoliticalScanItem:
@@ -4312,7 +4494,7 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
         analysis_details.extend(contract_details)
         analysis_details.extend(donation_details)
         analysis_details.extend(proximity_details)
-        return PoliticalScanItem(
+        return apply_political_priority(PoliticalScanItem(
             id=str(party.get("id") or sigla),
             type="partido",
             name=f"{sigla} - {party.get('nome')}".strip(" -"),
@@ -4350,11 +4532,11 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
                 ),
             ],
             risks=risks,
-        )
+        ))
 
     items = await asyncio.gather(*(build_party_item(party) for party in parties))
-    items.sort(key=lambda item: ({"alto": 3, "médio": 2, "baixo": 1}.get(item.attention_level, 0), item.total_public_money), reverse=True)
-    return list(items)
+    items.sort(key=political_sort_key, reverse=True)
+    return list(items)[:limit]
 
 
 POLITICAL_PARTY_SOURCES = [
@@ -4395,10 +4577,8 @@ def cached_political_items(
     )
     normalized_query = normalize_text(q)
     normalized_party = normalize_text(party)
-    normalized_risk = normalize_text(risk_level)
-    if normalized_risk == "medio":
-        normalized_risk = "medio"
-    normalized_analysis_type = normalize_text(analysis_type)
+    normalized_risk = normalize_text(risk_level).lower()
+    normalized_analysis_type = normalize_text(analysis_type).lower()
     by_key: dict[str, PoliticalScanItem] = {}
     latest_collected_at: datetime | None = None
 
@@ -4415,13 +4595,16 @@ def cached_political_items(
             continue
 
         if normalized_analysis_type and normalized_analysis_type != "todos":
-            item_types = {normalize_text(value) for value in item.analysis_types}
+            priority_score, _ = political_priority_for(item.name, item.role, item.party, item.type)
+            item_types = {normalize_text(value).lower() for value in item.analysis_types}
             detail_types = {
-                normalize_text(detail.get("type"))
+                normalize_text(detail.get("type")).lower()
                 for detail in item.analysis_details
                 if isinstance(detail, dict)
             }
-            if normalized_analysis_type not in item_types and normalized_analysis_type not in detail_types:
+            if normalized_analysis_type == "prioridade" and priority_score > 0:
+                pass
+            elif normalized_analysis_type not in item_types and normalized_analysis_type not in detail_types:
                 continue
 
         detail_text = " ".join(
@@ -4461,14 +4644,19 @@ def cached_political_items(
 
     risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
     items = list(by_key.values())
+    for item in items:
+        apply_political_priority(item)
+
     if size_order == "risco":
-        items.sort(key=lambda item: (risk_rank.get(normalize_text(item.attention_level), 0), item.total_public_money, item.records_count, item.name), reverse=True)
+        items.sort(key=lambda item: (risk_rank.get(normalize_text(item.attention_level).lower(), 0), item.total_public_money, item.records_count, item.name), reverse=True)
     elif size_order == "viagens":
         items.sort(key=lambda item: (item.travel_public_money, item.total_public_money, item.records_count, item.name), reverse=True)
     elif size_order == "registros":
         items.sort(key=lambda item: (item.records_count, item.total_public_money, item.name), reverse=True)
+    elif size_order == "valor":
+        items.sort(key=lambda item: (item.total_public_money, risk_rank.get(normalize_text(item.attention_level).lower(), 0), item.records_count, item.name), reverse=True)
     else:
-        items.sort(key=lambda item: (item.total_public_money, risk_rank.get(normalize_text(item.attention_level), 0), item.records_count, item.name), reverse=True)
+        items.sort(key=political_sort_key, reverse=True)
     return items[:limit], latest_collected_at
 
 
@@ -4545,9 +4733,68 @@ async def index() -> FileResponse:
     return FileResponse("static/index.html")
 
 
+@app.get("/backend", response_class=HTMLResponse, include_in_schema=False)
+async def backend_ui() -> HTMLResponse:
+    return HTMLResponse(
+        """
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>COIBE.IA Backend</title>
+  <style>
+    body{margin:0;background:#070707;color:#f5f5f5;font-family:Inter,system-ui,sans-serif}
+    main{width:min(1080px,calc(100% - 32px));margin:0 auto;padding:28px 0}
+    h1{font-size:26px;margin:0 0 4px}.muted{color:#a3a3a3}
+    .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:18px}
+    .card{border:1px solid #2a2a2a;background:#171717;border-radius:8px;padding:16px}
+    strong{display:block;font-size:24px;margin-top:8px}.red{color:#ef4444}.ok{color:#22c55e}
+    pre{white-space:pre-wrap;word-break:break-word;background:#101010;border:1px solid #2a2a2a;border-radius:8px;padding:14px;max-height:360px;overflow:auto}
+    a{color:#f87171} small{color:#a3a3a3}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>COIBE.IA Backend</h1>
+    <p class="muted">Status do monitor, modelo salvo em Models e configuração de GPU.</p>
+    <section class="grid" id="cards"></section>
+    <h2>Modelo de monitoramento</h2>
+    <pre id="model">Carregando...</pre>
+    <h2>Monitor</h2>
+    <pre id="monitor">Carregando...</pre>
+    <p><small>Leitura preventiva: a plataforma prioriza conferência humana e não conclui crime, culpa, parentesco ou irregularidade.</small></p>
+  </main>
+  <script>
+    async function getJson(path){ const r = await fetch(path, {cache:'no-store'}); if(!r.ok) throw new Error(path+' HTTP '+r.status); return r.json(); }
+    function card(label,value,note,cls=''){ return `<article class="card"><span class="muted">${label}</span><strong class="${cls}">${value}</strong><small>${note||''}</small></article>`; }
+    async function load(){
+      const [model, monitor] = await Promise.all([getJson('/api/models/status'), getJson('/api/monitoring/status')]);
+      document.getElementById('cards').innerHTML = [
+        card('Modelo', model.version || 'n/d', model.updated_at || 'aguardando treino'),
+        card('Termos aprendidos', model.learned_terms_count || 0, model.models_dir),
+        card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled_by_env ? 'ativada por env' : 'desativada por env', model.gpu.available ? 'ok' : ''),
+        card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),
+      ].join('');
+      document.getElementById('model').textContent = JSON.stringify(model, null, 2);
+      document.getElementById('monitor').textContent = JSON.stringify(monitor, null, 2);
+    }
+    load().catch(err => { document.getElementById('model').textContent = String(err); });
+  </script>
+</body>
+</html>
+        """.strip()
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/models/status")
+async def models_status() -> dict[str, Any]:
+    return monitor_model_status()
 
 
 @app.get("/api/storage/status")
@@ -4692,6 +4939,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
     latest_data: dict[str, Any] | None = None
     if not data_path_exists(LOCAL_MONITOR_LATEST_PATH):
         library_status = read_library_status()
+        model_status = monitor_model_status()
         return LocalMonitorStatus(
             running=False,
             latest_file_exists=False,
@@ -4703,6 +4951,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
             library_records_count=library_status.records_count,
             library_records_added=library_status.records_added_last_cycle,
             public_codes_count=library_status.public_codes_count,
+            model_status=model_status,
             **platform_metrics,
             message="A análise contínua ainda não gerou o primeiro ciclo.",
         )
@@ -4712,6 +4961,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         latest_data = data
     except Exception:
         library_status = read_library_status()
+        model_status = monitor_model_status()
         return LocalMonitorStatus(
             running=False,
             latest_file_exists=True,
@@ -4723,6 +4973,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
             library_records_count=library_status.records_count,
             library_records_added=library_status.records_added_last_cycle,
             public_codes_count=library_status.public_codes_count,
+            model_status=model_status,
             **platform_metrics,
             message="A análise existe, mas não pôde ser lida.",
         )
@@ -4737,6 +4988,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
             running = False
 
     library_status = read_library_status(latest_data)
+    model_status = monitor_model_status()
     collector_state = data.get("collector_state") if isinstance(data.get("collector_state"), dict) else {}
     knowledge_items_count = max(
         int(data.get("items_analyzed") or 0),
@@ -4763,6 +5015,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         library_records_added=library_status.records_added_last_cycle,
         public_codes_count=library_status.public_codes_count,
         collector_state=collector_state,
+        model_status=model_status,
         **platform_metrics,
         message="Análise contínua atualizada recentemente." if running else "Análise contínua aguardando nova atualização.",
     )
@@ -5052,7 +5305,7 @@ async def political_parties(
     page_size: int = Query(10, ge=10, le=50),
     risk_level: str | None = Query(None),
     analysis_type: str | None = Query(None),
-    size_order: str | None = Query(None, pattern="^(valor|viagens|registros|risco)$"),
+    size_order: str | None = Query(None, pattern="^(prioridade|valor|viagens|registros|risco)$"),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
@@ -5103,7 +5356,7 @@ async def political_politicians(
     page_size: int = Query(10, ge=10, le=50),
     risk_level: str | None = Query(None),
     analysis_type: str | None = Query(None),
-    size_order: str | None = Query(None, pattern="^(valor|viagens|registros|risco)$"),
+    size_order: str | None = Query(None, pattern="^(prioridade|valor|viagens|registros|risco)$"),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
