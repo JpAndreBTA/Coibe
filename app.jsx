@@ -1217,6 +1217,7 @@ function queryFromResult(result) {
     setFeedQuery(searchTerm);
     setActiveSearchFilter({ type: 'busca', label: searchTerm, detail: 'Termo livre' });
     setSearchResults([]);
+    loadUniversalSearchProgressive(searchTerm);
     loadFeed(1, false, searchTerm, '');
   }
 

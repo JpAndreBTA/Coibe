@@ -48,6 +48,8 @@ USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {
 SHARED_MEMORY_LIMIT_MB = int(os.getenv("COIBE_SHARED_MEMORY_LIMIT_MB", "4096"))
 RESEARCH_TIMEOUT_SECONDS = int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90"))
 MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12"))
+MONITOR_SEARCH_TERMS_PER_CYCLE = int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE", "8"))
+MONITOR_SEARCH_DELAY_SECONDS = float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0"))
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
 CUDA_DLL_HANDLES: list[Any] = []
@@ -159,6 +161,8 @@ def load_monitor_config() -> dict[str, Any]:
         "political_party_scan_limit": POLITICAL_PARTY_SCAN_LIMIT,
         "political_people_scan_limit": POLITICAL_PEOPLE_SCAN_LIMIT,
         "learned_terms_per_cycle": MAX_LEARNED_TERMS_PER_CYCLE,
+        "search_terms_per_cycle": MONITOR_SEARCH_TERMS_PER_CYCLE,
+        "search_delay_seconds": MONITOR_SEARCH_DELAY_SECONDS,
     }
     if MONITOR_MODEL_CONFIG_PATH.exists():
         try:
@@ -613,6 +617,18 @@ async def get_json(client: httpx.AsyncClient, path: str) -> Any:
     return response.json()
 
 
+def rate_limit_retry_after(error: Exception) -> float | None:
+    if not isinstance(error, httpx.HTTPStatusError):
+        return None
+    if error.response.status_code != 429:
+        return None
+    retry_after = error.response.headers.get("retry-after")
+    try:
+        return max(float(retry_after or 0), 1.0)
+    except ValueError:
+        return 30.0
+
+
 async def collect_connector(
     client: httpx.AsyncClient,
     snapshot: dict[str, Any],
@@ -653,20 +669,25 @@ async def collect_connector(
         return payload
     except Exception as exc:
         elapsed = asyncio.get_running_loop().time() - start_perf
+        retry_after = rate_limit_retry_after(exc)
         snapshot["connectors"].append(
             {
                 "name": name,
                 "kind": kind,
                 "path": path,
-                "status": "error",
+                "status": "rate_limited" if retry_after else "error",
                 "record_count": 0,
                 "error": str(exc),
+                "retry_after_seconds": retry_after,
                 "started_at": started_at.isoformat(),
                 "finished_at": brasilia_now().isoformat(),
             }
         )
         snapshot["errors"].append({"connector": name, "error": str(exc)})
-        monitor_print(f"ERRO {name} | tempo={elapsed:.2f}s | detalhe={exc}")
+        if retry_after:
+            monitor_print(f"LIMITE {name} | tempo={elapsed:.2f}s | aguardando {retry_after:.0f}s antes de novas buscas | detalhe={exc}")
+        else:
+            monitor_print(f"ERRO {name} | tempo={elapsed:.2f}s | detalhe={exc}")
         return None
 
 
@@ -679,6 +700,8 @@ async def collect_snapshot(
     timeout_seconds: int = 90,
     political_party_limit: int = POLITICAL_PARTY_SCAN_LIMIT,
     political_people_limit: int = POLITICAL_PEOPLE_SCAN_LIMIT,
+    search_terms_per_cycle: int = MONITOR_SEARCH_TERMS_PER_CYCLE,
+    search_delay_seconds: float = MONITOR_SEARCH_DELAY_SECONDS,
 ) -> dict[str, Any]:
     timeout_value = max(15, int(timeout_seconds))
     timeout = httpx.Timeout(float(timeout_value), connect=min(10.0, float(timeout_value)))
@@ -767,7 +790,17 @@ async def collect_snapshot(
             else:
                 break
 
-        for term in search_terms:
+        search_limit = max(0, int(search_terms_per_cycle))
+        search_delay = max(0.0, float(search_delay_seconds))
+        limited_search_terms = search_terms[:search_limit] if search_limit else []
+        if len(search_terms) > len(limited_search_terms):
+            monitor_print(
+                f"Busca universal limitada neste ciclo | termos_usados={len(limited_search_terms)} "
+                f"de {len(search_terms)} | ajuste COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE se precisar"
+            )
+        for index, term in enumerate(limited_search_terms):
+            if search_delay and index > 0:
+                await asyncio.sleep(search_delay)
             encoded = httpx.QueryParams({"q": term})
             search_result = await collect_connector(
                 client,
@@ -777,6 +810,14 @@ async def collect_snapshot(
                 "public_api_search",
             )
             snapshot["searches"][term] = search_result if search_result is not None else {"error": "connector failed", "results": []}
+            latest_connector = snapshot["connectors"][-1] if snapshot.get("connectors") else {}
+            if latest_connector.get("status") == "rate_limited":
+                retry_after = float(latest_connector.get("retry_after_seconds") or 30)
+                monitor_print(
+                    f"Busca universal pausada por limite HTTP 429 | retomara no proximo ciclo | "
+                    f"retry_after={retry_after:.0f}s"
+                )
+                break
 
     return snapshot
 
@@ -1580,6 +1621,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     timeout_seconds = int(monitor_config.get("research_timeout_seconds") or RESEARCH_TIMEOUT_SECONDS)
     political_party_limit = int(monitor_config.get("political_party_scan_limit") or POLITICAL_PARTY_SCAN_LIMIT)
     political_people_limit = int(monitor_config.get("political_people_scan_limit") or POLITICAL_PEOPLE_SCAN_LIMIT)
+    search_terms_per_cycle = int(monitor_config.get("search_terms_per_cycle") or MONITOR_SEARCH_TERMS_PER_CYCLE)
+    search_delay_seconds = float(monitor_config.get("search_delay_seconds") or MONITOR_SEARCH_DELAY_SECONDS)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
     monitor_print(
         "Iniciando ciclo de monitoramento | "
@@ -1597,6 +1640,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         timeout_seconds=timeout_seconds,
         political_party_limit=political_party_limit,
         political_people_limit=political_people_limit,
+        search_terms_per_cycle=search_terms_per_cycle,
+        search_delay_seconds=search_delay_seconds,
     )
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)

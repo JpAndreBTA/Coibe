@@ -429,6 +429,10 @@ class UniversalSearchResponse(BaseModel):
     generated_at: datetime
     sources: list[str]
     results: list[UniversalSearchResult]
+    from_cache: bool = False
+    cache_status: str = "live"
+    cached_at: datetime | None = None
+    public_api_checked: bool = True
 
 
 class LocalMonitorStatus(BaseModel):
@@ -484,6 +488,8 @@ class MonitorModelConfig(BaseModel):
     political_party_scan_limit: int = Field(default=12, ge=1, le=24)
     political_people_scan_limit: int = Field(default=24, ge=1, le=36)
     learned_terms_per_cycle: int = Field(default=12, ge=1, le=100)
+    search_terms_per_cycle: int = Field(default=8, ge=0, le=60)
+    search_delay_seconds: float = Field(default=2.0, ge=0, le=60)
 
 
 class SpatialRiskRequest(BaseModel):
@@ -627,7 +633,13 @@ def check_rate_limit(request: Request) -> None:
     timestamps = [stamp for stamp in RATE_LIMIT_BUCKETS.get(key, []) if now - stamp < window]
     if len(timestamps) >= limit:
         RATE_LIMIT_BUCKETS[key] = timestamps
-        raise HTTPException(status_code=429, detail="Muitas requisicoes. Tente novamente em instantes.")
+        oldest = min(timestamps) if timestamps else now
+        retry_after = max(1, int(math.ceil(window - (now - oldest))))
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas requisicoes. Tente novamente em instantes.",
+            headers={"Retry-After": str(retry_after)},
+        )
     timestamps.append(now)
     RATE_LIMIT_BUCKETS[key] = timestamps
 
@@ -2153,6 +2165,8 @@ def default_monitor_model_config() -> MonitorModelConfig:
         political_party_scan_limit=int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12")),
         political_people_scan_limit=int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24")),
         learned_terms_per_cycle=int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12")),
+        search_terms_per_cycle=int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE", "8")),
+        search_delay_seconds=float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0")),
     )
 
 
@@ -2436,6 +2450,10 @@ def load_cached_universal_search(query: str) -> UniversalSearchResponse | None:
         if not isinstance(response_data, dict):
             return None
         response = UniversalSearchResponse.model_validate(response_data)
+        response.from_cache = True
+        response.cache_status = "hit"
+        response.cached_at = cached_at
+        response.public_api_checked = bool(payload.get("public_api_checked", bool(response.results)))
         response.sources = ["Cache local COIBE.IA", *[source for source in response.sources if source != "Cache local COIBE.IA"]]
         return response
     except Exception:
@@ -2443,13 +2461,55 @@ def load_cached_universal_search(query: str) -> UniversalSearchResponse | None:
 
 
 def save_cached_universal_search(query: str, response: UniversalSearchResponse) -> None:
+    response.from_cache = False
+    response.cache_status = "stored"
+    response.public_api_checked = True
     payload = {
         "query": query,
         "normalized_query": normalize_text(query),
         "cached_at": brasilia_now().isoformat(),
+        "public_api_checked": True,
+        "result_count": len(response.results),
         "response": response.model_dump(mode="json"),
     }
     write_json(search_cache_path(query), payload)
+
+
+def save_universal_search_public_records(query: str, response: UniversalSearchResponse) -> int:
+    existing = load_public_records()
+    by_key: dict[str, dict[str, Any]] = {}
+    for index, record in enumerate(existing):
+        key = str(record.get("record_key") or "")
+        if not key:
+            key = f"legacy:{index}:{record_fingerprint([record.get('title'), record.get('source'), record.get('url')])}"
+            record["record_key"] = key
+        by_key[key] = record
+    added = 0
+    collected_at = brasilia_now().isoformat()
+    for result in response.results:
+        stable = record_fingerprint([query, result.type, result.title, result.subtitle, result.url])
+        record_key = f"search:{stable}"
+        if record_key not in by_key:
+            added += 1
+        by_key[record_key] = {
+            "record_key": record_key,
+            "record_type": result.type,
+            "source": result.source,
+            "query": query,
+            "title": result.title,
+            "subtitle": result.subtitle,
+            "url": result.url,
+            "risk_level": result.risk_level,
+            "collected_at": collected_at,
+            "cached_from": "api/search",
+            "payload": result.payload,
+            "normalized_title": normalize_text(result.title),
+            "normalized_source": normalize_text(result.source),
+        }
+    merged = list(by_key.values())
+    merged.sort(key=lambda row: str(row.get("collected_at") or ""), reverse=True)
+    write_json(LOCAL_PUBLIC_RECORDS_PATH, merged[:5000])
+    return added
 
 
 def superpricing_search_results(q: str, limit: int = 8) -> list[UniversalSearchResult]:
@@ -5100,6 +5160,8 @@ async def backend_ui(request: Request) -> HTMLResponse:
       <label>Partidos por varredura<input name="political_party_scan_limit" type="number" min="1" max="24" /></label>
       <label>Políticos por varredura<input name="political_people_scan_limit" type="number" min="1" max="36" /></label>
       <label>Termos aprendidos por ciclo<input name="learned_terms_per_cycle" type="number" min="1" max="100" /></label>
+      <label>Buscas universais por ciclo<input name="search_terms_per_cycle" type="number" min="0" max="60" /></label>
+      <label>Espera entre buscas universais (segundos)<input name="search_delay_seconds" type="number" min="0" max="60" step="0.5" /></label>
       <button type="submit">Salvar configuração local</button>
       <span id="saveStatus" class="muted"></span>
     </form>
@@ -5486,9 +5548,12 @@ async def library_status() -> LibraryStatusResponse:
 
 
 @app.get("/api/search", response_model=UniversalSearchResponse)
-async def universal_search(q: str = Query(..., min_length=2)) -> UniversalSearchResponse:
+async def universal_search(
+    q: str = Query(..., min_length=2),
+    refresh: bool = Query(False, description="Ignora cache e consulta as APIs publicas novamente."),
+) -> UniversalSearchResponse:
     cached = load_cached_universal_search(q)
-    if cached:
+    if cached and not refresh and cached.public_api_checked:
         return cached
 
     results: list[UniversalSearchResult] = []
@@ -5525,8 +5590,12 @@ async def universal_search(q: str = Query(..., min_length=2)) -> UniversalSearch
             "Portal da Transparencia CGU",
         ],
         results=results[:30],
+        from_cache=False,
+        cache_status="refreshed" if refresh else ("miss" if cached is None else "revalidated"),
+        public_api_checked=True,
     )
     save_cached_universal_search(q, response)
+    save_universal_search_public_records(q, response)
     return response
 
 
