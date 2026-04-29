@@ -1699,7 +1699,7 @@ function queryFromResult(result) {
                 </section>
 
                 <div className="rounded border border-neutral-800 bg-neutral-900 p-3 text-xs leading-5 text-neutral-400">
-                  Nota: estes pontos indicam prioridade de conferência em dados oficiais. Não são acusação, prova de crime ou conclusão jurídica.
+                  Nota: estes pontos indicam prioridade de conferência em dados oficiais. Links de processos, contas e controle externo são consultas públicas para leitura humana. A plataforma não afirma crime, culpa, suborno, corrupção nem desfecho jurídico.
                 </div>
               </div>
             </div>

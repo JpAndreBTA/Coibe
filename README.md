@@ -171,9 +171,13 @@ GET /api/political/politicians?limit=18
 
 As abas **Partido** e **Político** mostram fatores de atenção em linguagem simples,
 sem acusação ou conclusão jurídica. A leitura usa dados reais da Câmara dos
-Deputados, Senado Federal, TSE e cruzamentos internos da plataforma para destacar:
-volume de dinheiro público no recorte, viagens/deslocamentos, concentração de
-fornecedores, pessoas e empresas envolvidas e fontes oficiais para conferência.
+Deputados, Senado Federal, TSE, STF, TCU e cruzamentos internos da plataforma
+para destacar: políticos em exercício, políticos fora do exercício, pessoas
+públicas relacionadas, volume de dinheiro público no recorte,
+viagens/deslocamentos, concentração de fornecedores, pessoas e empresas
+envolvidas e fontes oficiais para conferência de processos, contas e controle
+externo. A plataforma lista consultas oficiais; não conclui crime, culpa,
+suborno, corrupção ou desfecho judicial.
 
 ### CNPJ + Red Flag 01
 

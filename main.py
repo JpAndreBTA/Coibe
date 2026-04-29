@@ -55,6 +55,8 @@ SENADO_SENADORES_URL = "https://legis.senado.leg.br/dadosabertos/senador/lista/a
 STF_PROCESSOS_URL = "https://portal.stf.jus.br/processos/listarProcessos.asp"
 STF_JURISPRUDENCIA_URL = "https://jurisprudencia.stf.jus.br/pages/search"
 TSE_PARTIDOS_URL = "https://www.tse.jus.br/partidos"
+TSE_CONTAS_ELEITORAIS_URL = "https://divulgacandcontas.tse.jus.br/divulga/"
+TCU_PROCESSOS_URL = "https://pesquisa.apps.tcu.gov.br/#/pesquisa/processo"
 IBGE_STATES_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
 IBGE_STATES_GEOJSON_URL = "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR"
 FALLBACK_CONTRACTS_START = "2025-09-01"
@@ -3476,7 +3478,82 @@ def expense_sources_for_deputy(deputy_id: Any) -> list[MonitoringSource]:
     ]
 
 
-def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, Any]]) -> PoliticalScanItem:
+def legal_public_sources_for_name(name: str) -> list[MonitoringSource]:
+    clean = " ".join(str(name or "").split())
+    encoded = urlencode({"termo": clean})
+    return [
+        MonitoringSource(
+            label="STF - consulta processual pública",
+            url=stf_process_link(clean),
+            kind="Busca oficial por processos públicos; exige conferência humana do resultado",
+        ),
+        MonitoringSource(
+            label="STF - jurisprudência",
+            url=stf_jurisprudence_link(clean),
+            kind="Busca oficial por decisões e acórdãos públicos",
+        ),
+        MonitoringSource(
+            label="TCU - pesquisa de processos",
+            url=f"{TCU_PROCESSOS_URL}?{encoded}",
+            kind="Busca oficial de processos de controle externo",
+        ),
+        MonitoringSource(
+            label="TSE - divulgação de candidaturas e contas eleitorais",
+            url=TSE_CONTAS_ELEITORAIS_URL,
+            kind="Portal oficial para conferir candidaturas, bens e contas eleitorais",
+        ),
+    ]
+
+
+def legal_attention_factor(name: str, role: str | None = None) -> PoliticalRiskFactor:
+    return PoliticalRiskFactor(
+        level="baixo",
+        title="Checagens legais e de controle disponíveis",
+        message=(
+            "Há consultas oficiais para verificar processos públicos, decisões, contas eleitorais e controle externo. "
+            "A plataforma lista as fontes; a conclusão depende da leitura do órgão competente."
+        ),
+        evidence={"person": name, "role": role, "legal_conclusion": "não inferida automaticamente"},
+        source="STF, TCU e TSE",
+        url=stf_process_link(name),
+    )
+
+
+def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
+    title = str(person.get("title") or "Pessoa pública")
+    sources = [
+        *legal_public_sources_for_name(title),
+        MonitoringSource(
+            label="Fonte pública informativa relacionada",
+            url=str(person.get("url") or "https://www.tse.jus.br/"),
+            kind="Fonte oficial ou institucional para contexto",
+        ),
+    ]
+    return PoliticalScanItem(
+        id=record_fingerprint([title, "related_public_person"]),
+        type="politico",
+        name=title,
+        subtitle=str(person.get("subtitle") or "Pessoa pública relacionada"),
+        role="Pessoa pública ou política relacionada",
+        attention_level="baixo",
+        summary="Nome incluído para cruzamento preventivo com fontes legais, eleitorais e de controle público.",
+        people=[title, *[str(query) for query in person.get("related_queries", [])[:5]]],
+        sources=sources,
+        risks=[
+            legal_attention_factor(title, "Pessoa pública ou política relacionada"),
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Cruzamento por nomes relacionados",
+                message="Termos relacionados são usados para buscar contratos, partidos, processos públicos e registros oficiais.",
+                evidence={"related_queries": person.get("related_queries", [])},
+                source="COIBE.IA - busca política relacionada",
+                url=str(person.get("url") or "https://www.tse.jus.br/"),
+            ),
+        ],
+    )
+
+
+def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, Any]], current: bool = True) -> PoliticalScanItem:
     total = sum((expense_value(expense) for expense in expenses), Decimal("0"))
     travel_total = sum((expense_value(expense) for expense in expenses if is_travel_expense(expense)), Decimal("0"))
     suppliers: dict[str, Decimal] = {}
@@ -3540,7 +3617,9 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
             )
         )
 
-    if not risks:
+    risks.append(legal_attention_factor(str(deputy.get("nome") or "Parlamentar"), "Deputado federal" if current else "Ex-deputado federal"))
+
+    if len(risks) == 1:
         risks.append(
             PoliticalRiskFactor(
                 level="baixo",
@@ -3562,23 +3641,25 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
         name=str(deputy.get("nome") or "Parlamentar"),
         subtitle=f"{deputy.get('siglaPartido', '-')}/{deputy.get('siglaUf', '-')}",
         party=deputy.get("siglaPartido"),
-        role="Deputado federal",
+        role="Deputado federal" if current else "Ex-deputado federal",
         uf=deputy.get("siglaUf"),
         total_public_money=total,
         travel_public_money=travel_total,
         records_count=len(expenses),
         attention_level=level,
-        summary=f"{money(total)} em despesas públicas no recorte; {money(travel_total)} ligados a viagens ou deslocamentos.",
+        summary=f"{money(total)} em despesas públicas no recorte; {money(travel_total)} ligados a viagens ou deslocamentos. {'Mandato atual.' if current else 'Fora do exercício atual neste recorte.'}",
         people=people,
-        sources=expense_sources_for_deputy(deputy.get("id")),
+        sources=[*expense_sources_for_deputy(deputy.get("id")), *legal_public_sources_for_name(str(deputy.get("nome") or ""))],
         risks=risks,
     )
 
 
-async def fetch_current_deputies(limit: int = 24, party: str | None = None) -> list[dict[str, Any]]:
+async def fetch_current_deputies(limit: int = 24, party: str | None = None, legislature: int | None = None) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"itens": min(max(limit, 1), 100), "ordem": "ASC", "ordenarPor": "nome"}
     if party:
         params["siglaPartido"] = party
+    if legislature:
+        params["idLegislatura"] = legislature
     try:
         data = await get_json(CAMARA_DEPUTADOS_URL, params=params)
     except HTTPException:
@@ -3586,17 +3667,45 @@ async def fetch_current_deputies(limit: int = 24, party: str | None = None) -> l
     return response_items(data)
 
 
+async def fetch_former_deputies(limit: int = 12, party: str | None = None) -> list[dict[str, Any]]:
+    current_year = brasilia_today().year
+    legislature_hints = [56, 55, 54, 53] if current_year >= 2023 else [55, 54, 53]
+    collected: dict[str, dict[str, Any]] = {}
+    for legislature in legislature_hints:
+        for deputy in await fetch_current_deputies(limit=max(limit, 20), party=party, legislature=legislature):
+            key = str(deputy.get("id") or deputy.get("uri") or deputy.get("nome"))
+            if key:
+                collected[key] = deputy
+            if len(collected) >= limit:
+                break
+        if len(collected) >= limit:
+            break
+    return list(collected.values())[:limit]
+
+
 async def political_people_scan(limit: int = 18, q: str | None = None, party: str | None = None) -> list[PoliticalScanItem]:
-    deputies = await fetch_current_deputies(limit=max(limit * 2, 12), party=party)
+    current_target = max(4, int(limit * 0.6))
+    former_target = max(3, limit - current_target)
+    deputies = await fetch_current_deputies(limit=max(current_target * 2, 12), party=party)
     normalized_query = normalize_text(q)
     if normalized_query:
         deputies = [
             deputy for deputy in deputies
             if normalized_query in normalize_text(" ".join(str(deputy.get(key) or "") for key in ("nome", "siglaPartido", "siglaUf")))
         ]
-    deputies = deputies[:limit]
+    deputies = deputies[:current_target]
+    former_deputies = await fetch_former_deputies(limit=former_target * 2, party=party)
+    if normalized_query:
+        former_deputies = [
+            deputy for deputy in former_deputies
+            if normalized_query in normalize_text(" ".join(str(deputy.get(key) or "") for key in ("nome", "siglaPartido", "siglaUf")))
+        ]
+    current_ids = {str(deputy.get("id")) for deputy in deputies}
+    former_deputies = [deputy for deputy in former_deputies if str(deputy.get("id")) not in current_ids][:former_target]
     expense_batches = await asyncio.gather(*(fetch_deputy_expenses(deputy.get("id")) for deputy in deputies))
-    items = [political_item_from_deputy(deputy, expenses) for deputy, expenses in zip(deputies, expense_batches)]
+    former_expense_batches = await asyncio.gather(*(fetch_deputy_expenses(deputy.get("id")) for deputy in former_deputies))
+    items = [political_item_from_deputy(deputy, expenses, current=True) for deputy, expenses in zip(deputies, expense_batches)]
+    items.extend(political_item_from_deputy(deputy, expenses, current=False) for deputy, expenses in zip(former_deputies, former_expense_batches))
 
     try:
         senate_data = await get_json(SENADO_SENADORES_URL)
@@ -3633,9 +3742,11 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                         label="Senado Federal - parlamentares em exercício",
                         url="https://legis.senado.leg.br/dadosabertos/senador/lista/atual",
                         kind="API oficial de parlamentares",
-                    )
+                    ),
+                    *legal_public_sources_for_name(str(name)),
                 ],
                 risks=[
+                    legal_attention_factor(str(name), "Senador"),
                     PoliticalRiskFactor(
                         level="baixo",
                         title="Cadastro público monitorado",
@@ -3647,6 +3758,12 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 ],
             )
         )
+
+    if not party:
+        for person in POLITICAL_RELATED_PEOPLE:
+            if normalized_query and normalized_query not in normalize_text(f"{person.get('title')} {' '.join(person.get('aliases', []))}"):
+                continue
+            items.append(public_related_political_item(person))
 
     items.sort(key=lambda item: ({"alto": 3, "médio": 2, "baixo": 1}.get(item.attention_level, 0), item.total_public_money), reverse=True)
     return items[:limit]
@@ -3719,6 +3836,16 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
                     label="TSE - partidos políticos",
                     url=TSE_PARTIDOS_URL,
                     kind="Portal oficial eleitoral",
+                ),
+                MonitoringSource(
+                    label="TSE - divulgação de contas eleitorais",
+                    url=TSE_CONTAS_ELEITORAIS_URL,
+                    kind="Portal oficial de contas eleitorais",
+                ),
+                MonitoringSource(
+                    label="TCU - pesquisa de processos por partido ou pessoa",
+                    url=f"{TCU_PROCESSOS_URL}?{urlencode({'termo': sigla})}",
+                    kind="Consulta oficial de controle externo",
                 ),
             ],
             risks=risks,
@@ -4301,6 +4428,8 @@ async def political_parties(
         sources=[
             "Câmara dos Deputados Dados Abertos",
             "TSE - Partidos Políticos",
+            "TSE Divulgação de Candidaturas e Contas",
+            "TCU Pesquisa de Processos",
             "COIBE.IA - cruzamento preventivo de despesas públicas",
         ],
         items=await political_parties_scan(limit=limit, q=q),
@@ -4319,6 +4448,9 @@ async def political_politicians(
         sources=[
             "Câmara dos Deputados Dados Abertos",
             "Senado Federal Dados Abertos",
+            "STF Consulta Processual/Jurisprudência",
+            "TCU Pesquisa de Processos",
+            "TSE Divulgação de Candidaturas e Contas",
             "COIBE.IA - cruzamento preventivo de despesas públicas",
         ],
         items=await political_people_scan(limit=limit, q=q, party=party),
