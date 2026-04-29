@@ -546,9 +546,9 @@ export default function CoibeApp() {
 
     return [
       {
-        label: 'Volume Analisado',
+        label: 'Volume Total Analisado',
         value: total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }),
-        note: 'Compras.gov.br Dados Abertos',
+        note: 'COIBE.IA - fontes públicas integradas',
         icon: ShieldCheck,
         emphasis: 'text-white'
       },
@@ -1028,7 +1028,7 @@ function queryFromResult(result) {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="sticky top-0 z-20 border-b border-neutral-800 bg-black">
+      <header className="border-b border-neutral-800 bg-black md:sticky md:top-0 md:z-20">
         <div className="mx-auto flex min-h-16 max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
           <div className="flex items-center gap-3">
             <Target className="h-8 w-8 text-red-600" />
@@ -1172,16 +1172,16 @@ function queryFromResult(result) {
 
         <section className="mt-8 grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div>
-            <div className="flex border-b border-neutral-800">
+            <div className="flex max-w-full overflow-x-auto border-b border-neutral-800">
               <button
                 onClick={() => setActiveTab('feed')}
-                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'feed' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'feed' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Feed de Monitoramento
               </button>
               <button
                 onClick={() => setActiveTab('map')}
-                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'map' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'map' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Mapa de Alertas
               </button>
@@ -1190,7 +1190,7 @@ function queryFromResult(result) {
                   setActiveTab('parties');
                   setPoliticalSearch('');
                 }}
-                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'parties' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'parties' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Partido
               </button>
@@ -1199,7 +1199,7 @@ function queryFromResult(result) {
                   setActiveTab('politicians');
                   setPoliticalSearch('');
                 }}
-                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'politicians' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'politicians' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Político
               </button>
@@ -1747,20 +1747,26 @@ function queryFromResult(result) {
           </aside>
         </section>
         {selectedPoliticalItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl">
-              <div className="flex items-start justify-between gap-4 border-b border-neutral-800 p-5">
-                <div>
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-2 sm:items-center sm:p-4"
+            onClick={() => setSelectedPoliticalItem(null)}
+          >
+            <div
+              className="my-2 max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl sm:my-0 sm:max-h-[90vh]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-neutral-800 p-4 sm:gap-4 sm:p-5">
+                <div className="min-w-0">
                   <p className="text-xs font-black uppercase text-red-400">
                     {selectedPoliticalItem.type === 'partido' ? 'Partido' : 'Político'}
                   </p>
-                  <h2 className="mt-1 text-xl font-black text-white">{selectedPoliticalItem.name}</h2>
+                  <h2 className="mt-1 break-words text-lg font-black text-white sm:text-xl">{selectedPoliticalItem.name}</h2>
                   {selectedPoliticalItem.subtitle && <p className="mt-1 text-sm text-neutral-400">{selectedPoliticalItem.subtitle}</p>}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedPoliticalItem(null)}
-                  className="rounded border border-neutral-700 px-3 py-1 text-sm font-bold text-neutral-300 hover:bg-neutral-800"
+                  className="shrink-0 rounded border border-neutral-700 px-3 py-1 text-sm font-bold text-neutral-300 hover:bg-neutral-800"
                 >
                   Fechar
                 </button>
