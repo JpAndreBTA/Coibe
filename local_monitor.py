@@ -145,7 +145,7 @@ async def collect_connector(
 
 
 async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, page_size: int, start_page: int = 1) -> dict[str, Any]:
-    timeout = httpx.Timeout(25.0, connect=5.0)
+    timeout = httpx.Timeout(90.0, connect=10.0)
     async with httpx.AsyncClient(base_url=api_base, timeout=timeout) as client:
         snapshot: dict[str, Any] = {
             "collected_at": brasilia_now().isoformat(),
@@ -200,7 +200,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             feed_page = await collect_connector(
                 client,
                 snapshot,
-                f"compras_feed_page_{page}",
+                f"public_contracts_feed_page_{page}",
                 f"/api/monitoring/feed?page={page}&page_size={page_size}&source=live",
                 "public_api_feed",
             )
@@ -290,12 +290,34 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "record_key": f"state:{state.get('uf')}",
                 "record_type": "state_risk",
                 "collected_at": collected_at,
-                "source": "IBGE/Compras.gov.br",
+                "source": "IBGE/Compras.gov.br/PNCP",
                 "title": state.get("state_name") or state.get("uf"),
                 "subtitle": f"UF {state.get('uf')} score {state.get('risk_score')}",
                 "payload": state,
             }
         )
+
+    for item in flatten_feed(snapshot):
+        report = item.get("report", {}) if isinstance(item, dict) else {}
+        if not isinstance(report, dict):
+            continue
+        item_id = item.get("id") or item_key(item)
+        for index, evidence in enumerate(report.get("public_evidence", []) or []):
+            if not isinstance(evidence, dict):
+                continue
+            record_type = evidence.get("record_type") or "public_evidence"
+            records.append(
+                {
+                    "record_key": f"evidence:{item_id}:{record_type}:{index}",
+                    "record_type": record_type,
+                    "collected_at": collected_at,
+                    "source": evidence.get("source"),
+                    "title": evidence.get("title") or item.get("title"),
+                    "subtitle": f"{evidence.get('matches_count', 0)} registro(s) vinculados ao item",
+                    "url": evidence.get("url"),
+                    "payload": {"item": item, "evidence": evidence},
+                }
+            )
 
     for term, response in snapshot.get("searches", {}).items():
         if not isinstance(response, dict):
@@ -596,6 +618,7 @@ def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connect
                     "red_flags": red_flags,
                     "ml_analysis": anomaly,
                     "official_sources": item.get("report", {}).get("official_sources", []),
+                    "public_evidence": item.get("report", {}).get("public_evidence", []),
                 }
             )
 
@@ -638,6 +661,7 @@ def cached_alerts_from_items(items: list[dict[str, Any]]) -> list[dict[str, Any]
                     "red_flags": red_flags,
                     "ml_analysis": None,
                     "official_sources": report.get("official_sources", []) if isinstance(report, dict) else [],
+                    "public_evidence": report.get("public_evidence", []) if isinstance(report, dict) else [],
                 }
             )
     return alerts
@@ -969,7 +993,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     feed_pages_failed = sum(
         1
         for connector in snapshot.get("connectors", [])
-        if str(connector.get("name") or "").startswith("compras_feed_page_")
+        if "_feed_page_" in str(connector.get("name") or "")
         and connector.get("status") != "ok"
     )
     next_feed_page = start_page + args.pages

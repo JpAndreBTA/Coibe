@@ -36,6 +36,9 @@ except Exception:
 
 
 BRASIL_API_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
+PNCP_API_BASE_URL = "https://pncp.gov.br/api/consulta"
+PNCP_CONTRATOS_URL = f"{PNCP_API_BASE_URL}/v1/contratos"
+PNCP_CONTRATACOES_PUBLICACAO_URL = f"{PNCP_API_BASE_URL}/v1/contratacoes/publicacao"
 PORTAL_TRANSPARENCIA_BASE_URL = os.getenv(
     "PORTAL_TRANSPARENCIA_BASE_URL",
     "https://api.portaldatransparencia.gov.br/api-de-dados",
@@ -74,6 +77,16 @@ AUTO_MONITOR_PAGES = int(os.getenv("COIBE_AUTO_MONITOR_PAGES", "10"))
 AUTO_MONITOR_PAGE_SIZE = int(os.getenv("COIBE_AUTO_MONITOR_PAGE_SIZE", "50"))
 AUTO_MONITOR_API_BASE = os.getenv("COIBE_AUTO_MONITOR_API_BASE", "http://127.0.0.1:8000")
 AUTO_MONITOR_PID_PATH = Path(os.getenv("COIBE_AUTO_MONITOR_PID_PATH", "data/state/monitor.pid"))
+PUBLIC_CONTRACT_SOURCES = {
+    source.strip().lower()
+    for source in os.getenv("COIBE_PUBLIC_CONTRACT_SOURCES", "compras,pncp").split(",")
+    if source.strip()
+}
+PUBLIC_DATA_ENRICHMENT_LIMIT = int(os.getenv("COIBE_PUBLIC_DATA_ENRICHMENT_LIMIT", "25"))
+PORTAL_TRANSPARENCIA_ENRICHMENT_ENABLED = os.getenv(
+    "COIBE_PORTAL_TRANSPARENCIA_ENRICHMENT",
+    "true",
+).lower() not in {"0", "false", "no"}
 COIBE_ENV = os.getenv("COIBE_ENV", os.getenv("ENV", "production")).strip().lower()
 IS_PRODUCTION = COIBE_ENV in {"prod", "production", "public"}
 ADMIN_TOKEN = os.getenv("COIBE_ADMIN_TOKEN", "").strip()
@@ -293,6 +306,7 @@ class MonitoringReport(BaseModel):
     risk_level: str
     red_flags: list[RedFlagResult]
     official_sources: list[MonitoringSource]
+    public_evidence: list[dict[str, Any]] = Field(default_factory=list)
     generated_at: datetime
     ml_model: str
 
@@ -978,6 +992,98 @@ async def get_portal_transparencia_json(path: str, params: dict[str, Any] | None
     return response.json()
 
 
+def response_items(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ("data", "resultado", "dados", "items", "content"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def pncp_date_param(value: str | date) -> str:
+    if isinstance(value, date):
+        return value.strftime("%Y%m%d")
+    return str(value).replace("-", "")[:8]
+
+
+def portal_period_params(days: int = 3650) -> dict[str, str]:
+    end = brasilia_today()
+    start = end - timedelta(days=days)
+    return {
+        "dataInicialSancao": start.strftime("%d/%m/%Y"),
+        "dataFinalSancao": end.strftime("%d/%m/%Y"),
+    }
+
+
+async def safe_portal_transparencia_json(path: str, params: dict[str, Any] | None = None) -> Any:
+    if not PORTAL_TRANSPARENCIA_API_KEY or not PORTAL_TRANSPARENCIA_ENRICHMENT_ENABLED:
+        return None
+    try:
+        return await get_portal_transparencia_json(path, params=params)
+    except HTTPException:
+        return None
+
+
+async def fetch_portal_supplier_evidence(cnpj: str | None) -> list[dict[str, Any]]:
+    digits = "".join(ch for ch in str(cnpj or "") if ch.isdigit())
+    if len(digits) != 14 or not PORTAL_TRANSPARENCIA_API_KEY or not PORTAL_TRANSPARENCIA_ENRICHMENT_ENABLED:
+        return []
+
+    period = portal_period_params()
+    checks = [
+        (
+            "portal_transparencia_ceis",
+            "Cadastro Nacional de Empresas Inidoneas e Suspensas (CEIS)",
+            "ceis",
+            {"codigoSancionado": digits, "pagina": 1, **period},
+            "https://portaldatransparencia.gov.br/sancoes/ceis",
+        ),
+        (
+            "portal_transparencia_cnep",
+            "Cadastro Nacional de Empresas Punidas (CNEP)",
+            "cnep",
+            {"codigoSancionado": digits, "pagina": 1, **period},
+            "https://portaldatransparencia.gov.br/sancoes/cnep",
+        ),
+        (
+            "portal_transparencia_contratos_fornecedor",
+            "Contratos do Poder Executivo Federal por CPF/CNPJ",
+            "contratos/cpf-cnpj",
+            {"cpfCnpj": digits, "pagina": 1},
+            "https://portaldatransparencia.gov.br/contratos",
+        ),
+        (
+            "portal_transparencia_notas_fiscais_emitente",
+            "Notas Fiscais Eletronicas do Executivo Federal por emitente",
+            "notas-fiscais",
+            {"cnpjEmitente": digits, "pagina": 1},
+            "https://portaldatransparencia.gov.br/notas-fiscais",
+        ),
+    ]
+
+    evidence: list[dict[str, Any]] = []
+    for record_type, title, path, params, url in checks:
+        data = await safe_portal_transparencia_json(path, params=params)
+        items = response_items(data)
+        if not items:
+            continue
+        evidence.append(
+            {
+                "source": "Portal da Transparencia CGU",
+                "record_type": record_type,
+                "title": title,
+                "url": url,
+                "query": params,
+                "matches_count": len(items),
+                "sample": items[:3],
+            }
+        )
+    return evidence
+
+
 async def fetch_cnpj_from_brasil_api(cnpj: str) -> dict[str, Any]:
     url = BRASIL_API_CNPJ_URL.format(cnpj=cnpj)
     try:
@@ -1279,8 +1385,11 @@ def parse_iso_date(value: str | None) -> date:
 def contract_content_date(contract: dict[str, Any]) -> date:
     return parse_iso_date(
         contract.get("dataVigenciaInicial")
+        or contract.get("dataVigenciaInicio")
         or contract.get("dataAssinatura")
         or contract.get("dataInicioVigencia")
+        or contract.get("dataPublicacaoPncp")
+        or contract.get("dataPublicacaoPNCP")
         or contract.get("dataHoraInclusao")
     )
 
@@ -1288,7 +1397,7 @@ def contract_content_date(contract: dict[str, Any]) -> date:
 def classify_contract_risk(contract: dict[str, Any]) -> tuple[list[RedFlagResult], int, str, Decimal]:
     value = Decimal(str(contract.get("valorGlobal") or 0))
     aditivos = int(contract.get("numeroAditivo") or contract.get("numeroAditivos") or 0)
-    object_text = str(contract.get("objeto") or "")
+    object_text = str(contract.get("objeto") or contract.get("objetoContrato") or contract.get("objetoCompra") or "")
     estimated_variation = Decimal("0")
     flags: list[RedFlagResult] = []
 
@@ -1474,7 +1583,7 @@ def estimate_variations_with_ml(contracts: list[dict[str, Any]]) -> dict[str, di
         if excess == 0 and value > 0 and not is_anomaly:
             excess = Decimal("0")
 
-        output[str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra"))] = {
+        output[contract_stable_key(contract)] = {
             "estimated_variation": Decimal(str(round(excess, 2))),
             "baseline": Decimal(str(round(baseline, 2))),
             "standard_deviation": Decimal(str(round(deviation, 2))),
@@ -1561,7 +1670,7 @@ def monitoring_summary_for_contract(
     risk_level: str,
     value: Decimal,
 ) -> str:
-    object_text = " ".join(str(contract.get("objeto") or "").split())
+    object_text = " ".join(str(contract.get("objeto") or contract.get("objetoContrato") or contract.get("objetoCompra") or "").split())
     object_hint = object_text[:80] if object_text else "contrato publico"
     supplier = str(contract.get("nomeRazaoSocialFornecedor") or "fornecedor informado na fonte oficial")
     comparisons: list[str] = []
@@ -2376,6 +2485,147 @@ async def fetch_compras_contracts(
     return []
 
 
+def contract_search_text(contract: dict[str, Any]) -> str:
+    unidade = contract.get("unidadeOrgao") if isinstance(contract.get("unidadeOrgao"), dict) else {}
+    orgao = contract.get("orgaoEntidade") if isinstance(contract.get("orgaoEntidade"), dict) else {}
+    parts = [
+        contract.get("idCompra"),
+        contract.get("numeroContrato"),
+        contract.get("numeroContratoEmpenho"),
+        contract.get("numeroControlePNCP"),
+        contract.get("numeroControlePncpCompra"),
+        contract.get("objeto"),
+        contract.get("objetoContrato"),
+        contract.get("objetoCompra"),
+        contract.get("nomeRazaoSocialFornecedor"),
+        contract.get("niFornecedor"),
+        contract.get("nomeUnidadeGestora"),
+        contract.get("nomeOrgao"),
+        unidade.get("nomeUnidade"),
+        unidade.get("municipioNome"),
+        unidade.get("ufSigla"),
+        orgao.get("razaoSocial"),
+        orgao.get("cnpj"),
+    ]
+    return " ".join(str(part or "") for part in parts)
+
+
+def normalize_pncp_contract(contract: dict[str, Any]) -> dict[str, Any]:
+    unidade = contract.get("unidadeOrgao") if isinstance(contract.get("unidadeOrgao"), dict) else {}
+    orgao = contract.get("orgaoEntidade") if isinstance(contract.get("orgaoEntidade"), dict) else {}
+    normalized = dict(contract)
+    normalized["coibe_source"] = "pncp"
+    normalized.setdefault("objeto", contract.get("objetoContrato") or contract.get("objetoCompra"))
+    normalized.setdefault("valorGlobal", contract.get("valorGlobal") or contract.get("valorInicial") or contract.get("valorTotalHomologado") or contract.get("valorTotalEstimado"))
+    normalized.setdefault("dataVigenciaInicial", contract.get("dataVigenciaInicio") or contract.get("dataAssinatura") or contract.get("dataPublicacaoPncp"))
+    normalized.setdefault("dataHoraInclusao", contract.get("dataInclusao") or contract.get("dataAtualizacaoGlobal"))
+    normalized.setdefault("nomeUnidadeGestora", unidade.get("nomeUnidade"))
+    normalized.setdefault("nomeOrgao", orgao.get("razaoSocial"))
+    normalized.setdefault("codigoUnidadeGestora", unidade.get("codigoUnidade"))
+    normalized.setdefault("numeroContrato", contract.get("numeroContratoEmpenho") or contract.get("sequencialContrato"))
+    normalized.setdefault("idCompra", contract.get("numeroControlePNCP") or contract.get("numeroControlePncpCompra"))
+    return normalized
+
+
+def record_fingerprint(parts: list[Any]) -> str:
+    raw = "|".join(normalize_text(part) for part in parts)
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+async def fetch_pncp_contracts(
+    page: int,
+    page_size: int,
+    query: str | None = None,
+    content_date_from: date | None = None,
+    content_date_to: date | None = None,
+) -> list[dict[str, Any]]:
+    windows = contract_date_windows(content_date_from, content_date_to)
+    clean_query = (query or "").strip()
+    normalized_query = normalize_text(clean_query)
+    digits = "".join(ch for ch in clean_query if ch.isdigit())
+    collected: list[dict[str, Any]] = []
+    max_page_size = max(min(page_size, 100), 10)
+
+    for start_date, end_date in windows:
+        params: dict[str, Any] = {
+            "dataInicial": pncp_date_param(start_date),
+            "dataFinal": pncp_date_param(end_date),
+            "pagina": max(page, 1),
+            "tamanhoPagina": max_page_size,
+        }
+        if len(digits) == 14 and not normalized_query:
+            params["cnpjOrgao"] = digits
+
+        try:
+            data = await get_json(PNCP_CONTRATOS_URL, params=params)
+        except HTTPException:
+            continue
+
+        contracts = [normalize_pncp_contract(contract) for contract in response_items(data)]
+        if clean_query:
+            contracts = [
+                contract
+                for contract in contracts
+                if normalized_query in normalize_text(contract_search_text(contract))
+                or (digits and digits in "".join(ch for ch in contract_search_text(contract) if ch.isdigit()))
+            ]
+        collected.extend(contracts)
+        if collected:
+            break
+
+    return collected[:page_size]
+
+
+def contract_stable_key(contract: dict[str, Any]) -> str:
+    source = str(contract.get("coibe_source") or "compras")
+    keys = [
+        contract.get("idCompra"),
+        contract.get("numeroControlePNCP"),
+        contract.get("numeroControlePncpCompra"),
+        contract.get("numeroContrato"),
+        contract.get("numeroContratoEmpenho"),
+        contract.get("sequencialContrato"),
+    ]
+    stable = next((str(key) for key in keys if key), "")
+    if not stable:
+        stable = record_fingerprint(
+            [
+                source,
+                contract.get("niFornecedor"),
+                contract_content_date(contract).isoformat(),
+                contract.get("valorGlobal"),
+                contract.get("objeto") or contract.get("objetoContrato"),
+            ]
+        )
+    return stable if source == "compras" else f"{source}:{stable}"
+
+
+async def fetch_public_contracts(
+    page: int,
+    page_size: int,
+    query: str | None = None,
+    content_date_from: date | None = None,
+    content_date_to: date | None = None,
+) -> list[dict[str, Any]]:
+    sources: list[list[dict[str, Any]]] = []
+    if "compras" in PUBLIC_CONTRACT_SOURCES:
+        try:
+            sources.append(await fetch_compras_contracts(page, page_size, query, content_date_from, content_date_to))
+        except HTTPException:
+            sources.append([])
+    if "pncp" in PUBLIC_CONTRACT_SOURCES:
+        sources.append(await fetch_pncp_contracts(page, page_size, query, content_date_from, content_date_to))
+
+    merged: dict[str, dict[str, Any]] = {}
+    for contracts in sources:
+        for contract in contracts:
+            merged[contract_stable_key(contract)] = contract
+
+    output = list(merged.values())
+    output.sort(key=lambda contract: (contract_content_date(contract), contract_value(contract)), reverse=True)
+    return output[:page_size]
+
+
 async def fetch_uasg_location(codigo_uasg: str | None) -> dict[str, Any] | None:
     if not codigo_uasg:
         return None
@@ -2649,38 +2899,138 @@ def conflict_interest_attention_flags(company: dict[str, Any] | None, supplier_c
     ]
 
 
+def supplier_sanction_attention_flags(public_evidence: list[dict[str, Any]], supplier_cnpj: str | None) -> list[RedFlagResult]:
+    sanction_records = [
+        record
+        for record in public_evidence
+        if str(record.get("record_type") or "") in {"portal_transparencia_ceis", "portal_transparencia_cnep"}
+    ]
+    if not sanction_records:
+        return []
+    return [
+        RedFlagResult(
+            code="RF-SANCAO",
+            title="Fornecedor com Registro em Cadastro Publico de Sancoes",
+            has_risk=True,
+            risk_level="alto",
+            message="O fornecedor apareceu em cadastro publico de sancoes consultado no Portal da Transparencia.",
+            evidence={
+                "supplier_cnpj": supplier_cnpj,
+                "matching_records": sum(int(record.get("matches_count") or 0) for record in sanction_records),
+                "sources": [record.get("title") for record in sanction_records],
+            },
+            criteria={"rule": "CNPJ fornecedor consta em CEIS ou CNEP no Portal da Transparencia"},
+        )
+    ]
+
+
+def pncp_source_url(contract: dict[str, Any]) -> str:
+    numero_controle = contract.get("numeroControlePNCP") or contract.get("numeroControlePncpCompra")
+    if numero_controle:
+        return f"{PNCP_CONTRATOS_URL}?{urlencode({'dataInicial': pncp_date_param(contract_content_date(contract)), 'dataFinal': pncp_date_param(contract_content_date(contract)), 'pagina': 1, 'tamanhoPagina': 10})}"
+    return "https://www.gov.br/pncp/pt-br"
+
+
+def build_official_sources(
+    contract: dict[str, Any],
+    public_evidence: list[dict[str, Any]],
+    querido_sources: list[MonitoringSource],
+) -> list[MonitoringSource]:
+    sources: list[MonitoringSource] = []
+    if contract.get("numeroControlePNCP") or contract.get("numeroControlePncpCompra") or contract.get("coibe_source") == "pncp":
+        sources.append(
+            MonitoringSource(
+                label="PNCP - contrato/contratacao publica",
+                url=pncp_source_url(contract),
+                kind="API oficial nacional de contratacoes publicas",
+            )
+        )
+    if contract.get("coibe_source") != "pncp" or contract.get("idCompra") or contract.get("codigoUnidadeGestora"):
+        sources.append(
+            MonitoringSource(
+                label=f"Compras.gov.br Dados Abertos - contrato {contract.get('idCompra') or contract.get('numeroContrato')}",
+                url=compras_contract_url_from_contract(contract),
+                kind="API oficial federal de compras e contratos",
+            )
+        )
+    for evidence in public_evidence:
+        url = str(evidence.get("url") or "")
+        if not url:
+            continue
+        sources.append(
+            MonitoringSource(
+                label=str(evidence.get("title") or evidence.get("source") or "Fonte publica"),
+                url=url,
+                kind=str(evidence.get("record_type") or "registro_publico"),
+            )
+        )
+    sources.extend(querido_sources)
+
+    deduped: dict[tuple[str, str], MonitoringSource] = {}
+    for source in sources:
+        deduped[(source.label, source.url)] = source
+    return list(deduped.values())
+
+
 async def contract_to_monitoring_item(
     contract: dict[str, Any],
     include_diario: bool = True,
     ml_estimate: dict[str, Any] | None = None,
 ) -> MonitoringItem:
+    unidade = contract.get("unidadeOrgao") if isinstance(contract.get("unidadeOrgao"), dict) else {}
+    orgao = contract.get("orgaoEntidade") if isinstance(contract.get("orgaoEntidade"), dict) else {}
     location = await fetch_uasg_location(str(contract.get("codigoUnidadeGestora") or ""))
-    city = location.get("nomeMunicipioIbge") if location else None
-    uf = location.get("siglaUf") if location else None
-    contract_date = parse_iso_date(contract.get("dataVigenciaInicial") or contract.get("dataHoraInclusao"))
+    city = (location.get("nomeMunicipioIbge") if location else None) or unidade.get("municipioNome")
+    uf = (location.get("siglaUf") if location else None) or unidade.get("ufSigla")
+    contract_date = contract_content_date(contract)
     value = Decimal(str(contract.get("valorGlobal") or 0))
     flags, risk_score, risk_level, estimated_variation = classify_contract_risk(contract)
     supplier_cnpj = contract.get("niFornecedor")
     supplier_digits = "".join(ch for ch in str(supplier_cnpj or "") if ch.isdigit())
     company_details = None
-    if supplier_digits and (value > RED_FLAG_01_MIN_CONTRACT_VALUE or requires_physical_presence(str(contract.get("objeto") or ""))):
+    object_text = str(contract.get("objeto") or contract.get("objetoContrato") or contract.get("objetoCompra") or "")
+    if supplier_digits and (value > RED_FLAG_01_MIN_CONTRACT_VALUE or requires_physical_presence(object_text)):
         company_details = await fetch_cnpj_details_cached(supplier_digits)
+    public_evidence: list[dict[str, Any]] = []
+    if company_details:
+        public_evidence.append(
+            {
+                "source": "Brasil API / Receita Federal",
+                "record_type": "cnpj_cadastro",
+                "title": "Cadastro publico do fornecedor",
+                "url": f"https://brasilapi.com.br/api/cnpj/v1/{supplier_digits}",
+                "matches_count": 1,
+                "sample": [
+                    {
+                        "razao_social": company_details.get("razao_social"),
+                        "nome_fantasia": company_details.get("nome_fantasia"),
+                        "data_inicio_atividade": company_details.get("data_inicio_atividade") or company_details.get("abertura"),
+                        "capital_social": company_details.get("capital_social"),
+                        "uf": company_details.get("uf"),
+                        "municipio": company_details.get("municipio"),
+                    }
+                ],
+            }
+        )
+    if len(public_evidence) < PUBLIC_DATA_ENRICHMENT_LIMIT:
+        public_evidence.extend(await fetch_portal_supplier_evidence(supplier_digits))
 
     for extra_flag in [
         maturity_attention_flag(company_details, supplier_digits, value, contract_date),
-        logistic_attention_flag(company_details, city, uf, str(contract.get("objeto") or ""), value),
+        logistic_attention_flag(company_details, city, uf, str(contract.get("objeto") or contract.get("objetoContrato") or ""), value),
         fragmentation_attention_flag(
             supplier_digits,
-            str(contract.get("nomeUnidadeGestora") or contract.get("nomeOrgao") or ""),
+            str(contract.get("nomeUnidadeGestora") or contract.get("nomeOrgao") or unidade.get("nomeUnidade") or orgao.get("razaoSocial") or ""),
             contract_date,
             value,
-            str(contract.get("objeto") or ""),
+            str(contract.get("objeto") or contract.get("objetoContrato") or ""),
             str(contract.get("modalidadeCompra") or contract.get("modalidade") or contract.get("nomeModalidade") or ""),
         ),
     ]:
         if extra_flag:
             flags.append(extra_flag)
     flags.extend(conflict_interest_attention_flags(company_details, supplier_digits))
+    flags.extend(supplier_sanction_attention_flags(public_evidence, supplier_digits))
 
     if ml_estimate:
         estimated_variation = max(estimated_variation, ml_estimate.get("estimated_variation", Decimal("0")))
@@ -2728,46 +3078,38 @@ async def contract_to_monitoring_item(
     flags = [normalize_attention_flag_text(flag) for flag in compact_attention_flags(flags)]
     risk_score, risk_level = score_risk(flags)
 
-    source_query = " ".join(str(contract.get("objeto") or "").split()[:5]) or "licitação contrato"
+    source_query = " ".join(object_text.split()[:5]) or "licitacao contrato"
     querido_sources = await fetch_querido_diario_sources(source_query, size=1) if include_diario else []
-
-    official_sources = [
-        MonitoringSource(
-            label="Registro PNCP relacionado" if contract.get("numeroControlePncpCompra") else "Portal Nacional de Contratações Públicas",
-            url=(
-                f"https://pncp.gov.br/app/editais/{contract.get('numeroControlePncpCompra')}"
-                if contract.get("numeroControlePncpCompra")
-                else "https://www.gov.br/pncp/pt-br"
-            ),
-            kind="Portal oficial",
-        ),
-        MonitoringSource(
-            label=f"Compras.gov.br Dados Abertos - contrato {contract.get('idCompra') or contract.get('numeroContrato')}",
-            url=compras_contract_url_from_contract(contract),
-            kind="API oficial federal; pode retornar erro interno quando aberta no navegador",
-        ),
-        *querido_sources,
-    ]
+    official_sources = build_official_sources(contract, public_evidence, querido_sources)
+    stable_id = contract_stable_key(contract)
+    entity_name = str(
+        contract.get("nomeUnidadeGestora")
+        or contract.get("nomeOrgao")
+        or unidade.get("nomeUnidade")
+        or orgao.get("razaoSocial")
+        or "Orgao nao informado"
+    )
 
     report = MonitoringReport(
-        id=f"COIBE-{contract.get('idCompra') or contract.get('numeroContrato')}",
+        id=f"COIBE-{stable_id}",
         summary=monitoring_summary_for_contract(contract, flags, risk_level, value),
         risk_score=risk_score,
         risk_level=risk_level,
         red_flags=flags,
         official_sources=official_sources,
+        public_evidence=public_evidence,
         generated_at=brasilia_now(),
         ml_model="Regras COIBE.IA + priorização estatística; IsolationForest disponível em /api/analyze-superpricing",
     )
 
     return MonitoringItem(
-        id=str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra")),
+        id=stable_id,
         date=contract_date,
-        title=str(contract.get("objeto") or "Contrato público sem descrição")[:140],
+        title=str(object_text or "Contrato publico sem descricao")[:140],
         location=f"{city or 'Município não informado'}, {uf or 'UF'}",
         city=city,
         uf=uf,
-        entity=str(contract.get("nomeUnidadeGestora") or contract.get("nomeOrgao") or "Órgão não informado"),
+        entity=entity_name,
         supplier_name=contract.get("nomeRazaoSocialFornecedor"),
         supplier_cnpj=contract.get("niFornecedor"),
         value=value,
@@ -2776,7 +3118,7 @@ async def contract_to_monitoring_item(
         formatted_variation=money(estimated_variation),
         risk_score=risk_score,
         risk_level=risk_level,
-        object=str(contract.get("objeto") or ""),
+        object=object_text,
         report=report,
     )
 
@@ -3022,18 +3364,19 @@ async def search_cnpj_if_possible(query: str) -> list[UniversalSearchResult]:
 
 
 async def search_contracts_universal(query: str) -> list[UniversalSearchResult]:
-    contracts = await fetch_compras_contracts(page=1, page_size=10, query=query)
+    contracts = await fetch_public_contracts(page=1, page_size=10, query=query)
     results = []
     for contract in contracts:
         value = Decimal(str(contract.get("valorGlobal") or 0))
         flags, score, risk_level, _ = classify_contract_risk(contract)
+        source = "PNCP" if contract.get("coibe_source") == "pncp" else "Compras.gov.br Dados Abertos"
         results.append(
             UniversalSearchResult(
                 type="contrato",
-                title=str(contract.get("objeto") or "Contrato público")[:140],
-                subtitle=f"{contract.get('nomeUnidadeGestora', 'Órgão não informado')} - {money(value)}",
-                source="Compras.gov.br Dados Abertos",
-                url=compras_contract_url_from_contract(contract),
+                title=str(contract.get("objeto") or contract.get("objetoContrato") or "Contrato público")[:140],
+                subtitle=f"{contract.get('nomeUnidadeGestora') or contract.get('nomeOrgao') or 'Órgão não informado'} - {money(value)}",
+                source=source,
+                url=pncp_source_url(contract) if contract.get("coibe_source") == "pncp" else compras_contract_url_from_contract(contract),
                 risk_level=risk_level,
                 payload={
                     **contract,
@@ -3082,7 +3425,7 @@ async def build_state_risks_from_source(page_size: int = 80, use_local: bool = T
         points.sort(key=lambda point: (point.risk_score, point.total_value), reverse=True)
         return points
 
-    contracts = await fetch_compras_contracts(page=1, page_size=page_size)
+    contracts = await fetch_public_contracts(page=1, page_size=page_size)
     names = await get_state_name_map()
     estimates = estimate_variations_with_ml(contracts)
     grouped: dict[str, dict[str, Any]] = {}
@@ -3091,7 +3434,7 @@ async def build_state_risks_from_source(page_size: int = 80, use_local: bool = T
         item = await contract_to_monitoring_item(
             contract,
             include_diario=False,
-            ml_estimate=estimates.get(str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra"))),
+            ml_estimate=estimates.get(contract_stable_key(contract)),
         )
         uf = (item.uf or "BR").upper()
         bucket = grouped.setdefault(
@@ -3196,6 +3539,14 @@ async def public_sources() -> list[PublicDataSourceStatus]:
             status="ativo",
             auto_update="janela automática: 45, 120, 240 dias; fallback para última janela com dados",
             coverage="Contratos, fornecedores, UASG, itens, PNCP e compras públicas federais.",
+        ),
+        PublicDataSourceStatus(
+            name="PNCP API Consulta",
+            kind="contratos_contratacoes_atas_nacional",
+            url=PNCP_CONTRATOS_URL,
+            status="ativo" if "pncp" in PUBLIC_CONTRACT_SOURCES else "desativado em COIBE_PUBLIC_CONTRACT_SOURCES",
+            auto_update="consulta online por data de publicacao; consolidada com Compras.gov.br no feed e monitor",
+            coverage="Contratos, empenhos, contratacoes, atas e documentos do Portal Nacional de Contratacoes Publicas.",
         ),
         PublicDataSourceStatus(
             name="Câmara dos Deputados Dados Abertos",
@@ -3375,6 +3726,8 @@ async def universal_search(q: str = Query(..., min_length=2)) -> UniversalSearch
             "STF Consulta Processual/Jurisprudência",
             "IBGE Localidades",
             "Compras.gov.br Dados Abertos",
+            "PNCP API Consulta",
+            "Portal da Transparencia CGU",
         ],
         results=results[:30],
     )
@@ -3523,16 +3876,16 @@ async def monitoring_feed(
             )
 
     if uf:
-        contracts = await fetch_compras_contracts(1, 100, q, date_from, date_to)
+        contracts = await fetch_public_contracts(1, 100, q, date_from, date_to)
         estimates = estimate_variations_with_ml(contracts)
-        enriched = [
-            await contract_to_monitoring_item(
+        enriched = await asyncio.gather(*[
+            contract_to_monitoring_item(
                 contract,
                 include_diario=False,
-                ml_estimate=estimates.get(str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra"))),
+                ml_estimate=estimates.get(contract_stable_key(contract)),
             )
             for contract in contracts
-        ]
+        ])
         filtered = [item for item in enriched if (item.uf or "").upper() == uf.upper()]
         if date_from:
             filtered = [item for item in filtered if item.date >= date_from]
@@ -3544,7 +3897,7 @@ async def monitoring_feed(
         has_more = start + page_size < len(filtered)
     else:
         filtered_live_feed = bool(risk_level or size_order or date_from or date_to)
-        contracts = await fetch_compras_contracts(
+        contracts = await fetch_public_contracts(
             1 if filtered_live_feed else page,
             100 if filtered_live_feed else page_size,
             q,
@@ -3552,13 +3905,13 @@ async def monitoring_feed(
             date_to,
         )
         estimates = estimate_variations_with_ml(contracts)
-        enriched = [
-            await contract_to_monitoring_item(
+        enriched = await asyncio.gather(*[
+            contract_to_monitoring_item(
                 contract,
-                ml_estimate=estimates.get(str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra"))),
+                ml_estimate=estimates.get(contract_stable_key(contract)),
             )
             for contract in contracts[: 100 if filtered_live_feed else page_size]
-        ]
+        ])
         if date_from:
             enriched = [item for item in enriched if item.date >= date_from]
         if date_to:
@@ -3609,9 +3962,9 @@ async def monitoring_priority_scan(
     collected: dict[str, dict[str, Any]] = {}
 
     for page in range(1, pages + 1):
-        contracts = await fetch_compras_contracts(page=page, page_size=page_size, query=q)
+        contracts = await fetch_public_contracts(page=page, page_size=page_size, query=q)
         for contract in contracts:
-            key = str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra") or "")
+            key = contract_stable_key(contract)
             if key:
                 collected[key] = contract
 
@@ -3619,7 +3972,7 @@ async def monitoring_priority_scan(
     estimates = estimate_variations_with_ml(contracts)
     items: list[MonitoringItem] = []
     for contract in contracts:
-        key = str(contract.get("idCompra") or contract.get("numeroContrato") or contract.get("numeroControlePncpCompra"))
+        key = contract_stable_key(contract)
         item = await contract_to_monitoring_item(
             contract,
             include_diario=False,
@@ -3649,7 +4002,7 @@ async def monitoring_priority_scan(
 async def monitoring_map(
     page_size: int = Query(50, ge=10, le=100),
 ) -> MonitoringMapResponse:
-    contracts = await fetch_compras_contracts(page=1, page_size=page_size)
+    contracts = await fetch_public_contracts(page=1, page_size=page_size)
     grouped: dict[str, dict[str, Any]] = {}
 
     for contract in contracts:
@@ -3676,7 +4029,7 @@ async def monitoring_map(
     points.sort(key=lambda point: (point.risk_score, point.total_value), reverse=True)
 
     return MonitoringMapResponse(
-        sources=["Compras.gov.br Dados Abertos", "IBGE UASG/municípios"],
+        sources=["Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios"],
         points=points,
     )
 
@@ -3687,7 +4040,7 @@ async def monitoring_state_map(
     source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> StateMapResponse:
     return StateMapResponse(
-        sources=["Compras.gov.br Dados Abertos", "IBGE UASG/municípios", "IBGE Malhas Territoriais"],
+        sources=["Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "IBGE Malhas Territoriais"],
         states=await build_state_risks_from_source(page_size, use_local=source != "live"),
     )
 

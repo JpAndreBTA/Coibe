@@ -122,6 +122,8 @@ Consulta múltiplas fontes públicas em uma resposta única:
 - Brasil API CNPJ
 - IBGE Localidades
 - Compras.gov.br Dados Abertos
+- PNCP API Consulta
+- Portal da Transparencia CGU, quando `PORTAL_TRANSPARENCIA_API_KEY` estiver configurada
 
 A busca indexada usa a base acumulada em `data/processed` com fuzzy search simples para resposta instantanea e tolerancia a erro. Em producao pesada, o proximo salto e embeddings persistidos em PostgreSQL com `pgvector`, distancia geografica no PostGIS e OpenSearch/Elasticsearch para indice invertido.
 
@@ -136,8 +138,9 @@ GET /api/monitoring/feed?page=1&page_size=10
 
 Observacao operacional: o feed carrega 10 itens por vez apenas na interface. A base da plataforma nao fica limitada a 10 registros; o monitor acumula dados continuamente e o parametro `source=live` consulta as APIs publicas diretamente.
 
-Retorna 10 itens por vez, em ordem cronológica, usando contratos reais do Compras.gov.br Dados Abertos. A busca aceita órgão, fornecedor, objeto ou CNPJ.
-O backend tenta janelas recentes automaticamente: 45, 120 e 240 dias. Se a fonte ainda não tiver dados no período, usa a janela histórica mais recente disponível como fallback.
+Retorna 10 itens por vez, em ordem cronológica, consolidando contratos reais do Compras.gov.br Dados Abertos e da API Consulta do PNCP. A busca aceita órgão, fornecedor, objeto, CNPJ, cidade ou UF.
+O backend tenta janelas recentes automaticamente: 45, 120 e 240 dias. Se uma fonte ainda não tiver dados no período, usa a janela histórica mais recente disponível como fallback.
+Cada item pode ser enriquecido por BrasilAPI CNPJ, CEIS/CNEP, contratos por fornecedor e notas fiscais do Portal da Transparencia. Esses registros entram em `report.public_evidence`, alimentam flags de risco e são persistidos em `data/processed/public_api_records.json`.
 
 ### Mapa real de alertas
 
@@ -154,6 +157,7 @@ O frontend usa a malha oficial do IBGE para renderizar o mapa do Brasil por esta
 Fontes usadas nesta etapa:
 
 - Compras.gov.br Dados Abertos: contratos públicos federais
+- PNCP API Consulta: contratos, empenhos e contratacoes publicados no portal nacional
 - IBGE/UASG: município e UF da unidade gestora
 - PNCP: referência oficial de contratação quando o identificador estiver disponível
 - Querido Diário: busca complementar em diários oficiais municipais
@@ -422,7 +426,7 @@ Saídas da plataforma:
 
 ### Ordem obrigatoria do pipeline
 
-1. `connectors_and_scrapers`: consulta conectores publicos e APIs configuradas, incluindo Compras.gov.br, IBGE, Camara, Senado, Brasil API, Querido Diario e status do Portal da Transparencia.
+1. `connectors_and_scrapers`: consulta conectores publicos e APIs configuradas, incluindo Compras.gov.br, PNCP, IBGE, Camara, Senado, Brasil API, Querido Diario, CEIS/CNEP, contratos/notas fiscais do Portal da Transparencia quando houver chave.
 2. `raw_database_merge`: grava snapshots brutos e acumula registros deduplicados em `monitoring_items.json` e `public_api_records.json`.
 3. `risk_rules_and_ml`: aplica regras COIBE e deteccao estatistica/ML apenas sobre os dados ja coletados.
 

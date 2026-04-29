@@ -931,6 +931,9 @@ function queryFromResult(result) {
 
   const selectedRisk = riskCopy[selectedAlert?.risk_level] || riskCopy.indeterminado;
   const selectedOfficialSources = officialSourcesForAlert(selectedAlert);
+  const selectedPublicEvidence = Array.isArray(selectedAlert?.report?.public_evidence)
+    ? selectedAlert.report.public_evidence
+    : [];
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -1411,6 +1414,28 @@ function queryFromResult(result) {
                       ))}
                     </div>
                   </div>
+
+                  {selectedPublicEvidence.length > 0 && (
+                    <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-950/70 p-4">
+                      <p className="text-xs font-bold uppercase text-neutral-500">Evidencias publicas cruzadas</p>
+                      <div className="mt-3 grid gap-2">
+                        {selectedPublicEvidence.slice(0, 6).map((evidence, index) => (
+                          <a
+                            key={`${evidence.record_type}-${index}`}
+                            href={evidence.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-200 hover:border-red-700"
+                          >
+                            <strong className="block">{evidence.title || evidence.source}</strong>
+                            <small className="text-neutral-500">
+                              {evidence.source || 'Fonte publica'} - {Number(evidence.matches_count || 0).toLocaleString('pt-BR')} registro(s)
+                            </small>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <h4 className="mt-5 text-xs font-black uppercase text-neutral-500">Fatores de atenção identificados</h4>
                   <ul className="mt-3 space-y-3">
