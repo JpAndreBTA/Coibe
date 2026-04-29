@@ -520,6 +520,8 @@ class PoliticalScanItem(BaseModel):
     attention_level: str = "baixo"
     summary: str
     people: list[str] = Field(default_factory=list)
+    analysis_types: list[str] = Field(default_factory=list)
+    analysis_details: list[dict[str, Any]] = Field(default_factory=list)
     sources: list[MonitoringSource] = Field(default_factory=list)
     risks: list[PoliticalRiskFactor] = Field(default_factory=list)
 
@@ -3448,6 +3450,75 @@ def is_travel_expense(expense: dict[str, Any]) -> bool:
     return any(term in text for term in ("PASSAGEM", "AEREA", "HOSPEDAGEM", "LOCOMOCAO", "TAXI", "VEICULO", "COMBUSTIVEL"))
 
 
+def political_analysis_type_from_text(text: str) -> str:
+    normalized = normalize_text(text)
+    if any(term in normalized for term in ("CONTRATO", "LICITACAO", "COMPRA", "FORNECEDOR", "EMPENHO")):
+        return "contratos"
+    if any(term in normalized for term in ("PASSAGEM", "AEREA", "HOSPEDAGEM", "LOCOMOCAO", "TAXI", "VEICULO", "COMBUSTIVEL")):
+        return "viagem"
+    if any(term in normalized for term in ("DIVULGACAO", "PUBLICIDADE", "COMUNICACAO", "INTERNET", "TELEFONIA")):
+        return "comunicacao"
+    if any(term in normalized for term in ("CONSULTORIA", "ASSESSORIA", "SERVICO", "PESQUISA")):
+        return "servicos"
+    if any(term in normalized for term in ("ALUGUEL", "IMOVEL", "ESCRITORIO", "MANUTENCAO")):
+        return "estrutura"
+    return "outros"
+
+
+def political_analysis_types_from_expenses(expenses: list[dict[str, Any]]) -> list[str]:
+    types = {political_analysis_type_from_text(str(expense.get("tipoDespesa") or "")) for expense in expenses}
+    if expenses:
+        types.add("despesas")
+    return sorted(types)
+
+
+def expense_analysis_details(expenses: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    sorted_expenses = sorted(expenses, key=lambda expense: expense_value(expense), reverse=True)
+    for expense in sorted_expenses[:limit]:
+        analysis_type = political_analysis_type_from_text(str(expense.get("tipoDespesa") or ""))
+        details.append(
+            {
+                "type": analysis_type,
+                "title": str(expense.get("tipoDespesa") or "Despesa pública"),
+                "description": (
+                    "Despesa ligada a viagem/deslocamento; a fonte informa tipo, data, fornecedor e documento fiscal. "
+                    "Destino, motivo e dias exatos só aparecem se estiverem no documento oficial vinculado."
+                    if analysis_type == "viagem"
+                    else "Despesa pública lida por tipo, data, fornecedor, valor e documento fiscal na fonte oficial."
+                ),
+                "date": expense.get("dataDocumento"),
+                "month": expense.get("mes"),
+                "year": expense.get("ano"),
+                "supplier": expense.get("nomeFornecedor"),
+                "supplier_document": expense.get("cnpjCpfFornecedor"),
+                "value": str(expense_value(expense)),
+                "document_url": expense.get("urlDocumento"),
+                "travel_location": "não informado pela API; verificar documento fiscal",
+                "travel_reason": "não informado pela API; verificar documento fiscal",
+                "travel_days": "estimado somente quando houver sequência de datas no documento",
+            }
+        )
+    return details
+
+
+def contract_crosscheck_detail(name: str, role: str | None = None, party: str | None = None) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "type": "contratos",
+        "title": "Cruzamento com contratos e compras públicas",
+        "description": (
+            "Busca preventiva por nome, partido, fornecedores e termos relacionados em bases públicas de contratos. "
+            "Serve para apontar itens que merecem conferência humana, sem concluir vínculo irregular."
+        ),
+        "person": name,
+        "role": role,
+        "source": "Compras.gov.br, PNCP e Portal da Transparência",
+    }
+    if party:
+        detail["party"] = party
+    return detail
+
+
 async def fetch_deputy_expenses(deputy_id: Any, years: list[int] | None = None, limit_per_year: int = 80) -> list[dict[str, Any]]:
     years = years or [brasilia_today().year, brasilia_today().year - 1]
     expenses: list[dict[str, Any]] = []
@@ -3502,6 +3573,16 @@ def legal_public_sources_for_name(name: str) -> list[MonitoringSource]:
             url=TSE_CONTAS_ELEITORAIS_URL,
             kind="Portal oficial para conferir candidaturas, bens e contas eleitorais",
         ),
+        MonitoringSource(
+            label="Compras.gov.br Dados Abertos - contratos",
+            url=COMPRAS_CONTRATOS_URL,
+            kind="API oficial para cruzar contratos, fornecedores e órgãos públicos por termo",
+        ),
+        MonitoringSource(
+            label="PNCP - contratos públicos",
+            url=PNCP_CONTRATOS_URL,
+            kind="API oficial nacional de contratações públicas",
+        ),
     ]
 
 
@@ -3538,6 +3619,16 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
         attention_level="baixo",
         summary="Nome incluído para cruzamento preventivo com fontes legais, eleitorais e de controle público.",
         people=[title, *[str(query) for query in person.get("related_queries", [])[:5]]],
+        analysis_types=["processos", "contas", "controle", "contratos"],
+        analysis_details=[
+            {
+                "type": "processos",
+                "title": "Consultas legais oficiais",
+                "description": "Links oficiais para conferência humana de processos públicos, jurisprudência, contas eleitorais e controle externo.",
+                "person": title,
+            },
+            contract_crosscheck_detail(title, "Pessoa pública ou política relacionada"),
+        ],
         sources=sources,
         risks=[
             legal_attention_factor(title, "Pessoa pública ou política relacionada"),
@@ -3634,6 +3725,16 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
     level = political_attention_level(score)
     people = [str(deputy.get("nome") or "Parlamentar")]
     people.extend([name for name, _ in sorted(suppliers.items(), key=lambda row: row[1], reverse=True)[:4] if name])
+    analysis_types = political_analysis_types_from_expenses(expenses)
+    analysis_types.extend(["processos", "controle", "contas", "contratos"])
+    analysis_details = expense_analysis_details(expenses)
+    analysis_details.append(
+        contract_crosscheck_detail(
+            str(deputy.get("nome") or "Parlamentar"),
+            "Deputado federal" if current else "Ex-deputado federal",
+            str(deputy.get("siglaPartido") or ""),
+        )
+    )
 
     return PoliticalScanItem(
         id=str(deputy.get("id")),
@@ -3649,6 +3750,8 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
         attention_level=level,
         summary=f"{money(total)} em despesas públicas no recorte; {money(travel_total)} ligados a viagens ou deslocamentos. {'Mandato atual.' if current else 'Fora do exercício atual neste recorte.'}",
         people=people,
+        analysis_types=sorted(set(analysis_types)),
+        analysis_details=analysis_details,
         sources=[*expense_sources_for_deputy(deputy.get("id")), *legal_public_sources_for_name(str(deputy.get("nome") or ""))],
         risks=risks,
     )
@@ -3737,6 +3840,16 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 attention_level="baixo",
                 summary="Cadastro parlamentar encontrado. Despesas detalhadas do Senado não foram somadas neste recorte automático.",
                 people=[str(name)],
+                analysis_types=["processos", "controle", "contas", "contratos"],
+                analysis_details=[
+                    {
+                        "type": "processos",
+                        "title": "Consultas legais oficiais",
+                        "description": "Cadastro de parlamentar e links oficiais para conferência humana de processos públicos, jurisprudência e contas eleitorais.",
+                        "person": name,
+                    },
+                    contract_crosscheck_detail(str(name), "Senador", str(senator_party or "")),
+                ],
                 sources=[
                     MonitoringSource(
                         label="Senado Federal - parlamentares em exercício",
@@ -3813,6 +3926,20 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
         people = [item.name for item in member_items[:6]]
         for item in member_items[:3]:
             people.extend(item.people[1:3])
+        analysis_types = sorted(set(["partido", "despesas", "viagem", "processos", "contas", "controle", "contratos"] + [analysis_type for item in member_items for analysis_type in item.analysis_types]))
+        analysis_details = [
+            {
+                **contract_crosscheck_detail(sigla, "Partido político", sigla),
+                "title": "Cruzamento agregado do partido com contratos e compras públicas",
+                "description": (
+                    "Leitura por partido, parlamentares do recorte, fornecedores citados e bases públicas de contratos. "
+                    "A tela mostra pontos para conferência, não uma conclusão de irregularidade."
+                ),
+            }
+        ]
+        for item in member_items[:4]:
+            for detail in item.analysis_details[:2]:
+                analysis_details.append({**detail, "person": item.name, "party": sigla})
         return PoliticalScanItem(
             id=str(party.get("id") or sigla),
             type="partido",
@@ -3826,6 +3953,8 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
             attention_level=level,
             summary=f"{money(total)} em despesas dos parlamentares analisados; {money(travel_total)} em viagens/deslocamentos.",
             people=list(dict.fromkeys([person for person in people if person]))[:10],
+            analysis_types=analysis_types,
+            analysis_details=analysis_details[:10],
             sources=[
                 MonitoringSource(
                     label="Câmara dos Deputados - partidos e membros",

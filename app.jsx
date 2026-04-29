@@ -58,6 +58,25 @@ const riskCopy = {
   indeterminado: { label: 'Análise Pendente', color: 'text-neutral-300 border-neutral-700 bg-neutral-800', panel: 'bg-neutral-800/70' }
 };
 
+const POLITICAL_TYPE_LABELS = {
+  todos: 'Todos',
+  viagem: 'Viagem/deslocamento',
+  despesas: 'Despesas',
+  comunicacao: 'Comunicação/conteúdo',
+  servicos: 'Serviços/consultoria',
+  estrutura: 'Estrutura/gabinete',
+  processos: 'Processos legais',
+  contas: 'Contas eleitorais',
+  controle: 'Controle externo',
+  contratos: 'Contratos/compras',
+  partido: 'Partido',
+  outros: 'Outros'
+};
+
+function politicalTypeLabel(value) {
+  return POLITICAL_TYPE_LABELS[value] || String(value || 'Outros');
+}
+
 const SEARCH_TYPE_ORDER = {
   estado: 10,
   municipio: 20,
@@ -451,6 +470,7 @@ export default function CoibeApp() {
   const [politicalSearch, setPoliticalSearch] = useState('');
   const [politicalRiskFilter, setPoliticalRiskFilter] = useState('todos');
   const [politicalSizeOrder, setPoliticalSizeOrder] = useState('valor');
+  const [politicalTypeFilter, setPoliticalTypeFilter] = useState('todos');
   const [loadingPolitical, setLoadingPolitical] = useState(false);
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [geoJson, setGeoJson] = useState(null);
@@ -493,8 +513,14 @@ export default function CoibeApp() {
       .filter((item) => {
         const level = String(item.attention_level || '').toLowerCase();
         if (politicalRiskFilter !== 'todos' && level !== politicalRiskFilter) return false;
+        if (
+          politicalTypeFilter !== 'todos'
+          && !(item.analysis_types || []).includes(politicalTypeFilter)
+          && !(item.analysis_details || []).some((detail) => detail.type === politicalTypeFilter)
+        ) return false;
         if (!query) return true;
-        const text = [item.name, item.subtitle, item.party, item.role, item.summary, ...(item.people || [])].join(' ').toLowerCase();
+        const detailText = (item.analysis_details || []).map((detail) => [detail.title, detail.description, detail.supplier, detail.person].join(' ')).join(' ');
+        const text = [item.name, item.subtitle, item.party, item.role, item.summary, detailText, ...(item.people || [])].join(' ').toLowerCase();
         return text.includes(query);
       })
       .sort((left, right) => {
@@ -505,7 +531,7 @@ export default function CoibeApp() {
         if (politicalSizeOrder === 'registros') return Number(right.records_count || 0) - Number(left.records_count || 0);
         return Number(right.total_public_money || 0) - Number(left.total_public_money || 0);
       });
-  }, [politicalCurrentItems, politicalRiskFilter, politicalSearch, politicalSizeOrder]);
+  }, [politicalCurrentItems, politicalRiskFilter, politicalSearch, politicalSizeOrder, politicalTypeFilter]);
 
   const stats = useMemo(() => {
     const feedTotal = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
@@ -1474,7 +1500,7 @@ function queryFromResult(result) {
                   </p>
                 </div>
 
-                <div className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1fr)]">
+                <div className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1fr)]">
                   <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
                     <Search className="h-4 w-4 shrink-0 text-red-400" />
                     <span className="min-w-0 flex-1">
@@ -1516,6 +1542,21 @@ function queryFromResult(result) {
                         <option className="bg-neutral-950" value="viagens">Maior valor em viagens</option>
                         <option className="bg-neutral-950" value="registros">Mais registros</option>
                         <option className="bg-neutral-950" value="risco">Maior risco</option>
+                      </select>
+                    </span>
+                  </label>
+                  <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                    <FileText className="h-4 w-4 shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-black uppercase text-neutral-500">Tipo</span>
+                      <select
+                        value={politicalTypeFilter}
+                        onChange={(event) => setPoliticalTypeFilter(event.target.value)}
+                        className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
+                      >
+                        {Object.entries(POLITICAL_TYPE_LABELS).map(([value, label]) => (
+                          <option key={value} className="bg-neutral-950" value={value}>{label}</option>
+                        ))}
                       </select>
                     </span>
                   </label>
@@ -1564,6 +1605,11 @@ function queryFromResult(result) {
                       {item.people?.length > 0 && (
                         <p className="mt-3 text-xs text-neutral-500">
                           Envolvidos no recorte: {item.people.slice(0, 4).join(', ')}
+                        </p>
+                      )}
+                      {item.analysis_types?.length > 0 && (
+                        <p className="mt-2 text-xs text-neutral-500">
+                          Tipos: {item.analysis_types.slice(0, 5).map(politicalTypeLabel).join(', ')}
                         </p>
                       )}
                     </button>
@@ -1722,6 +1768,15 @@ function queryFromResult(result) {
 
               <div className="space-y-5 p-5">
                 <p className="text-sm leading-6 text-neutral-300">{selectedPoliticalItem.summary}</p>
+                {selectedPoliticalItem.analysis_types?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPoliticalItem.analysis_types.map((type) => (
+                      <span key={type} className="rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs font-bold text-neutral-300">
+                        {politicalTypeLabel(type)}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
                     <p className="text-xs text-neutral-500">Dinheiro público</p>
@@ -1736,6 +1791,52 @@ function queryFromResult(result) {
                     <strong className="text-white">{riskCopy[selectedPoliticalItem.attention_level]?.label || selectedPoliticalItem.attention_level}</strong>
                   </div>
                 </div>
+
+                {selectedPoliticalItem.analysis_details?.length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-black uppercase text-neutral-500">Descrições da análise</h3>
+                    <div className="mt-3 space-y-3">
+                      {selectedPoliticalItem.analysis_details.slice(0, 10).map((detail, index) => (
+                        <div key={`${detail.title || detail.type}-${index}`} className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <strong className="text-white">{detail.title || politicalTypeLabel(detail.type)}</strong>
+                            <span className="rounded-full border border-neutral-700 bg-neutral-950 px-2 py-0.5 text-[11px] font-black text-neutral-300">
+                              {politicalTypeLabel(detail.type)}
+                            </span>
+                          </div>
+                          {detail.description && <p className="mt-2 leading-6 text-neutral-300">{detail.description}</p>}
+                          <div className="mt-3 grid gap-2 text-xs text-neutral-400 sm:grid-cols-2">
+                            <p><strong className="text-neutral-300">Data:</strong> {detail.date ? formatDate(detail.date) : detail.month && detail.year ? `${String(detail.month).padStart(2, '0')}/${detail.year}` : 'Não informada'}</p>
+                            {detail.value !== undefined && detail.value !== null && detail.value !== '' && (
+                              <p><strong className="text-neutral-300">Valor:</strong> {compactValue(detail.value, 'value')}</p>
+                            )}
+                            {detail.person && <p><strong className="text-neutral-300">Pessoa:</strong> {detail.person}</p>}
+                            {detail.party && <p><strong className="text-neutral-300">Partido:</strong> {detail.party}</p>}
+                            {detail.supplier && <p><strong className="text-neutral-300">Fornecedor:</strong> {detail.supplier}</p>}
+                            {detail.supplier_document && <p><strong className="text-neutral-300">CPF/CNPJ informado:</strong> {detail.supplier_document}</p>}
+                            {detail.type === 'viagem' && (
+                              <>
+                                <p><strong className="text-neutral-300">Local da viagem:</strong> {detail.travel_location || 'Não informado pela fonte'}</p>
+                                <p><strong className="text-neutral-300">Motivo da viagem:</strong> {detail.travel_reason || 'Não informado pela fonte'}</p>
+                                <p><strong className="text-neutral-300">Dias em viagem:</strong> {detail.travel_days || 'Não informado pela fonte'}</p>
+                              </>
+                            )}
+                          </div>
+                          {detail.document_url && (
+                            <a
+                              href={detail.document_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3 inline-flex items-center gap-2 rounded border border-neutral-700 px-3 py-1.5 text-xs font-bold text-neutral-200 hover:border-red-700"
+                            >
+                              Documento oficial <ExternalLink className="h-3 w-3 text-red-400" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 <section>
                   <h3 className="text-xs font-black uppercase text-neutral-500">Riscos e atenções</h3>
