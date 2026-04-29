@@ -3572,7 +3572,10 @@ def political_priority_for(name: str, role: str | None = None, party: str | None
             return int(person.get("priority_score") or 70), str(person.get("subtitle") or "Pessoa publica prioritaria")
 
     if normalized_party in POLITICAL_PRIORITY_PARTIES:
-        return POLITICAL_PRIORITY_PARTIES[normalized_party], f"Partido prioritario: {normalized_party}"
+        party_priority = POLITICAL_PRIORITY_PARTIES[normalized_party]
+        if item_type == "partido":
+            return party_priority, f"Partido prioritario: {normalized_party}"
+        return min(party_priority, 70), f"Partido prioritario no recorte politico: {normalized_party}"
     if "SENADOR" in normalized_role:
         return 65, "Senado Federal"
     if "DEPUTADO FEDERAL" in normalized_role and "EX" not in normalized_role:
@@ -4641,6 +4644,35 @@ def cached_political_items(
         key = f"{item.type}:{item.id or normalize_text(item.name)}"
         if key not in by_key:
             by_key[key] = item
+
+    if record_type == "political_people":
+        for person in POLITICAL_RELATED_PEOPLE:
+            candidate = public_related_political_item(person)
+            if normalized_party and normalize_text(candidate.party) != normalized_party:
+                continue
+            candidate_text = normalize_text(
+                " ".join(
+                    [
+                        candidate.name,
+                        candidate.subtitle or "",
+                        candidate.party or "",
+                        candidate.role or "",
+                        candidate.summary,
+                        " ".join(candidate.people),
+                    ]
+                )
+            )
+            if normalized_query and normalized_query not in candidate_text:
+                continue
+            if normalized_risk and normalized_risk != "todos" and normalize_text(candidate.attention_level).lower() != normalized_risk:
+                continue
+            if normalized_analysis_type and normalized_analysis_type != "todos":
+                candidate_types = {normalize_text(value).lower() for value in candidate.analysis_types}
+                if normalized_analysis_type not in candidate_types and normalized_analysis_type != "prioridade":
+                    continue
+            candidate_key = f"{candidate.type}:{candidate.id}"
+            if candidate_key not in by_key or candidate.priority_score > (by_key[candidate_key].priority_score or 0):
+                by_key[candidate_key] = candidate
 
     risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
     items = list(by_key.values())
