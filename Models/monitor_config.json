@@ -1,6 +1,6 @@
 {
   "use_gpu": true,
-  "gpu_memory_limit_mb": 2048,
+  "gpu_memory_limit_mb": 4096,
   "use_shared_memory": true,
   "shared_memory_limit_mb": 4096,
   "research_timeout_seconds": 90,
@@ -9,6 +9,7 @@
   "political_party_scan_limit": 12,
   "political_people_scan_limit": 24,
   "learned_terms_per_cycle": 12,
+  "updated_at": "2026-04-29T18:17:09.067046-03:00",
   "local_only": true,
   "note": "Configuracao local do monitor; nao expor em endpoint publico."
 }

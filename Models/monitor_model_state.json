@@ -1,11 +1,996 @@
 {
   "version": "coibe-monitor-v1",
-  "updated_at": null,
-  "cycles": 0,
-  "learned_terms": [],
+  "updated_at": "2026-04-29T18:55:33.672908-03:00",
+  "cycles": 11,
+  "learned_terms": [
+    {
+      "term": "Luiz Inacio Lula",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Inacio Lula Silva",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Luiz Inacio",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Inacio Lula",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Lula Silva",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Geraldo Alckmin",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Jair Messias Bolsonaro",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Jair Messias",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Messias Bolsonaro",
+      "hits": 5,
+      "score": 260.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Clinicas Ribeirao Preto",
+      "hits": 5,
+      "score": 255.0,
+      "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Clinicas Ribeirao",
+      "hits": 3,
+      "score": 153.0,
+      "first_seen_at": "2026-04-29T18:49:28.491065-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Ribeirao Preto",
+      "hits": 3,
+      "score": 153.0,
+      "first_seen_at": "2026-04-29T18:49:28.491065-03:00",
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Presidente Republica",
+      "hits": 1,
+      "score": 150.0,
+      "first_seen_at": "2026-04-29T18:48:00.271059-03:00",
+      "latest_seen_at": "2026-04-29T18:48:00.271059-03:00",
+      "sources": [
+        "political_people"
+      ]
+    }
+  ],
+  "learned_checks": [
+    {
+      "id": "political_contract_crosscheck",
+      "title": "Cruzar politico, partido e contratos locais",
+      "description": "Busca nomes, partidos, fornecedores e orgaos relacionados na base acumulada antes de chamar APIs externas.",
+      "query_hints": [
+        "politico contratos compras publicas",
+        "partido fornecedor contrato"
+      ],
+      "signals": [
+        "contrato relacionado",
+        "fornecedor relacionado",
+        "partido",
+        "politico"
+      ],
+      "hits": 2,
+      "score": 4420.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FORNECIMENTO CONTINUADO DE ÓRTESES, PRÓTESES E MATERIAIS ESPECIAIS - OPME'S, PARA ESTIMULAÇÃO CARDÍACA ARTIFICIAL (MARCAPASSO), COM CESSÃO D",
+          "entity": "HOSPITAL UNIVERSITARIO DO PIAUI",
+          "supplier": "ST JUDE MEDICAL BRASIL LTDA",
+          "value": "784851.04",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
+          "entity": "BANCO CENTRAL DO BRASIL - BRASÍLIA",
+          "supplier": "MG ECCARD LTDA",
+          "value": "28955329.69",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
+          "entity": "ESP-FACULDADE DE MEDICINA RIBERÃO PRETO - USP",
+          "supplier": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+          "value": "30500.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE LIMPEZA E CONSERVAÇÃO, ALMOXARIFE E TRATADOR DE CÃES, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUS",
+          "entity": "SUPERINTENDENCIA DA PRF NO ESPIRITO SANTO",
+          "supplier": "SUDESTE SERVICOS GERAIS LTDA",
+          "value": "2965499.6",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FORNECIMENTO CONTINUADO DE ÓRTESES, PRÓTESES E MATERIAIS ESPECIAIS - OPME'S, PARA ESTIMULAÇÃO CARDÍACA ARTIFICIAL (MARCAPASSO), COM CESSÃO D",
+          "entity": "HOSPITAL UNIVERSITARIO DO PIAUI",
+          "supplier": "ST JUDE MEDICAL BRASIL LTDA",
+          "value": "784851.04",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "supplier_concentration",
+      "title": "Checar concentracao por fornecedor",
+      "description": "Agrupa fornecedor, CNPJ, orgao e periodo para encontrar repeticao de pagamentos ou dependencia concentrada.",
+      "query_hints": [
+        "fornecedor concentrado pagamentos",
+        "cnpj contratos repetidos"
+      ],
+      "signals": [
+        "cnpj repetido",
+        "fornecedor recorrente",
+        "pagamento concentrado"
+      ],
+      "hits": 2,
+      "score": 4416.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FORNECIMENTO CONTINUADO DE ÓRTESES, PRÓTESES E MATERIAIS ESPECIAIS - OPME'S, PARA ESTIMULAÇÃO CARDÍACA ARTIFICIAL (MARCAPASSO), COM CESSÃO D",
+          "entity": "HOSPITAL UNIVERSITARIO DO PIAUI",
+          "supplier": "ST JUDE MEDICAL BRASIL LTDA",
+          "value": "784851.04",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
+          "entity": "BANCO CENTRAL DO BRASIL - BRASÍLIA",
+          "supplier": "MG ECCARD LTDA",
+          "value": "28955329.69",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
+          "entity": "ESP-FACULDADE DE MEDICINA RIBERÃO PRETO - USP",
+          "supplier": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+          "value": "30500.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE LIMPEZA E CONSERVAÇÃO, ALMOXARIFE E TRATADOR DE CÃES, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUS",
+          "entity": "SUPERINTENDENCIA DA PRF NO ESPIRITO SANTO",
+          "supplier": "SUDESTE SERVICOS GERAIS LTDA",
+          "value": "2965499.6",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FORNECIMENTO CONTINUADO DE ÓRTESES, PRÓTESES E MATERIAIS ESPECIAIS - OPME'S, PARA ESTIMULAÇÃO CARDÍACA ARTIFICIAL (MARCAPASSO), COM CESSÃO D",
+          "entity": "HOSPITAL UNIVERSITARIO DO PIAUI",
+          "supplier": "ST JUDE MEDICAL BRASIL LTDA",
+          "value": "784851.04",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "official_process_control_check",
+      "title": "Conferir processos e controle externo em fontes oficiais",
+      "description": "Prioriza leitura em STF, TCU, TSE e fontes oficiais quando um nome aparece em varios recortes.",
+      "query_hints": [
+        "processo controle externo",
+        "stf tcu tse pessoa publica"
+      ],
+      "signals": [
+        "controle externo",
+        "processo",
+        "stf",
+        "tcu",
+        "tse"
+      ],
+      "hits": 2,
+      "score": 4062.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "STF Consulta Pública",
+          "type": "connector_source"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
+          "entity": "UNIDADE ESTADUAL DO IBGE NO AMAZONAS",
+          "supplier": "LINK CARD ADMINISTRADORA DE BENEFICIOS LTDA",
+          "value": "908210.4",
+          "risk_level": "médio"
+        },
+        {
+          "title": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE INTÉRPRETES DE LIBRAS TERCEIRIZADOS E CUIDADORES PARA O SERVIÇO DE",
+          "entity": "FUNDACAO UNIVERSIDADE FEDERAL DO ACRE",
+          "supplier": "CACTOS SERVICOS GERAIS LTDA",
+          "value": "7850595.6",
+          "risk_level": "médio"
+        },
+        {
+          "title": "EXECUÇÃO DE OBRAS DE ADEQUAÇÃO DO SERVIÇO DE INTERCORRÊNCIAS CLÍNICAS E CIRÚRGICAS (SICC)/EMERGÊNCIA, INCLUINDO A ELABORAÇÃO DOS PROJETOS EX",
+          "entity": "COMPLEXO HOSPITALAR DA UNIVERSIDADE FEDERAL",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "6682740.39",
+          "risk_level": "médio"
+        },
+        {
+          "title": "STF Consulta Pública",
+          "type": "connector_source"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "proximity_money_flow",
+      "title": "Mapear alto valor em pessoas ou fornecedores proximos",
+      "description": "Procura concentracao de valores em nomes relacionados ao recorte, sem presumir parentesco ou irregularidade.",
+      "query_hints": [
+        "pessoa proxima alto valor",
+        "fornecedor relacionado alto valor"
+      ],
+      "signals": [
+        "alto valor",
+        "movimentacao",
+        "pessoa proxima",
+        "vinculos"
+      ],
+      "hits": 2,
+      "score": 2302.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
+          "entity": "UNIDADE ESTADUAL DO IBGE NO AMAZONAS",
+          "supplier": "LINK CARD ADMINISTRADORA DE BENEFICIOS LTDA",
+          "value": "908210.4",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE EQUIPAMENTOS DE INFORMÁTICA: DESKTOP BÁSICO E NOTEBOOK PADRÃO.",
+          "entity": "DIRETORIA DE TECNOLOGIA DA INFORM.E INOVACAO",
+          "supplier": "POSITIVO TECNOLOGIA S.A.",
+          "value": "3265119.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE OBRAS DIDÁTICAS NO ÂMBITO DO PROGRAMA NACIONAL DO LIVRO E DO MATERIAL DIDÁTICO - PNLD 2023, OBJETO 01, NO FORMATO ACESSÍVEL BRA",
+          "entity": "FUNDO NACIONAL DE DESENVOLVIMENTO DA EDUCACAO",
+          "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
+          "value": "1893204.9",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
+          "entity": "BANCO CENTRAL DO BRASIL - BRASÍLIA",
+          "supplier": "MG ECCARD LTDA",
+          "value": "28955329.69",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FORNECIMENTO CONTINUADO DE ÓRTESES, PRÓTESES E MATERIAIS ESPECIAIS - OPME'S, PARA ESTIMULAÇÃO CARDÍACA ARTIFICIAL (MARCAPASSO), COM CESSÃO D",
+          "entity": "HOSPITAL UNIVERSITARIO DO PIAUI",
+          "supplier": "ST JUDE MEDICAL BRASIL LTDA",
+          "value": "784851.04",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇO CONTÍNUO DE GESTÃO DO SISTEMA DE AFERIÇÃO DE CONHECIMENTOS TEÓRICOS, INCLUINDO INSCRIÇÃO, AGENDAMENTO, APLICAÇÃO DE P",
+          "entity": "AGENCIA NACIONAL DE AVIACAO CIVIL",
+          "supplier": "FUNDACAO GETULIO VARGAS",
+          "value": "7790513.5",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
+          "entity": "UNIDADE ESTADUAL DO IBGE NO AMAZONAS",
+          "supplier": "LINK CARD ADMINISTRADORA DE BENEFICIOS LTDA",
+          "value": "908210.4",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE EQUIPAMENTOS DE INFORMÁTICA: DESKTOP BÁSICO E NOTEBOOK PADRÃO.",
+          "entity": "DIRETORIA DE TECNOLOGIA DA INFORM.E INOVACAO",
+          "supplier": "POSITIVO TECNOLOGIA S.A.",
+          "value": "3265119.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE OBRAS DIDÁTICAS NO ÂMBITO DO PROGRAMA NACIONAL DO LIVRO E DO MATERIAL DIDÁTICO - PNLD 2023, OBJETO 01, NO FORMATO ACESSÍVEL BRA",
+          "entity": "FUNDO NACIONAL DE DESENVOLVIMENTO DA EDUCACAO",
+          "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
+          "value": "1893204.9",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "electoral_donation_crosscheck",
+      "title": "Verificar doacoes e contas eleitorais",
+      "description": "Cruza pessoa, partido, fornecedor e nomes proximos com registros eleitorais ja carregados e links oficiais do TSE.",
+      "query_hints": [
+        "doacao eleitoral fornecedor",
+        "contas eleitorais partido candidato"
+      ],
+      "signals": [
+        "campanha",
+        "contas eleitorais",
+        "doacao",
+        "tse"
+      ],
+      "hits": 2,
+      "score": 2200.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "PRD - Partido Renovação Democrática",
+          "type": "political_parties"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "PRD - Partido Renovação Democrática",
+          "type": "political_parties"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "travel_pattern_review",
+      "title": "Revisar padrao de viagem e deslocamento",
+      "description": "Cruza viagens com periodo, fornecedor, valor e sequencia de datas para achar concentracoes fora do padrao.",
+      "query_hints": [
+        "passagens hospedagem locomoção",
+        "viagens deslocamento parlamentar"
+      ],
+      "signals": [
+        "deslocamento",
+        "hospedagem",
+        "passagem",
+        "viagem"
+      ],
+      "hits": 2,
+      "score": 2160.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
+          "entity": "UNIDADE ESTADUAL DO IBGE NO AMAZONAS",
+          "supplier": "LINK CARD ADMINISTRADORA DE BENEFICIOS LTDA",
+          "value": "908210.4",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    },
+    {
+      "id": "reference_price_superpricing",
+      "title": "Comparar preco unitario com referencia de mercado",
+      "description": "Prioriza contratos com termos de itens precificaveis e valores altos para comparar com referencias internas e pares.",
+      "query_hints": [
+        "superfaturamento preco referencia",
+        "valor unitario contrato"
+      ],
+      "signals": [
+        "comparacao de preco",
+        "superfaturamento",
+        "valor acima da referencia"
+      ],
+      "hits": 2,
+      "score": 1922.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
+          "entity": "ESP-FACULDADE DE MEDICINA RIBERÃO PRETO - USP",
+          "supplier": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+          "value": "30500.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE LIMPEZA E CONSERVAÇÃO, ALMOXARIFE E TRATADOR DE CÃES, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUS",
+          "entity": "SUPERINTENDENCIA DA PRF NO ESPIRITO SANTO",
+          "supplier": "SUDESTE SERVICOS GERAIS LTDA",
+          "value": "2965499.6",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE LIMPEZA E CONSERVAÇÃO, ALMOXARIFE E TRATADOR DE CÃES, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUS",
+          "entity": "SUPERINTENDENCIA DA PRF NO ESPIRITO SANTO",
+          "supplier": "SUDESTE SERVICOS GERAIS LTDA",
+          "value": "2965499.6",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
+          "entity": "CENTRO LOGISTICO DA AERONAUTICA",
+          "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
+          "value": "2125997.22",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "alerts",
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records",
+        "risk_flags"
+      ]
+    },
+    {
+      "id": "missing_document_trace",
+      "title": "Conferir documento fiscal ausente ou incompleto",
+      "description": "Aumenta prioridade de itens sem documento, sem link oficial ou com campos fiscais incompletos.",
+      "query_hints": [
+        "documento fiscal ausente",
+        "url documento despesa"
+      ],
+      "signals": [
+        "documento ausente",
+        "fonte incompleta",
+        "sem documento"
+      ],
+      "hits": 2,
+      "score": 1488.0,
+      "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
+      "examples": [
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "PNCP API Consulta",
+          "type": "connector_source"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        }
+      ],
+      "latest_seen_at": "2026-04-29T18:55:33.672908-03:00",
+      "sources": [
+        "monitoring_items",
+        "political_parties",
+        "political_people",
+        "public_records"
+      ]
+    }
+  ],
   "last_training": {
-    "status": "aguardando primeiro ciclo real do local_monitor.py",
+    "generated_at": "2026-04-29T18:00:29.499742-03:00",
+    "items_analyzed": 7390,
+    "alerts_count": 578,
+    "learned_terms_added": 12,
+    "learned_checks_added": 8,
+    "search_terms_used": [
+      "contrato",
+      "computador",
+      "combustível",
+      "pavimentação",
+      "merenda",
+      "medicamento",
+      "Tiririca",
+      "São Paulo",
+      "00000000000191"
+    ],
+    "optimized_search_terms_next_cycle": [
+      "contrato",
+      "computador",
+      "combustível",
+      "pavimentação",
+      "merenda",
+      "medicamento",
+      "Tiririca",
+      "São Paulo",
+      "00000000000191",
+      "Luiz Inacio Lula",
+      "Inacio Lula Silva",
+      "Luiz Inacio",
+      "Inacio Lula",
+      "Lula Silva",
+      "Geraldo Alckmin",
+      "Jair Messias Bolsonaro",
+      "Jair Messias",
+      "Messias Bolsonaro",
+      "Clinicas Ribeirao Preto",
+      "Clinicas Ribeirao",
+      "Ribeirao Preto",
+      "Presidente Republica",
+      "politico contratos compras publicas",
+      "partido fornecedor contrato",
+      "fornecedor concentrado pagamentos",
+      "cnpj contratos repetidos",
+      "processo controle externo",
+      "stf tcu tse pessoa publica",
+      "pessoa proxima alto valor",
+      "fornecedor relacionado alto valor",
+      "doacao eleitoral fornecedor",
+      "contas eleitorais partido candidato",
+      "passagens hospedagem locomoção",
+      "viagens deslocamento parlamentar"
+    ],
+    "gpu": {
+      "enabled_by_env": true,
+      "enabled_by_config": true,
+      "enabled": true,
+      "memory_limit_mb": 4096,
+      "shared_memory_enabled": true,
+      "shared_memory_limit_mb": 4096,
+      "available": true,
+      "name": "NVIDIA GeForce RTX 3060",
+      "memory_total_mb": 12288,
+      "gpu_library": "cupy 13.6.0",
+      "gpu_runtime_ready": true
+    },
+    "config": {
+      "use_gpu": true,
+      "gpu_memory_limit_mb": 4096,
+      "use_shared_memory": true,
+      "shared_memory_limit_mb": 4096,
+      "research_timeout_seconds": 90,
+      "research_rounds": 10,
+      "feed_page_size": 50,
+      "political_party_scan_limit": 12,
+      "political_people_scan_limit": 24,
+      "learned_terms_per_cycle": 12
+    },
     "model_storage": "Models",
-    "legal_safety": "Aprendizado usado para priorizar busca e triagem; não conclui crime, culpa ou vínculo familiar."
+    "legal_safety": "Aprendizado usado para priorizar busca, estrategias de verificacao e triagem; nao conclui crime, culpa ou vinculo familiar."
   }
 }

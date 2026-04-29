@@ -676,9 +676,11 @@ export default function CoibeApp() {
     const paymentValue = paymentDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
     const riskMovementValue = riskMovementDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
     const topDetail = [...details].sort((left, right) => numericValue(right.value) - numericValue(left.value))[0];
+    const nonTravelMoney = Math.max(Number(selectedPoliticalItem.total_public_money || 0) - Number(selectedPoliticalItem.travel_public_money || 0), 0);
 
     return {
       totalDetailValue,
+      nonTravelMoney,
       contractCount: contractDetails.length,
       contractValue,
       paymentCount: paymentDetails.length,
@@ -1756,6 +1758,7 @@ function queryFromResult(result) {
                 {filteredPoliticalItems.map((item) => {
                   const risk = riskCopy[item.attention_level] || riskCopy.baixo;
                   const analyzedDate = item.analyzed_at || politicalDataStampRef.current[activeTab];
+                  const nonTravelMoney = Math.max(Number(item.total_public_money || 0) - Number(item.travel_public_money || 0), 0);
                   return (
                     <button
                       key={`${item.type}-${item.id}`}
@@ -1776,12 +1779,12 @@ function queryFromResult(result) {
                       <p className="mt-3 text-sm leading-6 text-neutral-300">{item.summary}</p>
                       <div className="mt-4 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 sm:grid-cols-3">
                         <div>
-                          <p className="text-xs text-neutral-500">Dinheiro público</p>
+                          <p className="text-xs text-neutral-500">Dinheiro público total</p>
                           <strong className="text-white">{compactValue(item.total_public_money, 'value')}</strong>
                         </div>
                         <div>
-                          <p className="text-xs text-neutral-500">Viagens/deslocamento</p>
-                          <strong className="text-white">{compactValue(item.travel_public_money, 'value')}</strong>
+                          <p className="text-xs text-neutral-500">Pagamentos/contratos</p>
+                          <strong className="text-white">{compactValue(nonTravelMoney, 'value')}</strong>
                         </div>
                         <div>
                           <p className="text-xs text-neutral-500">Registros lidos</p>
@@ -1990,12 +1993,12 @@ function queryFromResult(result) {
                 )}
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
-                    <p className="text-xs text-neutral-500">Dinheiro público</p>
+                    <p className="text-xs text-neutral-500">Dinheiro público total</p>
                     <strong className="text-white">{compactValue(selectedPoliticalItem.total_public_money, 'value')}</strong>
                   </div>
                   <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
-                    <p className="text-xs text-neutral-500">Viagens/deslocamento</p>
-                    <strong className="text-white">{compactValue(selectedPoliticalItem.travel_public_money, 'value')}</strong>
+                    <p className="text-xs text-neutral-500">Pagamentos/contratos</p>
+                    <strong className="text-white">{compactValue(selectedPoliticalMetrics?.nonTravelMoney || 0, 'value')}</strong>
                   </div>
                   <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
                     <p className="text-xs text-neutral-500">Atenção</p>
@@ -2160,7 +2163,7 @@ function queryFromResult(result) {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
-                        <p className="text-xs text-neutral-500">Viagens</p>
+                        <p className="text-xs text-neutral-500">Viagens no total</p>
                         <strong className="text-white">{compactValue(selectedPoliticalItem.travel_public_money, 'value')}</strong>
                       </div>
                       <div className="rounded border border-neutral-800 bg-neutral-950 p-3">

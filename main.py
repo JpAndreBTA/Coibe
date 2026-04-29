@@ -2113,13 +2113,32 @@ def read_library_status(latest_analysis: dict[str, Any] | None = None) -> Librar
 
 
 def read_monitor_model_state() -> dict[str, Any]:
+    empty_state = {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "learned_checks": [], "last_training": None}
     if not MONITOR_MODEL_STATE_PATH.exists():
-        return {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "last_training": None}
-    try:
-        loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": "coibe-monitor-v1", "updated_at": None, "cycles": 0, "learned_terms": [], "last_training": None}
-    return loaded if isinstance(loaded, dict) else {}
+        state = empty_state
+    else:
+        try:
+            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = empty_state
+        state = loaded if isinstance(loaded, dict) else empty_state
+
+    learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    if learned_terms:
+        return state
+
+    latest = read_data_json(LOCAL_MONITOR_LATEST_PATH, {})
+    recovered = latest.get("model") if isinstance(latest, dict) and isinstance(latest.get("model"), dict) else {}
+    recovered_terms = recovered.get("learned_terms") if isinstance(recovered.get("learned_terms"), list) else []
+    if recovered_terms:
+        recovered_state = {**empty_state, **recovered}
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        MONITOR_MODEL_STATE_PATH.write_text(
+            json.dumps(recovered_state, ensure_ascii=False, indent=2, default=json_default),
+            encoding="utf-8",
+        )
+        return recovered_state
+    return state
 
 
 def default_monitor_model_config() -> MonitorModelConfig:
@@ -2320,6 +2339,7 @@ def monitor_model_status() -> dict[str, Any]:
         except Exception:
             training_lines = 0
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     return {
         "models_dir": str(MODELS_DIR),
         "state_path": str(MONITOR_MODEL_STATE_PATH),
@@ -2334,6 +2354,8 @@ def monitor_model_status() -> dict[str, Any]:
         "cycles": int(state.get("cycles") or 0),
         "learned_terms_count": len(learned_terms),
         "learned_terms": learned_terms[:25],
+        "learned_checks_count": len(learned_checks),
+        "learned_checks": learned_checks[:25],
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
         "training_process": monitor_training_status(),
@@ -2344,11 +2366,13 @@ def monitor_model_status() -> dict[str, Any]:
 def public_monitor_model_summary() -> dict[str, Any]:
     state = read_monitor_model_state()
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     return {
         "version": state.get("version") or "coibe-monitor-v1",
         "updated_at": state.get("updated_at"),
         "cycles": int(state.get("cycles") or 0),
         "learned_terms_count": len(learned_terms),
+        "learned_checks_count": len(learned_checks),
         "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
     }
 
@@ -4186,6 +4210,25 @@ def proximity_money_flow_attention(
     return details, risks, [person for person, _ in high_value_people[:8]]
 
 
+def political_detail_money_and_records(details: list[dict[str, Any]], base_records: int = 0) -> tuple[Decimal, int]:
+    total = Decimal("0")
+    records = base_records
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        value = parse_decimal(detail.get("value"))
+        if value:
+            total += value
+        matched_records = detail.get("matched_records")
+        if isinstance(matched_records, int):
+            records += max(matched_records, 0)
+        elif str(matched_records or "").isdigit():
+            records += int(str(matched_records))
+        elif detail.get("type") in {"contratos", "doacoes", "processos", "controle", "contas", "vinculos"}:
+            records += 1
+    return total, records
+
+
 async def fetch_deputy_expenses(deputy_id: Any, years: list[int] | None = None, limit_per_year: int = 80) -> list[dict[str, Any]]:
     years = years or [brasilia_today().year, brasilia_today().year - 1]
     expenses: list[dict[str, Any]] = []
@@ -4292,6 +4335,26 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
             kind="Fonte oficial ou institucional para contexto",
         ),
     ]
+    analysis_details = [
+        {
+            "type": "processos",
+            "title": "Consultas legais oficiais",
+            "description": "Links oficiais para conferencia humana de processos publicos, jurisprudencia, contas eleitorais e controle externo.",
+            "person": title,
+        },
+        contract_crosscheck_detail(title, role, party),
+        *contract_details,
+        *donation_details,
+    ]
+    related_money, related_records = political_detail_money_and_records(analysis_details, base_records=len(sources))
+    attention = political_attention_level(
+        min(
+            100,
+            (45 if related_money >= POLITICAL_HIGH_VALUE_CONTRACT_THRESHOLD else 0)
+            + (20 if contract_risks else 0)
+            + (15 if donation_risks else 0),
+        )
+    )
     item = PoliticalScanItem(
         id=record_fingerprint([title, "related_public_person"]),
         type="politico",
@@ -4299,21 +4362,17 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
         subtitle=str(person.get("subtitle") or "Pessoa pública relacionada"),
         party=party or None,
         role=role,
-        attention_level="baixo",
-        summary="Nome incluído para cruzamento preventivo com fontes legais, eleitorais, contratos e controle público.",
+        total_public_money=related_money,
+        travel_public_money=Decimal("0"),
+        records_count=related_records,
+        attention_level=attention,
+        summary=(
+            f"{money(related_money)} em contratos/pagamentos relacionados na base local; "
+            f"{related_records} registros e fontes lidos para checagem preventiva."
+        ),
         people=list(dict.fromkeys([*related_people, *contract_people]))[:16],
         analysis_types=["processos", "contas", "controle", "contratos", "doacoes", "vinculos"],
-        analysis_details=[
-            {
-                "type": "processos",
-                "title": "Consultas legais oficiais",
-                "description": "Links oficiais para conferência humana de processos públicos, jurisprudência, contas eleitorais e controle externo.",
-                "person": title,
-            },
-            contract_crosscheck_detail(title, role, party),
-            *contract_details,
-            *donation_details,
-        ],
+        analysis_details=analysis_details,
         sources=sources,
         risks=[
             legal_attention_factor(title, role),
@@ -4560,6 +4619,24 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
             str(senator_party or ""),
             senator_people,
         )
+        senator_analysis_details = [
+            {
+                "type": "processos",
+                "title": "Consultas legais oficiais",
+                "description": "Cadastro de parlamentar e links oficiais para conferencia humana de processos publicos, jurisprudencia e contas eleitorais.",
+                "person": name,
+            },
+            contract_crosscheck_detail(str(name), "Senador", str(senator_party or "")),
+            *contract_details,
+            *donation_details,
+        ]
+        senator_money, senator_records = political_detail_money_and_records(
+            senator_analysis_details,
+            base_records=1 + len(legal_public_sources_for_name(str(name))),
+        )
+        senator_attention = political_attention_level(
+            min(100, (35 if senator_money >= POLITICAL_HIGH_VALUE_CONTRACT_THRESHOLD else 0) + (20 if contract_risks else 0) + (15 if donation_risks else 0))
+        )
         items.append(
             apply_political_priority(PoliticalScanItem(
                 id=str(ident.get("CodigoParlamentar") or name),
@@ -4569,21 +4646,17 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 party=senator_party,
                 role="Senador",
                 uf=uf,
-                attention_level="baixo",
-                summary="Cadastro parlamentar encontrado. Despesas detalhadas do Senado não foram somadas neste recorte automático.",
+                total_public_money=senator_money,
+                travel_public_money=Decimal("0"),
+                records_count=senator_records,
+                attention_level=senator_attention,
+                summary=(
+                    f"{money(senator_money)} em contratos/pagamentos relacionados na base local; "
+                    f"{senator_records} registros e fontes lidos para checagem preventiva."
+                ),
                 people=list(dict.fromkeys([str(name), *contract_people]))[:16],
                 analysis_types=["processos", "controle", "contas", "contratos", "doacoes", "vinculos"],
-                analysis_details=[
-                    {
-                        "type": "processos",
-                        "title": "Consultas legais oficiais",
-                        "description": "Cadastro de parlamentar e links oficiais para conferência humana de processos públicos, jurisprudência e contas eleitorais.",
-                        "person": name,
-                    },
-                    contract_crosscheck_detail(str(name), "Senador", str(senator_party or "")),
-                    *contract_details,
-                    *donation_details,
-                ],
+                analysis_details=senator_analysis_details,
                 sources=[
                     MonitoringSource(
                         label="Senado Federal - parlamentares em exercício",
@@ -5071,7 +5144,7 @@ async def backend_ui(request: Request) -> HTMLResponse:
       fillConfig(model.config);
       document.getElementById('cards').innerHTML = [
         card('Modelo', model.version || 'n/d', model.updated_at || 'aguardando treino'),
-        card('Termos aprendidos', model.learned_terms_count || 0, model.models_dir),
+        card('Aprendizados', `${model.learned_terms_count || 0} termos`, `${model.learned_checks_count || 0} verificacoes - ${model.models_dir}`),
         card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled ? 'ativada na configuração' : 'desativada na configuração', model.gpu.available ? 'ok' : ''),
         card('Treinamento', model.training_process?.running ? 'Rodando' : 'Parado', model.training_process?.pid ? 'PID '+model.training_process.pid : 'sem processo'),
         card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),

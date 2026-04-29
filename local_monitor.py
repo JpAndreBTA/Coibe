@@ -240,25 +240,58 @@ def configure_gpu_runtime(config: dict[str, Any] | None = None) -> dict[str, Any
 
 
 def load_monitor_model_state() -> dict[str, Any]:
+    empty_state = {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "learned_checks": [], "updated_at": None}
     if not MONITOR_MODEL_STATE_PATH.exists():
-        return {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
-    try:
-        loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
-    return loaded if isinstance(loaded, dict) else {"version": "coibe-monitor-v1", "cycles": 0, "learned_terms": [], "updated_at": None}
+        state = empty_state
+    else:
+        try:
+            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = empty_state
+        state = loaded if isinstance(loaded, dict) else empty_state
+
+    learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    if learned_terms:
+        return state
+
+    latest_path = Path("data/processed/latest_analysis.json")
+    if latest_path.exists():
+        try:
+            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            recovered = latest.get("model") if isinstance(latest, dict) and isinstance(latest.get("model"), dict) else {}
+            recovered_terms = recovered.get("learned_terms") if isinstance(recovered.get("learned_terms"), list) else []
+            if recovered_terms:
+                recovered_state = {**empty_state, **recovered}
+                MODELS_DIR.mkdir(parents=True, exist_ok=True)
+                MONITOR_MODEL_STATE_PATH.write_text(json.dumps(recovered_state, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+                return recovered_state
+        except Exception:
+            pass
+    return state
 
 
 def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -> list[str]:
     learned = model_state.get("learned_terms") if isinstance(model_state.get("learned_terms"), list) else []
+    learned_checks = model_state.get("learned_checks") if isinstance(model_state.get("learned_checks"), list) else []
     learned_terms = [
         str(term.get("term") or "").strip()
         for term in sorted(learned, key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)
-        if isinstance(term, dict) and str(term.get("term") or "").strip()
+        if isinstance(term, dict)
+        and str(term.get("term") or "").strip()
+        and len(normalize_text(term.get("term")).split()) >= 2
+        and candidate_terms_from_text(term.get("term"))
     ]
+    learned_check_terms = []
+    for check in sorted(learned_checks, key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True):
+        if not isinstance(check, dict):
+            continue
+        for hint in check.get("query_hints", [])[:2] if isinstance(check.get("query_hints"), list) else []:
+            clean_hint = str(hint or "").strip()
+            if clean_hint:
+                learned_check_terms.append(clean_hint)
     output: list[str] = []
     seen: set[str] = set()
-    for term in [*default_terms, *learned_terms[:20]]:
+    for term in [*default_terms, *learned_terms[:20], *learned_check_terms[:12]]:
         normalized = normalize_text(term)
         if normalized and normalized not in seen:
             seen.add(normalized)
@@ -268,7 +301,24 @@ def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -
 
 def candidate_terms_from_text(value: Any) -> list[str]:
     text = normalize_text(value)
-    stopwords = {"CONTRATO", "CONTRATACAO", "AQUISICAO", "SERVICO", "SERVICOS", "PUBLICO", "PUBLICA", "PARA", "COM", "DOS", "DAS", "DE", "DA", "DO", "EM", "E"}
+    stopwords = {
+        "CONTRATO", "CONTRATOS", "CONTRATACAO", "CONTRATACOES", "AQUISICAO", "AQUISICOES",
+        "SERVICO", "SERVICOS", "PUBLICO", "PUBLICA", "PUBLICOS", "PUBLICAS", "PARA", "COM",
+        "DOS", "DAS", "DE", "DA", "DO", "EM", "E", "LTDA", "EIRELI", "S/A", "SA", "ME",
+        "MUNICIPIO", "PREFEITURA", "GOVERNO", "FEDERAL", "ESTADUAL", "RISCOS", "RISCO",
+        "POSSIVEL", "POTENCIAL", "SUPERFATURAMENTO", "COMPARACAO", "VALORES", "ALTO",
+        "MEDIO", "BAIXO", "ATENCAO", "ANALISE", "REGISTRO", "REGISTROS",
+        "COMERCIO", "BRASIL", "OBJETO", "PRESENTE", "INSTRUMENTO", "EMPRESA", "ESPECIALIZADA",
+        "DESPESA", "DESPESAS", "NACIONAL", "REGIONAL", "HOSPITAL", "UNIVERSIDADE", "INST",
+        "FORNECIMENTO", "MATERIAL", "MATERIAIS", "ADMINISTRATIVO", "ADMINISTRATIVA",
+        "VIAGEM", "VIAGENS", "DESLOCAMENTO", "DESLOCAMENTOS", "PARTIDO", "POLITICO",
+        "POLITICA", "DEPUTADO", "DEPUTADOS", "PARLAMENTAR", "PARLAMENTARES", "ANALISADO",
+        "ANALISADOS", "LIGADO", "LIGADOS", "RECORTE", "PAGAMENTO", "PAGAMENTOS",
+        "ATUAL", "MANDATO", "FORA", "EXERCICIO", "NESTE", "ANTERIOR", "CADASTRO",
+        "NOME", "INCLUIDO", "CRUZAMENTO", "PREVENTIVO", "FONTES", "LEGAIS", "ELEITORAIS",
+        "CONTROLE", "REPUBLICA",
+        "SEREM", "EXECUTADO", "EXECUTADOS", "REGIME", "DEDICACAO",
+    }
     tokens = [token for token in text.split() if len(token) >= 4 and token not in stopwords]
     phrases = []
     for size in (3, 2):
@@ -280,6 +330,131 @@ def candidate_terms_from_text(value: Any) -> list[str]:
     return phrases[:12]
 
 
+def add_model_candidates(candidates: dict[str, dict[str, Any]], source_value: Any, weight: float, source: str) -> None:
+    for term in candidate_terms_from_text(source_value):
+        normalized = normalize_text(term)
+        if not normalized:
+            continue
+        if len(normalized.split()) < 2:
+            continue
+        bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
+        bucket["score"] += weight
+        bucket["sources"].add(source)
+
+
+VERIFICATION_CHECK_LIBRARY: dict[str, dict[str, Any]] = {
+    "reference_price_superpricing": {
+        "title": "Comparar preco unitario com referencia de mercado",
+        "description": "Prioriza contratos com termos de itens precificaveis e valores altos para comparar com referencias internas e pares.",
+        "query_hints": ["superfaturamento preco referencia", "valor unitario contrato"],
+        "signals": ["superfaturamento", "valor acima da referencia", "comparacao de preco"],
+    },
+    "supplier_concentration": {
+        "title": "Checar concentracao por fornecedor",
+        "description": "Agrupa fornecedor, CNPJ, orgao e periodo para encontrar repeticao de pagamentos ou dependencia concentrada.",
+        "query_hints": ["fornecedor concentrado pagamentos", "cnpj contratos repetidos"],
+        "signals": ["fornecedor recorrente", "pagamento concentrado", "cnpj repetido"],
+    },
+    "missing_document_trace": {
+        "title": "Conferir documento fiscal ausente ou incompleto",
+        "description": "Aumenta prioridade de itens sem documento, sem link oficial ou com campos fiscais incompletos.",
+        "query_hints": ["documento fiscal ausente", "url documento despesa"],
+        "signals": ["sem documento", "documento ausente", "fonte incompleta"],
+    },
+    "travel_pattern_review": {
+        "title": "Revisar padrao de viagem e deslocamento",
+        "description": "Cruza viagens com periodo, fornecedor, valor e sequencia de datas para achar concentracoes fora do padrao.",
+        "query_hints": ["passagens hospedagem locomoção", "viagens deslocamento parlamentar"],
+        "signals": ["viagem", "deslocamento", "hospedagem", "passagem"],
+    },
+    "political_contract_crosscheck": {
+        "title": "Cruzar politico, partido e contratos locais",
+        "description": "Busca nomes, partidos, fornecedores e orgaos relacionados na base acumulada antes de chamar APIs externas.",
+        "query_hints": ["politico contratos compras publicas", "partido fornecedor contrato"],
+        "signals": ["contrato relacionado", "partido", "politico", "fornecedor relacionado"],
+    },
+    "electoral_donation_crosscheck": {
+        "title": "Verificar doacoes e contas eleitorais",
+        "description": "Cruza pessoa, partido, fornecedor e nomes proximos com registros eleitorais ja carregados e links oficiais do TSE.",
+        "query_hints": ["doacao eleitoral fornecedor", "contas eleitorais partido candidato"],
+        "signals": ["doacao", "contas eleitorais", "campanha", "tse"],
+    },
+    "proximity_money_flow": {
+        "title": "Mapear alto valor em pessoas ou fornecedores proximos",
+        "description": "Procura concentracao de valores em nomes relacionados ao recorte, sem presumir parentesco ou irregularidade.",
+        "query_hints": ["pessoa proxima alto valor", "fornecedor relacionado alto valor"],
+        "signals": ["vinculos", "pessoa proxima", "alto valor", "movimentacao"],
+    },
+    "official_process_control_check": {
+        "title": "Conferir processos e controle externo em fontes oficiais",
+        "description": "Prioriza leitura em STF, TCU, TSE e fontes oficiais quando um nome aparece em varios recortes.",
+        "query_hints": ["processo controle externo", "stf tcu tse pessoa publica"],
+        "signals": ["processo", "controle externo", "stf", "tcu", "tse"],
+    },
+}
+
+
+def add_verification_check(
+    candidates: dict[str, dict[str, Any]],
+    check_id: str,
+    weight: float,
+    source: str,
+    evidence: dict[str, Any] | None = None,
+) -> None:
+    template = VERIFICATION_CHECK_LIBRARY.get(check_id)
+    if not template:
+        return
+    bucket = candidates.setdefault(
+        check_id,
+        {
+            "id": check_id,
+            "title": template["title"],
+            "description": template["description"],
+            "query_hints": list(template["query_hints"]),
+            "signals": set(template["signals"]),
+            "score": 0,
+            "sources": set(),
+            "examples": [],
+        },
+    )
+    bucket["score"] += weight
+    bucket["sources"].add(source)
+    if evidence and len(bucket["examples"]) < 8:
+        compact_evidence = {
+            key: str(value)
+            for key, value in evidence.items()
+            if value is not None and key in {"title", "entity", "supplier", "person", "party", "value", "risk_level", "type"}
+        }
+        if compact_evidence:
+            bucket["examples"].append(compact_evidence)
+
+
+def infer_verification_checks_from_text(
+    candidates: dict[str, dict[str, Any]],
+    value: Any,
+    weight: float,
+    source: str,
+    evidence: dict[str, Any] | None = None,
+) -> None:
+    text = normalize_text(value)
+    if any(term in text for term in ("SUPERFATURAMENTO", "PRECO", "REFERENCIA", "COMPARACAO", "VALOR UNITARIO")):
+        add_verification_check(candidates, "reference_price_superpricing", weight, source, evidence)
+    if any(term in text for term in ("FORNECEDOR", "CNPJ", "CONCENTR", "RECORRENTE", "REPETID")):
+        add_verification_check(candidates, "supplier_concentration", weight, source, evidence)
+    if any(term in text for term in ("DOCUMENTO", "FISCAL", "AUSENTE", "SEM DOCUMENTO", "URLDOCUMENTO")):
+        add_verification_check(candidates, "missing_document_trace", weight, source, evidence)
+    if any(term in text for term in ("VIAGEM", "DESLOCAMENTO", "PASSAGEM", "HOSPEDAGEM", "LOCOMOCAO", "COMBUSTIVEL")):
+        add_verification_check(candidates, "travel_pattern_review", weight, source, evidence)
+    if any(term in text for term in ("CONTRATO", "COMPRAS", "PARTIDO", "POLITICO", "PARLAMENTAR")):
+        add_verification_check(candidates, "political_contract_crosscheck", weight, source, evidence)
+    if any(term in text for term in ("DOACAO", "DOACOES", "ELEITORAL", "CAMPANHA", "CONTAS")):
+        add_verification_check(candidates, "electoral_donation_crosscheck", weight, source, evidence)
+    if any(term in text for term in ("VINCULO", "VINCULOS", "PROXIM", "FAMILIAR", "ALTO VALOR", "MOVIMENT")):
+        add_verification_check(candidates, "proximity_money_flow", weight, source, evidence)
+    if any(term in text for term in ("PROCESSO", "CONTROLE", "STF", "TCU", "TSE", "JURISPRUDENCIA")):
+        add_verification_check(candidates, "official_process_control_check", weight, source, evidence)
+
+
 def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = load_monitor_model_state()
@@ -289,36 +464,85 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             continue
         term = str(item.get("term") or "").strip()
         normalized = normalize_text(term)
-        if normalized:
+        if normalized and len(normalized.split()) >= 2 and candidate_terms_from_text(term):
             learned_by_key[normalized] = item
+    learned_checks_by_id: dict[str, dict[str, Any]] = {}
+    for check in state.get("learned_checks", []) if isinstance(state.get("learned_checks"), list) else []:
+        if not isinstance(check, dict):
+            continue
+        check_id = str(check.get("id") or "").strip()
+        if check_id:
+            learned_checks_by_id[check_id] = check
 
     candidates: dict[str, dict[str, Any]] = {}
+    check_candidates: dict[str, dict[str, Any]] = {}
     for alert in analysis.get("alerts", [])[:80]:
         if not isinstance(alert, dict):
             continue
         weight = 3 if str(alert.get("risk_level") or "").lower() == "alto" else 1
+        alert_evidence = {
+            "title": alert.get("title"),
+            "entity": alert.get("entity"),
+            "supplier": alert.get("supplier_name"),
+            "value": alert.get("value"),
+            "risk_level": alert.get("risk_level"),
+        }
+        infer_verification_checks_from_text(check_candidates, json.dumps(alert, ensure_ascii=False), weight, "alerts", alert_evidence)
         for source_value in [alert.get("title"), alert.get("entity"), alert.get("supplier_name")]:
-            for term in candidate_terms_from_text(source_value):
-                normalized = normalize_text(term)
-                bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
-                bucket["score"] += weight
-                bucket["sources"].add("alerts")
+            add_model_candidates(candidates, source_value, weight, "alerts")
         for flag in alert.get("red_flags", []) or []:
             if isinstance(flag, dict):
-                for term in candidate_terms_from_text(flag.get("title") or flag.get("message")):
-                    normalized = normalize_text(term)
-                    bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
-                    bucket["score"] += weight
-                    bucket["sources"].add("risk_flags")
+                add_model_candidates(candidates, flag.get("title") or flag.get("message"), weight, "risk_flags")
+                infer_verification_checks_from_text(check_candidates, flag.get("title") or flag.get("message"), weight + 1, "risk_flags", alert_evidence)
 
     for record in analysis.get("public_records", [])[:120]:
         if not isinstance(record, dict):
             continue
-        for term in candidate_terms_from_text(record.get("title") or record.get("query")):
-            normalized = normalize_text(term)
-            bucket = candidates.setdefault(normalized, {"term": term, "score": 0, "sources": set()})
-            bucket["score"] += 1
-            bucket["sources"].add("public_records")
+        add_model_candidates(candidates, record.get("title") or record.get("query"), 1, "public_records")
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        add_model_candidates(candidates, payload.get("nomeFornecedor") or payload.get("objeto") or payload.get("nome"), 1, "public_records")
+        infer_verification_checks_from_text(
+            check_candidates,
+            json.dumps(record, ensure_ascii=False),
+            1,
+            "public_records",
+            {"title": record.get("title"), "type": record.get("record_type")},
+        )
+
+    for item in [*(analysis.get("items") or []), *(analysis.get("model_training_items") or [])][:500]:
+        if not isinstance(item, dict):
+            continue
+        weight = 4 if str(item.get("risk_level") or "").lower() == "alto" else 2
+        item_evidence = {
+            "title": item.get("title"),
+            "entity": item.get("entity"),
+            "supplier": item.get("supplier_name"),
+            "value": item.get("value"),
+            "risk_level": item.get("risk_level"),
+        }
+        for source_value in [item.get("title"), item.get("entity"), item.get("supplier_name"), item.get("object")]:
+            add_model_candidates(candidates, source_value, weight, "monitoring_items")
+        infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, "monitoring_items", item_evidence)
+
+    for block_name in ("political_parties", "political_people"):
+        block = snapshot.get(block_name) if isinstance(snapshot.get(block_name), dict) else {}
+        for item in block.get("items", [])[:80]:
+            if not isinstance(item, dict):
+                continue
+            weight = 50 if int(item.get("priority_score") or 0) >= 80 else 25
+            political_evidence = {
+                "title": item.get("name"),
+                "person": item.get("name"),
+                "party": item.get("party"),
+                "value": item.get("total_public_money"),
+                "risk_level": item.get("attention_level"),
+            }
+            for source_value in [item.get("name"), item.get("party"), item.get("role")]:
+                add_model_candidates(candidates, source_value, weight, block_name)
+            add_model_candidates(candidates, item.get("summary"), 1, block_name)
+            for person in item.get("people", [])[:8] if isinstance(item.get("people"), list) else []:
+                add_model_candidates(candidates, person, 1, block_name)
+            infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, block_name, political_evidence)
 
     now = brasilia_now().isoformat()
     learned_limit = int(config.get("learned_terms_per_cycle") or MAX_LEARNED_TERMS_PER_CYCLE)
@@ -331,21 +555,50 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
         learned_by_key[normalized] = existing
 
+    for check_id, candidate in sorted(check_candidates.items(), key=lambda row: row[1]["score"], reverse=True)[: max(learned_limit, 8)]:
+        existing = learned_checks_by_id.get(
+            check_id,
+            {
+                "id": check_id,
+                "title": candidate["title"],
+                "description": candidate["description"],
+                "query_hints": candidate["query_hints"],
+                "signals": [],
+                "hits": 0,
+                "score": 0,
+                "first_seen_at": now,
+                "examples": [],
+            },
+        )
+        existing["hits"] = int(existing.get("hits") or 0) + 1
+        existing["score"] = float(existing.get("score") or 0) + float(candidate["score"])
+        existing["latest_seen_at"] = now
+        existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
+        existing["signals"] = sorted(set(existing.get("signals", [])) | set(candidate["signals"]))
+        existing["query_hints"] = list(dict.fromkeys([*(existing.get("query_hints") or []), *candidate["query_hints"]]))[:8]
+        existing["examples"] = [*(existing.get("examples") or []), *candidate["examples"]][-12:]
+        learned_checks_by_id[check_id] = existing
+
     learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
+    learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:80]
     model_state = {
         "version": "coibe-monitor-v1",
         "updated_at": now,
         "cycles": int(state.get("cycles") or 0) + 1,
         "learned_terms": learned_terms,
+        "learned_checks": learned_checks,
         "last_training": {
             "generated_at": analysis.get("generated_at"),
             "items_analyzed": analysis.get("items_analyzed"),
             "alerts_count": analysis.get("alerts_count"),
+            "learned_terms_added": min(len(candidates), learned_limit),
+            "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
             "search_terms_used": search_terms,
+            "optimized_search_terms_next_cycle": merged_search_terms(search_terms, {"learned_terms": learned_terms, "learned_checks": learned_checks})[:60],
             "gpu": gpu,
             "config": config,
             "model_storage": str(MODELS_DIR),
-            "legal_safety": "Aprendizado usado para priorizar busca e triagem; não conclui crime, culpa ou vínculo familiar.",
+            "legal_safety": "Aprendizado usado para priorizar busca, estrategias de verificacao e triagem; nao conclui crime, culpa ou vinculo familiar.",
         },
     }
     MONITOR_MODEL_STATE_PATH.write_text(json.dumps(model_state, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
@@ -1412,7 +1665,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "feed_pages_failed": feed_pages_failed,
         "reset_reason": reset_reason,
     }
-    analysis["model"] = update_monitor_model_state(analysis, snapshot, search_terms, gpu, monitor_config)
+    model_training_analysis = {**analysis, "model_training_items": accumulated_items[:500]}
+    analysis["model"] = update_monitor_model_state(model_training_analysis, snapshot, search_terms, gpu, monitor_config)
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
     write_json(processed_path, analysis)
     write_json(latest_path, analysis)
