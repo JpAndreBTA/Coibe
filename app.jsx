@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   Filter,
+  Github,
   Loader2,
   MapPin,
   Search,
@@ -895,7 +896,7 @@ export default function CoibeApp() {
           <div className="flex items-center gap-3">
             <Target className="h-8 w-8 text-red-600" />
             <h1 className="text-2xl font-black tracking-widest">
-              COIBE<span className="ml-1 text-sm tracking-normal text-red-600">.IA</span>
+              Coibe<span className="ml-2 text-base tracking-normal text-red-600">IA</span>
             </h1>
           </div>
 
@@ -909,6 +910,18 @@ export default function CoibeApp() {
               className="h-11 w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-10 pr-4 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-red-600 focus:ring-2 focus:ring-red-600/30"
             />
           </form>
+
+          <a
+            href="https://github.com/JpAndreBTA/Coibe"
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 text-xs font-bold text-neutral-300 transition hover:border-red-700 hover:text-white"
+            title="Abrir código no GitHub"
+          >
+            <Github className="h-4 w-4" />
+            <span className="hidden lg:inline">Código aberto</span>
+            <span className="hidden border-l border-neutral-700 pl-2 text-neutral-500 xl:inline">Por Jp André</span>
+          </a>
         </div>
       </header>
 

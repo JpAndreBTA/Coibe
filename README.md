@@ -1,6 +1,30 @@
-# COIBE.IA
+# Coibe IA
 
-Backend FastAPI + frontend React para consulta pública, análise de risco e detecção de possíveis superfaturamentos em dados governamentais.
+Plataforma aberta para monitoramento de dados públicos, análise de fatores de atenção em contratações governamentais e triagem de possíveis variações atípicas de preço.
+
+O projeto combina um backend FastAPI, frontend React/Vite e um pipeline local de coleta/análise para cruzar fontes públicas como Compras.gov.br, Brasil API, IBGE, Câmara dos Deputados, Senado Federal e STF. A proposta é apoiar leitura técnica, jornalística, cívica e institucional de dados abertos, sem substituir auditoria humana ou conclusão de órgãos competentes.
+
+## Links
+
+- API pública via túnel: `https://api.coibe.com.br`
+- Repositório: `https://github.com/JpAndreBTA/Coibe`
+- Autor: Jp André
+
+## Código aberto
+
+Coibe IA é um projeto de código aberto. Contribuições, auditorias, issues e melhorias são bem-vindas, especialmente em conectores de dados públicos, qualidade de evidências, performance, documentação e revisão das regras de risco.
+
+## Arquitetura atual
+
+- Frontend: React, Vite, TailwindCSS e Lucide React.
+- Backend: FastAPI + Uvicorn.
+- Dados: pasta local `data/` no backend do operador ou storage S3 compatível.
+- Monitoramento: `local_monitor.py` coleta, normaliza, analisa e atualiza a base.
+- Publicação leve: frontend estático na Hostinger e backend local exposto via Cloudflare Tunnel ou backend Docker em Render.
+
+## Uso responsável
+
+A plataforma não acusa fraude, corrupção ou irregularidade definitiva. Ela aponta fatores de atenção, padrões estatísticos e cruzamentos públicos para revisão humana.
 
 ## Backend
 

@@ -1,5 +1,6 @@
 {
   "type": "module",
+  "description": "Plataforma aberta para monitoramento de dados publicos e fatores de atencao em contratacoes governamentais.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
