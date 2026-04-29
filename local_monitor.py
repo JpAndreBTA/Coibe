@@ -33,8 +33,12 @@ DEFAULT_SEARCH_TERMS = [
 MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
 ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
 GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
+USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {"1", "true", "yes"}
+SHARED_MEMORY_LIMIT_MB = int(os.getenv("COIBE_SHARED_MEMORY_LIMIT_MB", "4096"))
+RESEARCH_TIMEOUT_SECONDS = int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90"))
 MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12"))
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
@@ -100,10 +104,37 @@ def ensure_dirs(base_dir: Path) -> dict[str, Path]:
     return paths
 
 
-def gpu_runtime_status() -> dict[str, Any]:
+def load_monitor_config() -> dict[str, Any]:
+    config = {
+        "use_gpu": ML_USE_GPU,
+        "gpu_memory_limit_mb": GPU_MEMORY_LIMIT_MB,
+        "use_shared_memory": USE_SHARED_MEMORY,
+        "shared_memory_limit_mb": SHARED_MEMORY_LIMIT_MB,
+        "research_timeout_seconds": RESEARCH_TIMEOUT_SECONDS,
+        "research_rounds": None,
+        "feed_page_size": None,
+        "political_party_scan_limit": POLITICAL_PARTY_SCAN_LIMIT,
+        "political_people_scan_limit": POLITICAL_PEOPLE_SCAN_LIMIT,
+        "learned_terms_per_cycle": MAX_LEARNED_TERMS_PER_CYCLE,
+    }
+    if MONITOR_MODEL_CONFIG_PATH.exists():
+        try:
+            loaded = json.loads(MONITOR_MODEL_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                config.update({key: value for key, value in loaded.items() if key in config and value is not None})
+        except Exception:
+            pass
+    return config
+
+
+def gpu_runtime_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_monitor_config()
     status = {
         "enabled_by_env": ML_USE_GPU,
-        "memory_limit_mb": GPU_MEMORY_LIMIT_MB,
+        "enabled": bool(config.get("use_gpu")),
+        "memory_limit_mb": int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB),
+        "shared_memory_enabled": bool(config.get("use_shared_memory")),
+        "shared_memory_limit_mb": int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB),
         "available": False,
         "name": None,
         "memory_total_mb": None,
@@ -130,13 +161,20 @@ def gpu_runtime_status() -> dict[str, Any]:
     return status
 
 
-def configure_gpu_runtime() -> dict[str, Any]:
+def configure_gpu_runtime(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_monitor_config()
     os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true")
-    if GPU_MEMORY_LIMIT_MB > 0:
-        os.environ.setdefault("COIBE_GPU_MEMORY_LIMIT_MB", str(GPU_MEMORY_LIMIT_MB))
-        os.environ.setdefault("RAPIDS_MEMORY_LIMIT", str(GPU_MEMORY_LIMIT_MB * 1024 * 1024))
-        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", f"max_split_size_mb:{min(GPU_MEMORY_LIMIT_MB, 1024)}")
-    return gpu_runtime_status()
+    gpu_limit = int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
+    shared_limit = int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB)
+    if gpu_limit > 0:
+        os.environ["COIBE_GPU_MEMORY_LIMIT_MB"] = str(gpu_limit)
+        os.environ["RAPIDS_MEMORY_LIMIT"] = str(gpu_limit * 1024 * 1024)
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"max_split_size_mb:{min(gpu_limit, 1024)}"
+    if bool(config.get("use_shared_memory")) and shared_limit > 0:
+        os.environ["COIBE_SHARED_MEMORY_LIMIT_MB"] = str(shared_limit)
+        os.environ.setdefault("JOBLIB_TEMP_FOLDER", str(MODELS_DIR / "shared_memory_cache"))
+        (MODELS_DIR / "shared_memory_cache").mkdir(parents=True, exist_ok=True)
+    return gpu_runtime_status(config)
 
 
 def load_monitor_model_state() -> dict[str, Any]:
@@ -180,7 +218,7 @@ def candidate_terms_from_text(value: Any) -> list[str]:
     return phrases[:12]
 
 
-def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any]) -> dict[str, Any]:
+def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = load_monitor_model_state()
     learned_by_key: dict[str, dict[str, Any]] = {}
@@ -221,7 +259,8 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             bucket["sources"].add("public_records")
 
     now = brasilia_now().isoformat()
-    for normalized, candidate in sorted(candidates.items(), key=lambda row: row[1]["score"], reverse=True)[:MAX_LEARNED_TERMS_PER_CYCLE]:
+    learned_limit = int(config.get("learned_terms_per_cycle") or MAX_LEARNED_TERMS_PER_CYCLE)
+    for normalized, candidate in sorted(candidates.items(), key=lambda row: row[1]["score"], reverse=True)[:learned_limit]:
         existing = learned_by_key.get(normalized, {"term": candidate["term"], "hits": 0, "score": 0, "first_seen_at": now})
         existing["term"] = existing.get("term") or candidate["term"]
         existing["hits"] = int(existing.get("hits") or 0) + 1
@@ -242,6 +281,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "alerts_count": analysis.get("alerts_count"),
             "search_terms_used": search_terms,
             "gpu": gpu,
+            "config": config,
             "model_storage": str(MODELS_DIR),
             "legal_safety": "Aprendizado usado para priorizar busca e triagem; não conclui crime, culpa ou vínculo familiar.",
         },
@@ -307,8 +347,18 @@ async def collect_connector(
         return None
 
 
-async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, page_size: int, start_page: int = 1) -> dict[str, Any]:
-    timeout = httpx.Timeout(90.0, connect=10.0)
+async def collect_snapshot(
+    api_base: str,
+    search_terms: list[str],
+    pages: int,
+    page_size: int,
+    start_page: int = 1,
+    timeout_seconds: int = 90,
+    political_party_limit: int = POLITICAL_PARTY_SCAN_LIMIT,
+    political_people_limit: int = POLITICAL_PEOPLE_SCAN_LIMIT,
+) -> dict[str, Any]:
+    timeout_value = max(15, int(timeout_seconds))
+    timeout = httpx.Timeout(float(timeout_value), connect=min(10.0, float(timeout_value)))
     async with httpx.AsyncClient(base_url=api_base, timeout=timeout) as client:
         snapshot: dict[str, Any] = {
             "collected_at": brasilia_now().isoformat(),
@@ -363,7 +413,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_parties_scan",
-            f"/api/political/parties?limit={POLITICAL_PARTY_SCAN_LIMIT}&source=live",
+            f"/api/political/parties?limit={political_party_limit}&source=live",
             "public_political_risk_scan",
         )
         if political_parties is not None:
@@ -373,7 +423,7 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             client,
             snapshot,
             "political_people_scan",
-            f"/api/political/politicians?limit={POLITICAL_PEOPLE_SCAN_LIMIT}&source=live",
+            f"/api/political/politicians?limit={political_people_limit}&source=live",
             "public_political_risk_scan",
         )
         if political_people is not None:
@@ -1179,12 +1229,27 @@ def append_platform_library(paths: dict[str, Path], library_records: list[dict[s
 
 async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     stamp = now_slug()
-    gpu = configure_gpu_runtime()
+    monitor_config = load_monitor_config()
+    gpu = configure_gpu_runtime(monitor_config)
     collection_state = load_collection_state(paths)
     model_state = load_monitor_model_state()
     search_terms = merged_search_terms(args.search_terms, model_state)
+    pages = int(monitor_config.get("research_rounds") or args.pages)
+    page_size = int(monitor_config.get("feed_page_size") or args.page_size)
+    timeout_seconds = int(monitor_config.get("research_timeout_seconds") or RESEARCH_TIMEOUT_SECONDS)
+    political_party_limit = int(monitor_config.get("political_party_scan_limit") or POLITICAL_PARTY_SCAN_LIMIT)
+    political_people_limit = int(monitor_config.get("political_people_scan_limit") or POLITICAL_PEOPLE_SCAN_LIMIT)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
-    snapshot = await collect_snapshot(args.api_base, search_terms, args.pages, args.page_size, start_page=start_page)
+    snapshot = await collect_snapshot(
+        args.api_base,
+        search_terms,
+        pages,
+        page_size,
+        start_page=start_page,
+        timeout_seconds=timeout_seconds,
+        political_party_limit=political_party_limit,
+        political_people_limit=political_people_limit,
+    )
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
 
@@ -1227,7 +1292,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         if "_feed_page_" in str(connector.get("name") or "")
         and connector.get("status") != "ok"
     )
-    next_feed_page = start_page + args.pages
+    next_feed_page = start_page + pages
     reset_reason = None
     if feed_items_collected == 0:
         next_feed_page = 1
@@ -1244,7 +1309,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     }
     analysis["collector_state"] = {
         "feed_page_start": start_page,
-        "feed_page_end": start_page + args.pages - 1,
+        "feed_page_end": start_page + pages - 1,
         "next_feed_page": next_feed_page,
         "feed_items_collected": feed_items_collected,
         "new_items_analyzed": len(new_feed_items),
@@ -1252,7 +1317,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "feed_pages_failed": feed_pages_failed,
         "reset_reason": reset_reason,
     }
-    analysis["model"] = update_monitor_model_state(analysis, snapshot, search_terms, gpu)
+    analysis["model"] = update_monitor_model_state(analysis, snapshot, search_terms, gpu, monitor_config)
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
     write_json(processed_path, analysis)
     write_json(latest_path, analysis)

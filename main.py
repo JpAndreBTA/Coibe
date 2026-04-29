@@ -21,7 +21,7 @@ from urllib.parse import urlencode, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,8 +64,11 @@ POLITICAL_HIGH_VALUE_PERSON_THRESHOLD = Decimal(os.getenv("COIBE_POLITICAL_HIGH_
 MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
 COIBE_ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
 COIBE_GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
+COIBE_ML_USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {"1", "true", "yes"}
+COIBE_SHARED_MEMORY_LIMIT_MB = int(os.getenv("COIBE_SHARED_MEMORY_LIMIT_MB", "4096"))
 FALLBACK_CONTRACTS_START = "2025-09-01"
 FALLBACK_CONTRACTS_END = "2025-09-30"
 AUTO_CONTRACT_WINDOWS_DAYS = (45, 120, 240)
@@ -468,6 +471,19 @@ class PipelineReadinessResponse(BaseModel):
     production_targets: list[str]
 
 
+class MonitorModelConfig(BaseModel):
+    use_gpu: bool = False
+    gpu_memory_limit_mb: int = Field(default=2048, ge=256, le=49152)
+    use_shared_memory: bool = True
+    shared_memory_limit_mb: int = Field(default=4096, ge=512, le=131072)
+    research_timeout_seconds: int = Field(default=90, ge=15, le=900)
+    research_rounds: int = Field(default=10, ge=1, le=100)
+    feed_page_size: int = Field(default=50, ge=10, le=100)
+    political_party_scan_limit: int = Field(default=12, ge=1, le=24)
+    political_people_scan_limit: int = Field(default=24, ge=1, le=36)
+    learned_terms_per_cycle: int = Field(default=12, ge=1, le=100)
+
+
 class SpatialRiskRequest(BaseModel):
     company_lat: float = Field(ge=-90, le=90)
     company_lng: float = Field(ge=-180, le=180)
@@ -631,6 +647,13 @@ def allow_local_or_admin_live_scan(request: Request, x_coibe_admin_token: str | 
     if client_ip and client_ip.is_loopback:
         return
     require_admin_token(x_coibe_admin_token)
+
+
+def require_local_request(request: Request) -> None:
+    host = (request.headers.get("host") or "").split(":", 1)[0].lower()
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return
+    raise HTTPException(status_code=404, detail="Recurso disponivel apenas localmente.")
 
 
 def blocked_ip_address(value: str) -> bool:
@@ -2073,10 +2096,49 @@ def read_monitor_model_state() -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def default_monitor_model_config() -> MonitorModelConfig:
+    return MonitorModelConfig(
+        use_gpu=COIBE_ML_USE_GPU,
+        gpu_memory_limit_mb=COIBE_GPU_MEMORY_LIMIT_MB,
+        use_shared_memory=COIBE_ML_USE_SHARED_MEMORY,
+        shared_memory_limit_mb=COIBE_SHARED_MEMORY_LIMIT_MB,
+        research_timeout_seconds=int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90")),
+        research_rounds=AUTO_MONITOR_PAGES,
+        feed_page_size=AUTO_MONITOR_PAGE_SIZE,
+        political_party_scan_limit=int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12")),
+        political_people_scan_limit=int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24")),
+        learned_terms_per_cycle=int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12")),
+    )
+
+
+def read_monitor_model_config() -> MonitorModelConfig:
+    if not MONITOR_MODEL_CONFIG_PATH.exists():
+        return default_monitor_model_config()
+    try:
+        loaded = json.loads(MONITOR_MODEL_CONFIG_PATH.read_text(encoding="utf-8"))
+        return MonitorModelConfig.model_validate(loaded)
+    except Exception:
+        return default_monitor_model_config()
+
+
+def write_monitor_model_config(config: MonitorModelConfig) -> MonitorModelConfig:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = config.model_dump()
+    payload["updated_at"] = brasilia_now().isoformat()
+    payload["local_only"] = True
+    payload["note"] = "Configuracao local do monitor; nao expor em endpoint publico."
+    MONITOR_MODEL_CONFIG_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return config
+
+
 def gpu_status() -> dict[str, Any]:
+    config = read_monitor_model_config()
     status = {
         "enabled_by_env": COIBE_ML_USE_GPU,
-        "memory_limit_mb": COIBE_GPU_MEMORY_LIMIT_MB,
+        "enabled": config.use_gpu,
+        "memory_limit_mb": config.gpu_memory_limit_mb,
+        "shared_memory_enabled": config.use_shared_memory,
+        "shared_memory_limit_mb": config.shared_memory_limit_mb,
         "available": False,
         "name": None,
         "memory_total_mb": None,
@@ -2104,9 +2166,106 @@ def gpu_status() -> dict[str, Any]:
     return status
 
 
+def monitor_training_status() -> dict[str, Any]:
+    pid = None
+    if AUTO_MONITOR_PID_PATH.exists():
+        try:
+            raw_pid = AUTO_MONITOR_PID_PATH.read_text(encoding="utf-8").strip()
+            pid = int(raw_pid) if raw_pid.isdigit() else None
+        except Exception:
+            pid = None
+    running = bool(pid and process_is_running(pid))
+    if pid and not running:
+        try:
+            AUTO_MONITOR_PID_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return {"running": running, "pid": pid if running else None, "pid_path": str(AUTO_MONITOR_PID_PATH)}
+
+
+def start_monitor_training_process() -> dict[str, Any]:
+    status = monitor_training_status()
+    if status["running"]:
+        return status
+    logs_dir = Path("logs")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    data_dir = Path("data")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    AUTO_MONITOR_PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config = read_monitor_model_config()
+    command = [
+        sys.executable,
+        "local_monitor.py",
+        "--api-base",
+        AUTO_MONITOR_API_BASE,
+        "--interval-minutes",
+        str(AUTO_MONITOR_INTERVAL_MINUTES),
+        "--pages",
+        str(config.research_rounds),
+        "--page-size",
+        str(config.feed_page_size),
+    ]
+    stdout = (logs_dir / "training.out.log").open("a", encoding="utf-8")
+    stderr = (logs_dir / "training.err.log").open("a", encoding="utf-8")
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=stderr,
+            cwd=str(Path.cwd()),
+            close_fds=True,
+            creationflags=creationflags,
+        )
+    finally:
+        stdout.close()
+        stderr.close()
+    AUTO_MONITOR_PID_PATH.write_text(str(process.pid), encoding="utf-8")
+    return {"running": True, "pid": process.pid, "pid_path": str(AUTO_MONITOR_PID_PATH)}
+
+
+def stop_monitor_training_process() -> dict[str, Any]:
+    status = monitor_training_status()
+    pid = status.get("pid")
+    if pid:
+        terminate_process(int(pid))
+    try:
+        AUTO_MONITOR_PID_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return {"running": False, "pid": None, "pid_path": str(AUTO_MONITOR_PID_PATH)}
+
+
+def restart_backend_visible_terminal() -> None:
+    time.sleep(1.0)
+    script = Path("start-coibe-backend.ps1").resolve()
+    if os.name == "nt":
+        subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-NoExit",
+                "-File",
+                str(script),
+            ],
+            cwd=str(Path.cwd()),
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+        )
+    else:
+        subprocess.Popen([sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"], cwd=str(Path.cwd()))
+    time.sleep(0.8)
+    os._exit(0)
+
+
 def monitor_model_status() -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = read_monitor_model_state()
+    config = read_monitor_model_config()
     training_lines = 0
     if MONITOR_MODEL_TRAINING_PATH.exists():
         try:
@@ -2119,8 +2278,10 @@ def monitor_model_status() -> dict[str, Any]:
         "models_dir": str(MODELS_DIR),
         "state_path": str(MONITOR_MODEL_STATE_PATH),
         "training_path": str(MONITOR_MODEL_TRAINING_PATH),
+        "config_path": str(MONITOR_MODEL_CONFIG_PATH),
         "state_exists": MONITOR_MODEL_STATE_PATH.exists(),
         "training_history_exists": MONITOR_MODEL_TRAINING_PATH.exists(),
+        "config": config.model_dump(),
         "training_events": training_lines,
         "version": state.get("version") or "coibe-monitor-v1",
         "updated_at": state.get("updated_at"),
@@ -2129,7 +2290,20 @@ def monitor_model_status() -> dict[str, Any]:
         "learned_terms": learned_terms[:25],
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
+        "training_process": monitor_training_status(),
         "legal_safety": "O modelo aprende termos e prioridades para triagem; não conclui crime, culpa, parentesco ou irregularidade sem validação humana.",
+    }
+
+
+def public_monitor_model_summary() -> dict[str, Any]:
+    state = read_monitor_model_state()
+    learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    return {
+        "version": state.get("version") or "coibe-monitor-v1",
+        "updated_at": state.get("updated_at"),
+        "cycles": int(state.get("cycles") or 0),
+        "learned_terms_count": len(learned_terms),
+        "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
     }
 
 
@@ -4766,7 +4940,8 @@ async def index() -> FileResponse:
 
 
 @app.get("/backend", response_class=HTMLResponse, include_in_schema=False)
-async def backend_ui() -> HTMLResponse:
+async def backend_ui(request: Request) -> HTMLResponse:
+    require_local_request(request)
     return HTMLResponse(
         """
 <!doctype html>
@@ -4780,8 +4955,11 @@ async def backend_ui() -> HTMLResponse:
     main{width:min(1080px,calc(100% - 32px));margin:0 auto;padding:28px 0}
     h1{font-size:26px;margin:0 0 4px}.muted{color:#a3a3a3}
     .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:18px}
-    .card{border:1px solid #2a2a2a;background:#171717;border-radius:8px;padding:16px}
+    .card, form{border:1px solid #2a2a2a;background:#171717;border-radius:8px;padding:16px}
     strong{display:block;font-size:24px;margin-top:8px}.red{color:#ef4444}.ok{color:#22c55e}
+    label{display:block;margin:10px 0;color:#d4d4d4;font-weight:700} input{width:100%;margin-top:6px;border:1px solid #333;background:#0b0b0b;color:#fff;border-radius:6px;padding:10px}
+    input[type=checkbox]{width:auto;margin-right:8px} button{border:1px solid #ef4444;background:#ef4444;color:white;border-radius:6px;padding:10px 14px;font-weight:800;cursor:pointer;margin:4px 6px 4px 0}
+    button.secondary{background:#171717;border-color:#525252} button.danger{background:#991b1b;border-color:#dc2626}
     pre{white-space:pre-wrap;word-break:break-word;background:#101010;border:1px solid #2a2a2a;border-radius:8px;padding:14px;max-height:360px;overflow:auto}
     a{color:#f87171} small{color:#a3a3a3}
   </style>
@@ -4789,28 +4967,96 @@ async def backend_ui() -> HTMLResponse:
 <body>
   <main>
     <h1>COIBE.IA Backend</h1>
-    <p class="muted">Status do monitor, modelo salvo em Models e configuração de GPU.</p>
+    <p class="muted">Monitoramento local de dados públicos, modelo salvo em Models e configuração de GPU.</p>
     <section class="grid" id="cards"></section>
+    <h2>Configuração local do treinamento</h2>
+    <form id="configForm">
+      <label><input type="checkbox" name="use_gpu" /> Usar GPU quando disponível</label>
+      <label>Limite de memória da GPU (MB)<input name="gpu_memory_limit_mb" type="number" min="256" max="49152" /></label>
+      <label><input type="checkbox" name="use_shared_memory" /> Permitir memória compartilhada/RAM do PC quando GPU não bastar</label>
+      <label>Limite de memória compartilhada/RAM (MB)<input name="shared_memory_limit_mb" type="number" min="512" max="131072" /></label>
+      <label>Tempo máximo de pesquisa por ciclo (segundos)<input name="research_timeout_seconds" type="number" min="15" max="900" /></label>
+      <label>Rodadas/páginas por ciclo<input name="research_rounds" type="number" min="1" max="100" /></label>
+      <label>Itens por rodada<input name="feed_page_size" type="number" min="10" max="100" /></label>
+      <label>Partidos por varredura<input name="political_party_scan_limit" type="number" min="1" max="24" /></label>
+      <label>Políticos por varredura<input name="political_people_scan_limit" type="number" min="1" max="36" /></label>
+      <label>Termos aprendidos por ciclo<input name="learned_terms_per_cycle" type="number" min="1" max="100" /></label>
+      <button type="submit">Salvar configuração local</button>
+      <span id="saveStatus" class="muted"></span>
+    </form>
+    <h2>Controle local</h2>
+    <section class="card">
+      <button id="startTraining" type="button">Iniciar treinamento</button>
+      <button id="stopTraining" class="secondary" type="button">Parar treinamento</button>
+      <button id="restartBackend" class="danger" type="button">Reiniciar backend</button>
+      <p class="muted" id="controlStatus">Os comandos funcionam apenas neste backend local.</p>
+    </section>
     <h2>Modelo de monitoramento</h2>
     <pre id="model">Carregando...</pre>
     <h2>Monitor</h2>
     <pre id="monitor">Carregando...</pre>
-    <p><small>Leitura preventiva: a plataforma prioriza conferência humana e não conclui crime, culpa, parentesco ou irregularidade.</small></p>
+    <p><small>Monitoramento público: a plataforma prioriza fontes oficiais e conferência humana, sem concluir crime, culpa, parentesco ou irregularidade.</small></p>
   </main>
   <script>
     async function getJson(path){ const r = await fetch(path, {cache:'no-store'}); if(!r.ok) throw new Error(path+' HTTP '+r.status); return r.json(); }
+    async function postJson(path, payload){ const r = await fetch(path, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}); if(!r.ok) throw new Error(path+' HTTP '+r.status); return r.json(); }
     function card(label,value,note,cls=''){ return `<article class="card"><span class="muted">${label}</span><strong class="${cls}">${value}</strong><small>${note||''}</small></article>`; }
+    function fillConfig(config){
+      const form = document.getElementById('configForm');
+      for(const [key,value] of Object.entries(config||{})){
+        const field = form.elements[key];
+        if(!field) continue;
+        if(field.type === 'checkbox') field.checked = Boolean(value);
+        else field.value = value;
+      }
+    }
+    function readConfig(){
+      const form = document.getElementById('configForm');
+      const data = {};
+      for(const field of form.elements){
+        if(!field.name) continue;
+        data[field.name] = field.type === 'checkbox' ? field.checked : Number(field.value);
+      }
+      return data;
+    }
     async function load(){
       const [model, monitor] = await Promise.all([getJson('/api/models/status'), getJson('/api/monitoring/status')]);
+      fillConfig(model.config);
       document.getElementById('cards').innerHTML = [
         card('Modelo', model.version || 'n/d', model.updated_at || 'aguardando treino'),
         card('Termos aprendidos', model.learned_terms_count || 0, model.models_dir),
-        card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled_by_env ? 'ativada por env' : 'desativada por env', model.gpu.available ? 'ok' : ''),
+        card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled ? 'ativada na configuração' : 'desativada na configuração', model.gpu.available ? 'ok' : ''),
+        card('Treinamento', model.training_process?.running ? 'Rodando' : 'Parado', model.training_process?.pid ? 'PID '+model.training_process.pid : 'sem processo'),
         card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),
       ].join('');
       document.getElementById('model').textContent = JSON.stringify(model, null, 2);
       document.getElementById('monitor').textContent = JSON.stringify(monitor, null, 2);
     }
+    document.getElementById('configForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      document.getElementById('saveStatus').textContent = ' Salvando...';
+      const saved = await postJson('/api/models/config', readConfig());
+      document.getElementById('saveStatus').textContent = ' Salvo. Reinicie o monitor para aplicar em processo já aberto.';
+      fillConfig(saved);
+      await load();
+    });
+    document.getElementById('startTraining').addEventListener('click', async () => {
+      document.getElementById('controlStatus').textContent = 'Iniciando treinamento...';
+      const result = await postJson('/api/models/training/start', {});
+      document.getElementById('controlStatus').textContent = result.running ? `Treinamento rodando. PID ${result.pid}` : 'Treinamento não iniciou.';
+      await load();
+    });
+    document.getElementById('stopTraining').addEventListener('click', async () => {
+      document.getElementById('controlStatus').textContent = 'Parando treinamento...';
+      await postJson('/api/models/training/stop', {});
+      document.getElementById('controlStatus').textContent = 'Treinamento parado. Backend continua ativo.';
+      await load();
+    });
+    document.getElementById('restartBackend').addEventListener('click', async () => {
+      if(!confirm('Reiniciar o backend local em um novo terminal visível?')) return;
+      document.getElementById('controlStatus').textContent = 'Reiniciando backend em novo terminal...';
+      await postJson('/api/backend/restart', {});
+    });
     load().catch(err => { document.getElementById('model').textContent = String(err); });
   </script>
 </body>
@@ -4825,8 +5071,43 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/models/status")
-async def models_status() -> dict[str, Any]:
+async def models_status(request: Request) -> dict[str, Any]:
+    require_local_request(request)
     return monitor_model_status()
+
+
+@app.get("/api/models/config", response_model=MonitorModelConfig)
+async def models_config(request: Request) -> MonitorModelConfig:
+    require_local_request(request)
+    return read_monitor_model_config()
+
+
+@app.post("/api/models/config", response_model=MonitorModelConfig)
+async def save_models_config(payload: MonitorModelConfig, request: Request) -> MonitorModelConfig:
+    require_local_request(request)
+    return write_monitor_model_config(payload)
+
+
+@app.post("/api/models/training/start")
+async def start_models_training(request: Request) -> dict[str, Any]:
+    require_local_request(request)
+    return start_monitor_training_process()
+
+
+@app.post("/api/models/training/stop")
+async def stop_models_training(request: Request) -> dict[str, Any]:
+    require_local_request(request)
+    return stop_monitor_training_process()
+
+
+@app.post("/api/backend/restart")
+async def restart_backend(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    require_local_request(request)
+    background_tasks.add_task(restart_backend_visible_terminal)
+    return {
+        "status": "restarting",
+        "message": "Backend será reiniciado em um novo terminal visível. Fechar o terminal encerra o backend.",
+    }
 
 
 @app.get("/api/storage/status")
@@ -4971,7 +5252,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
     latest_data: dict[str, Any] | None = None
     if not data_path_exists(LOCAL_MONITOR_LATEST_PATH):
         library_status = read_library_status()
-        model_status = monitor_model_status()
+        model_status = public_monitor_model_summary()
         return LocalMonitorStatus(
             running=False,
             latest_file_exists=False,
@@ -4993,7 +5274,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         latest_data = data
     except Exception:
         library_status = read_library_status()
-        model_status = monitor_model_status()
+        model_status = public_monitor_model_summary()
         return LocalMonitorStatus(
             running=False,
             latest_file_exists=True,
@@ -5020,7 +5301,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
             running = False
 
     library_status = read_library_status(latest_data)
-    model_status = monitor_model_status()
+    model_status = public_monitor_model_summary()
     collector_state = data.get("collector_state") if isinstance(data.get("collector_state"), dict) else {}
     knowledge_items_count = max(
         int(data.get("items_analyzed") or 0),

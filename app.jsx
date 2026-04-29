@@ -599,7 +599,10 @@ export default function CoibeApp() {
           return (riskOrder[String(right.attention_level || '').toLowerCase()] || 0) - (riskOrder[String(left.attention_level || '').toLowerCase()] || 0);
         }
         if (politicalSizeOrder === 'viagens') return Number(right.travel_public_money || 0) - Number(left.travel_public_money || 0);
-        if (politicalSizeOrder === 'registros') return Number(right.records_count || 0) - Number(left.records_count || 0);
+        if (politicalSizeOrder === 'registros') {
+          return (Number(right.priority_score || 0) - Number(left.priority_score || 0))
+            || (Number(right.records_count || 0) - Number(left.records_count || 0));
+        }
         return Number(right.total_public_money || 0) - Number(left.total_public_money || 0);
       });
   }, [politicalCurrentItems, politicalRiskFilter, politicalSearch, politicalSizeOrder, politicalTypeFilter]);

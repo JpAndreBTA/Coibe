@@ -267,6 +267,7 @@ Além dos fatores do guia, o monitor contínuo aplica uma camada adaptativa de m
 O estado do aprendizado fica em `Models/`:
 
 ```text
+Models/monitor_config.json
 Models/monitor_model_state.json
 Models/monitor_training_history.jsonl
 ```
@@ -281,7 +282,13 @@ $env:COIBE_GPU_MEMORY_LIMIT_MB="2048"
 
 Sem GPU, o monitor continua em CPU com `scikit-learn` ou fallback estatístico.
 A UI do backend fica em `http://127.0.0.1:8000/backend` e o status JSON em
-`/api/models/status`.
+`/api/models/status`. Essas rotas são locais: não ficam disponíveis pelo domínio
+público/túnel.
+
+Na UI local do backend é possível configurar limite de memória da GPU, uso de
+memória compartilhada/RAM, tempo máximo de pesquisa, rodadas por ciclo e limites
+de varredura política. Também há botões para iniciar/parar o treinamento sem
+parar o backend e reiniciar o backend em um novo terminal visível.
 
 ### Risco espacial/logistico
 
