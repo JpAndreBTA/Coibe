@@ -179,6 +179,12 @@ envolvidas e fontes oficiais para conferência de processos, contas e controle
 externo. A plataforma lista consultas oficiais; não conclui crime, culpa,
 suborno, corrupção ou desfecho judicial.
 
+O monitor também cruza cada político e partido com a base local de contratos já
+analisados, registros eleitorais/doações já carregados, fornecedores do recorte
+e movimentos de alto valor em pessoas ou nomes próximos. Esses sinais aparecem
+como fatores de conferência humana, sem afirmar parentesco, favorecimento ou
+irregularidade automaticamente.
+
 Por padrao, essas abas leem a base local consolidada em segundo plano pelo
 monitor, como o feed. A consulta publica das abas nao dispara nova varredura:
 se o termo nao estiver no cache, retorna vazio. O modo `source=live` fica

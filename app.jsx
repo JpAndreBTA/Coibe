@@ -69,6 +69,8 @@ const POLITICAL_TYPE_LABELS = {
   contas: 'Contas eleitorais',
   controle: 'Controle externo',
   contratos: 'Contratos/compras',
+  doacoes: 'Doações eleitorais',
+  vinculos: 'Vínculos próximos',
   partido: 'Partido',
   outros: 'Outros'
 };
