@@ -448,6 +448,9 @@ export default function CoibeApp() {
   const [stateRisks, setStateRisks] = useState({});
   const [politicalParties, setPoliticalParties] = useState([]);
   const [politicalPeople, setPoliticalPeople] = useState([]);
+  const [politicalSearch, setPoliticalSearch] = useState('');
+  const [politicalRiskFilter, setPoliticalRiskFilter] = useState('todos');
+  const [politicalSizeOrder, setPoliticalSizeOrder] = useState('valor');
   const [loadingPolitical, setLoadingPolitical] = useState(false);
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [geoJson, setGeoJson] = useState(null);
@@ -468,7 +471,7 @@ export default function CoibeApp() {
 
   const analyzedCount = Math.max(
     Number(monitorStatus?.items_analyzed || 0),
-    Number(monitorStatus?.database_items_count || 0)
+    Number(monitorStatus?.database_items_count || 0) + Number(monitorStatus?.public_records_count || 0)
   );
   const libraryCount = Number(monitorStatus?.library_records_count || 0);
   const collectorState = monitorStatus?.collector_state || {};
@@ -481,6 +484,28 @@ export default function CoibeApp() {
   const analyzedCountNote = feedPagesFailed > 0 && feedItemsCollected === 0
     ? 'Fonte pública instável no último ciclo'
     : `Novos no último ciclo: ${newItemsAnalyzed.toLocaleString('pt-BR')}`;
+
+  const politicalCurrentItems = activeTab === 'parties' ? politicalParties : politicalPeople;
+  const filteredPoliticalItems = useMemo(() => {
+    const query = politicalSearch.trim().toLowerCase();
+    const riskOrder = { alto: 3, 'médio': 2, medio: 2, baixo: 1 };
+    return [...politicalCurrentItems]
+      .filter((item) => {
+        const level = String(item.attention_level || '').toLowerCase();
+        if (politicalRiskFilter !== 'todos' && level !== politicalRiskFilter) return false;
+        if (!query) return true;
+        const text = [item.name, item.subtitle, item.party, item.role, item.summary, ...(item.people || [])].join(' ').toLowerCase();
+        return text.includes(query);
+      })
+      .sort((left, right) => {
+        if (politicalSizeOrder === 'risco') {
+          return (riskOrder[String(right.attention_level || '').toLowerCase()] || 0) - (riskOrder[String(left.attention_level || '').toLowerCase()] || 0);
+        }
+        if (politicalSizeOrder === 'viagens') return Number(right.travel_public_money || 0) - Number(left.travel_public_money || 0);
+        if (politicalSizeOrder === 'registros') return Number(right.records_count || 0) - Number(left.records_count || 0);
+        return Number(right.total_public_money || 0) - Number(left.total_public_money || 0);
+      });
+  }, [politicalCurrentItems, politicalRiskFilter, politicalSearch, politicalSizeOrder]);
 
   const stats = useMemo(() => {
     const feedTotal = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
@@ -591,11 +616,15 @@ export default function CoibeApp() {
     setError('');
     try {
       if (kind === 'parties') {
-        const data = await apiGet('/api/political/parties?limit=12');
+        const params = new URLSearchParams({ limit: '24' });
+        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        const data = await apiGet(`/api/political/parties?${params}`);
         setPoliticalParties(data.items || []);
       }
       if (kind === 'politicians') {
-        const data = await apiGet('/api/political/politicians?limit=18');
+        const params = new URLSearchParams({ limit: '36' });
+        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        const data = await apiGet(`/api/political/politicians?${params}`);
         setPoliticalPeople(data.items || []);
       }
     } catch {
@@ -886,6 +915,14 @@ function queryFromResult(result) {
   }, [activeTab, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
 
   useEffect(() => {
+    if (activeTab !== 'parties' && activeTab !== 'politicians') return undefined;
+    const timeout = window.setTimeout(() => {
+      loadPoliticalData(activeTab);
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [politicalSearch]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       loadMonitorStatus();
       if (activeTab === 'feed' && page === 1 && !loadingFeed) {
@@ -1123,13 +1160,19 @@ function queryFromResult(result) {
                 Mapa de Alertas
               </button>
               <button
-                onClick={() => setActiveTab('parties')}
+                onClick={() => {
+                  setActiveTab('parties');
+                  setPoliticalSearch('');
+                }}
                 className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'parties' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Partido
               </button>
               <button
-                onClick={() => setActiveTab('politicians')}
+                onClick={() => {
+                  setActiveTab('politicians');
+                  setPoliticalSearch('');
+                }}
                 className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'politicians' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Político
@@ -1431,6 +1474,53 @@ function queryFromResult(result) {
                   </p>
                 </div>
 
+                <div className="grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1fr)]">
+                  <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                    <Search className="h-4 w-4 shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-black uppercase text-neutral-500">Pesquisar</span>
+                      <input
+                        value={politicalSearch}
+                        onChange={(event) => setPoliticalSearch(event.target.value)}
+                        placeholder={activeTab === 'parties' ? 'partido, sigla, pessoa' : 'nome, partido, fornecedor'}
+                        className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-neutral-600"
+                      />
+                    </span>
+                  </label>
+                  <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                    <Filter className="h-4 w-4 shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-black uppercase text-neutral-500">Fatores de risco</span>
+                      <select
+                        value={politicalRiskFilter}
+                        onChange={(event) => setPoliticalRiskFilter(event.target.value)}
+                        className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
+                      >
+                        <option className="bg-neutral-950" value="todos">Todos</option>
+                        <option className="bg-neutral-950" value="alto">Alto</option>
+                        <option className="bg-neutral-950" value="médio">Medio</option>
+                        <option className="bg-neutral-950" value="baixo">Baixo</option>
+                      </select>
+                    </span>
+                  </label>
+                  <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                    <ArrowDownWideNarrow className="h-4 w-4 shrink-0 text-red-400" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-black uppercase text-neutral-500">Tamanho</span>
+                      <select
+                        value={politicalSizeOrder}
+                        onChange={(event) => setPoliticalSizeOrder(event.target.value)}
+                        className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
+                      >
+                        <option className="bg-neutral-950" value="valor">Maior dinheiro publico</option>
+                        <option className="bg-neutral-950" value="viagens">Maior valor em viagens</option>
+                        <option className="bg-neutral-950" value="registros">Mais registros</option>
+                        <option className="bg-neutral-950" value="risco">Maior risco</option>
+                      </select>
+                    </span>
+                  </label>
+                </div>
+
                 {loadingPolitical && (
                   <div className="flex h-44 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400">
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -1438,7 +1528,7 @@ function queryFromResult(result) {
                   </div>
                 )}
 
-                {(activeTab === 'parties' ? politicalParties : politicalPeople).map((item) => {
+                {filteredPoliticalItems.map((item) => {
                   const risk = riskCopy[item.attention_level] || riskCopy.baixo;
                   return (
                     <button
@@ -1480,7 +1570,7 @@ function queryFromResult(result) {
                   );
                 })}
 
-                {!loadingPolitical && (activeTab === 'parties' ? politicalParties : politicalPeople).length === 0 && (
+                {!loadingPolitical && filteredPoliticalItems.length === 0 && (
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-sm text-neutral-400">
                     Nenhum registro encontrado nesta varredura agora.
                   </div>

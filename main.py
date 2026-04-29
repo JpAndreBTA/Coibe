@@ -4122,6 +4122,16 @@ async def local_monitor_status() -> LocalMonitorStatus:
 
     library_status = read_library_status(latest_data)
     collector_state = data.get("collector_state") if isinstance(data.get("collector_state"), dict) else {}
+    knowledge_items_count = max(
+        int(data.get("items_analyzed") or 0),
+        database_items_count,
+    ) + public_records_count
+    collector_state = {
+        **collector_state,
+        "knowledge_items_count": knowledge_items_count,
+        "contracts_items_count": database_items_count,
+        "public_records_count": public_records_count,
+    }
     return LocalMonitorStatus(
         running=running,
         latest_file_exists=True,
@@ -4129,7 +4139,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         database_path=str(LOCAL_MONITOR_DB_PATH),
         public_records_path=str(LOCAL_PUBLIC_RECORDS_PATH),
         generated_at=generated_at,
-        items_analyzed=max(int(data.get("items_analyzed") or 0), database_items_count),
+        items_analyzed=knowledge_items_count,
         alerts_count=int(data.get("alerts_count") or 0),
         database_items_count=database_items_count,
         public_records_count=public_records_count,
