@@ -537,13 +537,16 @@ function politicalDetailReview(detail = {}) {
   const formattedValue = value > 0 ? compactValue(value, 'value') : '';
   const who = detail.person || detail.party || 'este recorte';
   const supplier = detail.supplier || detail.supplier_document || '';
+  const entity = detail.entity || '';
+  const matchedTerms = Array.isArray(detail.matched_terms) ? detail.matched_terms.filter(Boolean).slice(0, 4) : [];
   const readableDate = detail.date ? formatDate(detail.date) : detail.month && detail.year ? `${String(detail.month).padStart(2, '0')}/${detail.year}` : '';
   const risk = politicalSuperpricingRisk(detail);
   const valueText = formattedValue ? ` no valor de ${formattedValue}` : '';
   const supplierText = supplier ? ` envolvendo ${supplier}` : '';
+  const entityText = entity ? ` no órgão ${entity}` : '';
   const dateText = readableDate ? ` em ${readableDate}` : '';
   const checksByType = {
-    contratos: `Contrato ligado a ${who}${supplierText}${valueText}${dateText}. Confira objeto, preço e repetição do fornecedor.`,
+    contratos: `Contrato ligado a ${who}${supplierText}${entityText}${valueText}${dateText}. ${matchedTerms.length ? `Termos encontrados: ${matchedTerms.join(', ')}. ` : ''}Confira objeto, preço, fornecedor e repetição.`,
     despesas: `Gasto público ligado a ${who}${supplierText}${valueText}${dateText}. Veja quem recebeu, motivo, data e documento.`,
     servicos: `Serviço/consultoria ligado a ${who}${supplierText}${valueText}. Compare entrega e preço com serviços parecidos.`,
     comunicacao: `Comunicação/divulgação ligada a ${who}${supplierText}${valueText}. Confira material entregue, fornecedor e justificativa.`,
@@ -559,6 +562,8 @@ function politicalDetailReview(detail = {}) {
   const hiddenSignals = [];
   if (value >= 1000000) hiddenSignals.push(`Valor alto: ${formattedValue}. Compare com contratos parecidos.`);
   if (supplier) hiddenSignals.push(`Fornecedor/CNPJ: confira repetição em pagamentos e contratos.`);
+  if (entity) hiddenSignals.push(`Órgão relacionado: ${entity}. Compare com outros contratos do mesmo fornecedor.`);
+  if (matchedTerms.length) hiddenSignals.push(`Termos que puxaram o vínculo: ${matchedTerms.join(', ')}.`);
   if (detail.matched_records) hiddenSignals.push(`${Number(detail.matched_records || 0).toLocaleString('pt-BR')} registro(s) relacionado(s) encontrados na base.`);
   if (detail.risk_score) hiddenSignals.push(`Score ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}: prioridade de leitura, não prova.`);
   if (risk.label !== 'Baixo') hiddenSignals.push(`Superfaturamento: ${risk.label}. ${risk.message}`);

@@ -4170,12 +4170,13 @@ def expense_analysis_details(expenses: list[dict[str, Any]], limit: int = 8) -> 
 
 
 def contract_crosscheck_detail(name: str, role: str | None = None, party: str | None = None) -> dict[str, Any]:
+    target = party or name
     detail: dict[str, Any] = {
         "type": "contratos",
-        "title": "Cruzamento com contratos e compras públicas",
+        "title": f"Busca de contratos para {target}",
         "description": (
-            "Busca preventiva por nome, partido, fornecedores e termos relacionados em bases públicas de contratos. "
-            "Serve para apontar itens que merecem conferência humana, sem concluir vínculo irregular."
+            f"O COIBE pesquisou {target} em contratos, fornecedores, órgãos e pessoas relacionadas. "
+            "Os itens abaixo mostram valor, fornecedor, órgão e termo que puxou a correspondência."
         ),
         "person": name,
         "role": role,
@@ -4273,13 +4274,18 @@ def local_contract_crosscheck_for_political(
     linked_people: list[str] = []
     for item in items:
         linked_people.extend([value for value in [item.supplier_name, item.entity] if value])
+        matched_terms = [term for term, count in term_hits.items() if count > 0][:6]
+        supplier_text = item.supplier_name or "fornecedor não informado"
+        entity_text = item.entity or "órgão não informado"
+        terms_text = ", ".join(matched_terms) if matched_terms else name
+        risk_text = f"atenção {item.risk_level}" if item.risk_level else "atenção não informada"
         details.append(
             {
                 "type": "contratos",
-                "title": "Contrato relacionado encontrado na base local",
+                "title": f"{money(item.value)} em contrato com {supplier_text}",
                 "description": (
-                    "Contrato localizado por termo relacionado a pessoa, partido, fornecedor, órgão ou pessoa do recorte. "
-                    "É um sinal para conferência humana; não conclui vínculo familiar, favorecimento ou irregularidade."
+                    f"Termo(s) que ligaram ao recorte: {terms_text}. Órgão: {entity_text}. "
+                    f"Nível do registro: {risk_text}, score {item.risk_score}. Confira objeto, fornecedor, data e fonte oficial."
                 ),
                 "person": name,
                 "role": role,
@@ -4293,7 +4299,7 @@ def local_contract_crosscheck_for_political(
                 "risk_score": item.risk_score,
                 "contract_id": item.id,
                 "document_url": item.report.official_sources[0].url if item.report.official_sources else None,
-                "matched_terms": [term for term, count in term_hits.items() if count > 0][:6],
+                "matched_terms": matched_terms,
             }
         )
 
@@ -4304,10 +4310,10 @@ def local_contract_crosscheck_for_political(
         risks.append(
             PoliticalRiskFactor(
                 level="médio" if high_items or total >= POLITICAL_HIGH_VALUE_CONTRACT_THRESHOLD else "baixo",
-                title="Contratos relacionados para conferência",
+                title=f"{len(items)} contrato(s) ligados ao recorte",
                 message=(
-                    "A base local acumulada encontrou contratos por termos ligados ao político, partido, fornecedores ou pessoas do recorte. "
-                    "A relação é textual e precisa de validação humana."
+                    f"Valor somado: {money(total)}. {len(high_items)} contrato(s) tem valor alto ou risco alto. "
+                    "A ligação veio por termo textual; confira fornecedor, órgão, objeto e documento oficial."
                 ),
                 evidence={
                     "matches_count": len(items),
@@ -4344,10 +4350,10 @@ def electoral_donation_crosscheck_for_political(
     details: list[dict[str, Any]] = [
         {
             "type": "doacoes",
-            "title": "Doações e contas eleitorais a conferir",
+            "title": f"{len(records)} registro(s) eleitoral(is) ligado(s) a {party or name}",
             "description": (
-                "Consulta preventiva por pessoa, partido, fornecedores e nomes próximos em bases eleitorais públicas já carregadas. "
-                "Quando houver correspondência, o item deve ser validado na fonte oficial do TSE."
+                f"Termos pesquisados: {', '.join(terms[:6])}. "
+                "Confira doador, recebedor, valor, data e partido no TSE antes de concluir."
             ),
             "person": name,
             "role": role,
@@ -4359,11 +4365,16 @@ def electoral_donation_crosscheck_for_political(
         }
     ]
     for record in records[:limit]:
+        record_title = str(record.get("title") or "Registro eleitoral relacionado")
+        record_source = str(record.get("source") or "fonte eleitoral pública")
         details.append(
             {
                 "type": "doacoes",
-                "title": str(record.get("title") or "Registro eleitoral relacionado"),
-                "description": str(record.get("subtitle") or "Registro público eleitoral relacionado por termo textual."),
+                "title": record_title,
+                "description": (
+                    f"Fonte: {record_source}. Correspondência textual com {party or name}; "
+                    "abra a fonte e confira nomes, CPF/CNPJ, valor e campanha."
+                ),
                 "person": name,
                 "party": party,
                 "source": record.get("source"),
@@ -4377,10 +4388,10 @@ def electoral_donation_crosscheck_for_political(
         risks.append(
             PoliticalRiskFactor(
                 level="médio",
-                title="Possível relação eleitoral para conferência",
+                title=f"{len(records)} registro(s) eleitoral(is) para checar",
                 message=(
-                    "Foram encontrados registros eleitorais por termos ligados a pessoa, partido, fornecedor ou nome próximo do recorte. "
-                    "A plataforma não conclui doação irregular; apenas prioriza checagem."
+                    f"Termos que puxaram a correspondência: {', '.join(terms[:6])}. "
+                    "Valide no TSE se o registro é da mesma pessoa, partido, fornecedor ou campanha."
                 ),
                 evidence={"matching_records": len(records), "terms_checked": terms},
                 source="TSE e base pública carregada no COIBE.IA",
@@ -4404,10 +4415,10 @@ def proximity_money_flow_attention(
     details = [
         {
             "type": "vinculos",
-            "title": "Movimento de alto valor em pessoas ou fornecedores próximos ao recorte",
+            "title": f"{len(high_value_people)} nome(s) com valor acima de {money(POLITICAL_HIGH_VALUE_PERSON_THRESHOLD)}",
             "description": (
-                "Leitura de concentração financeira em fornecedores, pessoas ou nomes relacionados ao recorte político. "
-                "O termo 'próximo' aqui significa proximidade textual/operacional na base analisada, não parentesco confirmado."
+                "O COIBE somou valores por nomes ligados ao recorte. "
+                "Proximidade aqui é textual/operacional na base, não parentesco confirmado."
             ),
             "person": name,
             "role": role,
@@ -4423,10 +4434,10 @@ def proximity_money_flow_attention(
         risks.append(
             PoliticalRiskFactor(
                 level="médio",
-                title="Alto valor concentrado em pessoas/fornecedores do recorte",
+                title=f"{money(total)} concentrados em nomes do recorte",
                 message=(
-                    "Há valores relevantes concentrados em nomes próximos ao recorte analisado. "
-                    "Isso exige conferência de documentos e vínculos antes de qualquer conclusão."
+                    f"{len(high_value_people)} nome(s) passaram de {money(POLITICAL_HIGH_VALUE_PERSON_THRESHOLD)}. "
+                    "Confira documentos, fornecedor, pessoa/partido e repetição antes de concluir."
                 ),
                 evidence={
                     "total_high_value_people": len(high_value_people),
@@ -4608,8 +4619,8 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
         records_count=related_records,
         attention_level=attention,
         summary=(
-            f"{money(related_money)} em contratos/pagamentos relacionados na base local; "
-            f"{related_records} registros e fontes lidos para checagem preventiva."
+            f"{money(related_money)} em contratos e pagamentos ligados a {title}; "
+            f"{related_records} registros/fontes lidos, com foco em fornecedor, órgão, processo e conta eleitoral."
         ),
         people=list(dict.fromkeys([*related_people, *contract_people]))[:16],
         analysis_types=["processos", "contas", "controle", "contratos", "doacoes", "vinculos"],
@@ -4892,8 +4903,8 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 records_count=senator_records,
                 attention_level=senator_attention,
                 summary=(
-                    f"{money(senator_money)} em contratos/pagamentos relacionados na base local; "
-                    f"{senator_records} registros e fontes lidos para checagem preventiva."
+                    f"{money(senator_money)} em contratos e pagamentos ligados a {name}; "
+                    f"{senator_records} registros/fontes lidos, com foco em fornecedor, órgão, processo e conta eleitoral."
                 ),
                 people=list(dict.fromkeys([str(name), *contract_people]))[:16],
                 analysis_types=["processos", "controle", "contas", "contratos", "doacoes", "vinculos"],
@@ -5018,10 +5029,10 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
         analysis_details = [
             {
                 **contract_crosscheck_detail(sigla, "Partido político", sigla),
-                "title": "Cruzamento agregado do partido com contratos e compras públicas",
+                "title": f"Contratos e despesas agregados do {sigla}",
                 "description": (
-                    "Leitura por partido, parlamentares do recorte, fornecedores citados e bases públicas de contratos. "
-                    "A tela mostra pontos para conferência, não uma conclusão de irregularidade."
+                    f"O COIBE juntou parlamentares, fornecedores citados e contratos ligados ao {sigla}. "
+                    "Veja abaixo valores, fornecedores, órgãos e termos que geraram cada correspondência."
                 ),
             }
         ]
@@ -5103,6 +5114,73 @@ def political_item_cache_quality(item: PoliticalScanItem) -> tuple[int, Decimal,
         detail_count,
         people_count,
     )
+
+
+def normalize_cached_political_detail(detail: dict[str, Any], fallback_party: str | None = None, fallback_person: str | None = None) -> dict[str, Any]:
+    if not isinstance(detail, dict):
+        return detail
+    output = dict(detail)
+    detail_type = str(output.get("type") or "")
+    title = str(output.get("title") or "")
+    person = output.get("person") or fallback_person or "recorte"
+    party = output.get("party") or fallback_party
+    if detail_type == "contratos":
+        value = parse_decimal(output.get("value"))
+        supplier = output.get("supplier") or "fornecedor não informado"
+        entity = output.get("entity") or "órgão não informado"
+        matched_terms = output.get("matched_terms") if isinstance(output.get("matched_terms"), list) else []
+        terms_text = ", ".join(str(term) for term in matched_terms[:4] if term) or str(party or person)
+        if title in {
+            "Contrato relacionado encontrado na base local",
+            "Cruzamento com contratos e compras públicas",
+            "Cruzamento agregado do partido com contratos e compras públicas",
+        }:
+            output["title"] = (
+                f"{money(value)} em contrato com {supplier}"
+                if value and value > 0
+                else f"Busca de contratos para {party or person}"
+            )
+        output["description"] = (
+            f"Termo(s) que ligaram ao recorte: {terms_text}. Órgão: {entity}. "
+            f"Fornecedor: {supplier}. Confira objeto, valor, data e fonte oficial."
+        )
+    elif detail_type == "doacoes":
+        matched_records = int(output.get("matched_records") or 0)
+        if title in {"Doações e contas eleitorais a conferir", "Registro eleitoral relacionado"}:
+            output["title"] = f"{matched_records} registro(s) eleitoral(is) ligado(s) a {party or person}"
+        output["description"] = (
+            f"Confira no TSE se o registro pertence a {party or person}; valide doador, recebedor, valor, data e campanha."
+        )
+    elif detail_type == "vinculos" and title == "Movimento de alto valor em pessoas ou fornecedores próximos ao recorte":
+        output["title"] = "Valores concentrados em nomes do recorte"
+        output["description"] = "O COIBE somou valores por nomes ligados ao recorte; proximidade é textual/operacional, não parentesco confirmado."
+    return output
+
+
+def normalize_cached_political_risk(risk: PoliticalRiskFactor) -> PoliticalRiskFactor:
+    if risk.title == "Contratos relacionados para conferência":
+        matches = risk.evidence.get("matches_count")
+        total = parse_decimal(risk.evidence.get("total_related_value"))
+        high = risk.evidence.get("high_value_or_high_risk_matches")
+        risk.title = f"{matches or 0} contrato(s) ligados ao recorte"
+        risk.message = (
+            f"Valor somado: {money(total)}. {high or 0} contrato(s) tem valor alto ou risco alto. "
+            "Confira fornecedor, órgão, objeto e documento oficial."
+        )
+    elif risk.title == "Possível relação eleitoral para conferência":
+        matches = risk.evidence.get("matching_records")
+        terms = risk.evidence.get("terms_checked") if isinstance(risk.evidence.get("terms_checked"), list) else []
+        risk.title = f"{matches or 0} registro(s) eleitoral(is) para checar"
+        risk.message = (
+            f"Termos que puxaram a correspondência: {', '.join(str(term) for term in terms[:6])}. "
+            "Valide no TSE se é a mesma pessoa, partido, fornecedor ou campanha."
+        )
+    elif risk.title == "Alto valor concentrado em pessoas/fornecedores do recorte":
+        total = parse_decimal(risk.evidence.get("total_high_value_money"))
+        count = risk.evidence.get("total_high_value_people")
+        risk.title = f"{money(total)} concentrados em nomes do recorte"
+        risk.message = f"{count or 0} nome(s) passaram do limite de alto valor. Confira documentos e repetição."
+    return risk
 
 
 def political_detail_key(detail: dict[str, Any]) -> str:
@@ -5296,6 +5374,12 @@ def cached_political_items(
             item = PoliticalScanItem.model_validate(record["payload"])
         except Exception:
             continue
+        item.analysis_details = [
+            normalize_cached_political_detail(detail, item.party, item.name)
+            for detail in item.analysis_details
+            if isinstance(detail, dict)
+        ]
+        item.risks = [normalize_cached_political_risk(risk) for risk in item.risks]
 
         if normalized_party and normalize_text(item.party) != normalized_party:
             continue
