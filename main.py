@@ -1,11 +1,14 @@
 import os
 import asyncio
 import hashlib
+import ipaddress
 import math
 import re
 import signal
+import socket
 import subprocess
 import sys
+import time
 import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -14,12 +17,13 @@ import json
 from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -70,11 +74,25 @@ AUTO_MONITOR_PAGES = int(os.getenv("COIBE_AUTO_MONITOR_PAGES", "10"))
 AUTO_MONITOR_PAGE_SIZE = int(os.getenv("COIBE_AUTO_MONITOR_PAGE_SIZE", "50"))
 AUTO_MONITOR_API_BASE = os.getenv("COIBE_AUTO_MONITOR_API_BASE", "http://127.0.0.1:8000")
 AUTO_MONITOR_PID_PATH = Path(os.getenv("COIBE_AUTO_MONITOR_PID_PATH", "data/state/monitor.pid"))
+COIBE_ENV = os.getenv("COIBE_ENV", os.getenv("ENV", "production")).strip().lower()
+IS_PRODUCTION = COIBE_ENV in {"prod", "production", "public"}
+ADMIN_TOKEN = os.getenv("COIBE_ADMIN_TOKEN", "").strip()
+REQUIRE_ADMIN_TOKEN = os.getenv("COIBE_REQUIRE_ADMIN_TOKEN", "true").lower() not in {"0", "false", "no"}
+ENABLE_DOCS = os.getenv("COIBE_ENABLE_DOCS", "false" if IS_PRODUCTION else "true").lower() in {"1", "true", "yes"}
+ENABLE_STORAGE_STATUS = os.getenv("COIBE_ENABLE_STORAGE_STATUS", "false").lower() in {"1", "true", "yes"}
+RATE_LIMIT_ENABLED = os.getenv("COIBE_RATE_LIMIT_ENABLED", "true").lower() not in {"0", "false", "no"}
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("COIBE_RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_PUBLIC_REQUESTS = int(os.getenv("COIBE_RATE_LIMIT_PUBLIC_REQUESTS", "120"))
+RATE_LIMIT_HEAVY_REQUESTS = int(os.getenv("COIBE_RATE_LIMIT_HEAVY_REQUESTS", "12"))
+SCRAPE_MAX_BYTES = int(os.getenv("COIBE_SCRAPE_MAX_BYTES", str(1024 * 1024)))
+SCRAPE_MAX_REDIRECTS = int(os.getenv("COIBE_SCRAPE_MAX_REDIRECTS", "3"))
 CORS_ORIGINS = [
     origin.strip()
-    for origin in os.getenv("COIBE_CORS_ORIGINS", "*").split(",")
+    for origin in os.getenv("COIBE_CORS_ORIGINS", "https://coibe.com.br,https://www.coibe.com.br").split(",")
     if origin.strip()
 ]
+if IS_PRODUCTION and "*" in CORS_ORIGINS:
+    CORS_ORIGINS = ["https://coibe.com.br", "https://www.coibe.com.br"]
 DATA_S3_SYNC_ENABLED = os.getenv("COIBE_DATA_S3_SYNC", "false").lower() in {"1", "true", "yes"}
 DATA_S3_WRITE_THROUGH_ENABLED = os.getenv(
     "COIBE_DATA_S3_WRITE_THROUGH",
@@ -89,6 +107,15 @@ DATA_S3_PREFIX = os.getenv("COIBE_DATA_S3_PREFIX", "data").strip("/")
 DATA_S3_ENDPOINT_URL = os.getenv("COIBE_DATA_S3_ENDPOINT_URL", "")
 DATA_S3_REGION = os.getenv("COIBE_DATA_S3_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
 S3_CLIENT: Any | None = None
+BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def brasilia_now() -> datetime:
+    return datetime.now(BRASILIA_TZ)
+
+
+def brasilia_today() -> date:
+    return brasilia_now().date()
 
 S3_DATA_FILES = [
     ("processed/latest_analysis.json", LOCAL_MONITOR_LATEST_PATH),
@@ -223,7 +250,7 @@ class PurchaseAnalysisResponse(BaseModel):
 class ContractAnalysisRequest(BaseModel):
     cnpj: str
     valor_contrato: Decimal = Field(ge=0)
-    data_assinatura: date = Field(default_factory=date.today)
+    data_assinatura: date = Field(default_factory=brasilia_today)
     objeto: str = "Computadores"
     cidade: str | None = None
     preco_unitario: Decimal | None = Field(default=None, ge=0)
@@ -371,6 +398,7 @@ class LocalMonitorStatus(BaseModel):
     estimated_variation_total: Decimal = Decimal("0")
     high_alerts_count: int = 0
     monitored_entities_count: int = 0
+    collector_state: dict[str, Any] = Field(default_factory=dict)
     acquisition_first: bool = True
     message: str
 
@@ -452,6 +480,130 @@ class PriorityScanResponse(BaseModel):
     items: list[MonitoringItem]
 
 
+RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
+ADMIN_PROTECTED_PATHS = {
+    "/api/storage/status",
+    "/api/public-data/portal-transparencia/proxy",
+    "/api/monitoring/priority-scan",
+    "/api/analyze-contract",
+    "/api/analyze-superpricing",
+    "/api/analyze-spatial-risk",
+    "/api/scrape/public-page",
+}
+HEAVY_RATE_LIMIT_PATHS = ADMIN_PROTECTED_PATHS | {
+    "/api/search",
+    "/api/monitoring/feed",
+    "/api/monitoring/map",
+    "/api/monitoring/state-map",
+}
+
+
+def client_ip_from_request(request: Request) -> str:
+    forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def check_rate_limit(request: Request) -> None:
+    if not RATE_LIMIT_ENABLED:
+        return
+
+    now = time.monotonic()
+    window = max(RATE_LIMIT_WINDOW_SECONDS, 1)
+    limit = RATE_LIMIT_HEAVY_REQUESTS if request.url.path in HEAVY_RATE_LIMIT_PATHS else RATE_LIMIT_PUBLIC_REQUESTS
+    key = (client_ip_from_request(request), request.url.path)
+    timestamps = [stamp for stamp in RATE_LIMIT_BUCKETS.get(key, []) if now - stamp < window]
+    if len(timestamps) >= limit:
+        RATE_LIMIT_BUCKETS[key] = timestamps
+        raise HTTPException(status_code=429, detail="Muitas requisicoes. Tente novamente em instantes.")
+    timestamps.append(now)
+    RATE_LIMIT_BUCKETS[key] = timestamps
+
+
+def require_admin_token(x_coibe_admin_token: str | None = Header(default=None)) -> None:
+    if not REQUIRE_ADMIN_TOKEN:
+        return
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Endpoint administrativo indisponivel sem COIBE_ADMIN_TOKEN.")
+    if x_coibe_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Token administrativo invalido ou ausente.")
+
+
+def blocked_ip_address(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return True
+    return any(
+        [
+            ip.is_private,
+            ip.is_loopback,
+            ip.is_link_local,
+            ip.is_multicast,
+            ip.is_reserved,
+            ip.is_unspecified,
+        ]
+    )
+
+
+async def ensure_public_http_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="URL publica invalida.")
+
+    host = parsed.hostname.strip().lower()
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
+        raise HTTPException(status_code=400, detail="URL bloqueada por seguranca.")
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        address_info = await asyncio.to_thread(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=400, detail="Nao foi possivel resolver o dominio informado.") from exc
+
+    resolved_ips = {info[4][0] for info in address_info}
+    if not resolved_ips or any(blocked_ip_address(ip) for ip in resolved_ips):
+        raise HTTPException(status_code=400, detail="URL bloqueada por seguranca.")
+
+    return raw_url
+
+
+async def fetch_public_page_text(raw_url: str) -> tuple[str, str]:
+    timeout = httpx.Timeout(15.0, connect=5.0)
+    headers = {"User-Agent": "COIBE.IA public-page-scraper/0.2"}
+    current_url = raw_url
+
+    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=False) as client:
+        for _ in range(SCRAPE_MAX_REDIRECTS + 1):
+            await ensure_public_http_url(current_url)
+            try:
+                async with client.stream("GET", current_url) as response:
+                    if 300 <= response.status_code < 400 and response.headers.get("location"):
+                        current_url = urljoin(current_url, response.headers["location"])
+                        continue
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").lower()
+                    if content_type and not any(kind in content_type for kind in ("text/", "html", "json", "xml")):
+                        raise HTTPException(status_code=415, detail="Conteudo nao textual bloqueado.")
+
+                    total = 0
+                    chunks: list[bytes] = []
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > SCRAPE_MAX_BYTES:
+                            raise HTTPException(status_code=413, detail="Pagina maior que o limite permitido.")
+                        chunks.append(chunk)
+                    encoding = response.encoding or "utf-8"
+                    return current_url, b"".join(chunks).decode(encoding, errors="replace")
+            except HTTPException:
+                raise
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="Nao foi possivel baixar a pagina publica.") from exc
+
+    raise HTTPException(status_code=400, detail="Redirecionamentos demais para a URL informada.")
+
+
 app = FastAPI(
     title="COIBE.IA API",
     description=(
@@ -459,6 +611,9 @@ app = FastAPI(
         "regras de risco e detecção de possíveis superfaturamentos."
     ),
     version="0.2.0",
+    docs_url="/docs" if ENABLE_DOCS else None,
+    redoc_url="/redoc" if ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if ENABLE_DOCS else None,
 )
 
 app.add_middleware(
@@ -468,6 +623,16 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    try:
+        check_rate_limit(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -752,7 +917,7 @@ def write_json(path: Path, data: Any) -> None:
 
 
 def contract_date_windows(content_date_from: date | None = None, content_date_to: date | None = None) -> list[tuple[str, str]]:
-    today = date.today()
+    today = brasilia_today()
     if content_date_from or content_date_to:
         start = content_date_from or (content_date_to or today) - timedelta(days=240)
         end = content_date_to or today
@@ -1105,8 +1270,10 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
 def parse_iso_date(value: str | None) -> date:
     parsed = parse_iso_datetime(value)
     if parsed:
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(BRASILIA_TZ).date()
         return parsed.date()
-    return date.today()
+    return brasilia_today()
 
 
 def contract_content_date(contract: dict[str, Any]) -> date:
@@ -1767,7 +1934,7 @@ def save_cached_universal_search(query: str, response: UniversalSearchResponse) 
     payload = {
         "query": query,
         "normalized_query": normalize_text(query),
-        "cached_at": datetime.now().astimezone().isoformat(),
+        "cached_at": brasilia_now().isoformat(),
         "response": response.model_dump(mode="json"),
     }
     write_json(search_cache_path(query), payload)
@@ -2056,7 +2223,7 @@ def update_platform_codes_from_items(items: list[MonitoringItem]) -> int:
             codes["urls"].add(source_url)
 
     output = {key: sorted(value) for key, value in codes.items()}
-    output["updated_at"] = datetime.utcnow().isoformat()
+    output["updated_at"] = brasilia_now().isoformat()
     write_json(PLATFORM_PUBLIC_CODES_PATH, output)
     return sum(len(value) for value in codes.values())
 
@@ -2073,7 +2240,7 @@ def append_items_to_library(items: list[MonitoringItem], priority: str) -> tuple
             pass
 
     added = 0
-    now = datetime.utcnow().isoformat()
+    now = brasilia_now().isoformat()
     lines: list[str] = []
     for item in items:
         key = f"monitoring:{item.id}:{item.date}"
@@ -2566,11 +2733,6 @@ async def contract_to_monitoring_item(
 
     official_sources = [
         MonitoringSource(
-            label=f"Compras.gov.br Dados Abertos - contrato {contract.get('idCompra') or contract.get('numeroContrato')}",
-            url=compras_contract_url_from_contract(contract),
-            kind="API oficial federal com filtros do item",
-        ),
-        MonitoringSource(
             label="Registro PNCP relacionado" if contract.get("numeroControlePncpCompra") else "Portal Nacional de Contratações Públicas",
             url=(
                 f"https://pncp.gov.br/app/editais/{contract.get('numeroControlePncpCompra')}"
@@ -2578,6 +2740,11 @@ async def contract_to_monitoring_item(
                 else "https://www.gov.br/pncp/pt-br"
             ),
             kind="Portal oficial",
+        ),
+        MonitoringSource(
+            label=f"Compras.gov.br Dados Abertos - contrato {contract.get('idCompra') or contract.get('numeroContrato')}",
+            url=compras_contract_url_from_contract(contract),
+            kind="API oficial federal; pode retornar erro interno quando aberta no navegador",
         ),
         *querido_sources,
     ]
@@ -2589,7 +2756,7 @@ async def contract_to_monitoring_item(
         risk_level=risk_level,
         red_flags=flags,
         official_sources=official_sources,
-        generated_at=datetime.utcnow(),
+        generated_at=brasilia_now(),
         ml_model="Regras COIBE.IA + priorização estatística; IsolationForest disponível em /api/analyze-superpricing",
     )
 
@@ -2957,7 +3124,10 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/storage/status")
-async def storage_status() -> dict[str, Any]:
+async def storage_status(_admin: None = Depends(require_admin_token)) -> dict[str, Any]:
+    if not ENABLE_STORAGE_STATUS:
+        raise HTTPException(status_code=404, detail="Diagnostico de storage desativado.")
+
     expected_files: list[dict[str, Any]] = []
     for relative_key, local_path in S3_DATA_FILES:
         bucket_key = s3_key_for_data_file(relative_key)
@@ -3132,6 +3302,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
             running = False
 
     library_status = read_library_status(latest_data)
+    collector_state = data.get("collector_state") if isinstance(data.get("collector_state"), dict) else {}
     return LocalMonitorStatus(
         running=running,
         latest_file_exists=True,
@@ -3146,6 +3317,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         library_records_count=library_status.records_count,
         library_records_added=library_status.records_added_last_cycle,
         public_codes_count=library_status.public_codes_count,
+        collector_state=collector_state,
         **platform_metrics,
         message="Análise contínua atualizada recentemente." if running else "Análise contínua aguardando nova atualização.",
     )
@@ -3194,7 +3366,7 @@ async def universal_search(q: str = Query(..., min_length=2)) -> UniversalSearch
 
     response = UniversalSearchResponse(
         query=q,
-        generated_at=datetime.utcnow(),
+        generated_at=brasilia_now(),
         sources=[
             "Brasil API",
             "Câmara dos Deputados Dados Abertos",
@@ -3284,7 +3456,7 @@ async def local_fuzzy_search(q: str = Query(..., min_length=2), limit: int = Que
     ordered_results = sort_search_results([*risk_results, *[result for _, result in scored[:limit_value]]])[:limit_value]
     return LocalSearchResponse(
         query=q,
-        generated_at=datetime.utcnow(),
+        generated_at=brasilia_now(),
         results=ordered_results,
     )
 
@@ -3313,6 +3485,7 @@ async def portal_transparencia_status() -> dict[str, Any]:
 @app.get("/api/public-data/portal-transparencia/proxy")
 async def portal_transparencia_proxy(
     path: str = Query(..., description="Caminho da API, ex: contratos ou contratos/{id}"),
+    _admin: None = Depends(require_admin_token),
 ) -> Any:
     return await get_portal_transparencia_json(path)
 
@@ -3430,6 +3603,7 @@ async def monitoring_priority_scan(
     pages: int = Query(4, ge=1, le=20),
     page_size: int = Query(50, ge=10, le=100),
     limit: int = Query(60, ge=1, le=200),
+    _admin: None = Depends(require_admin_token),
 ) -> PriorityScanResponse:
     priority = (uf or q or "plataforma").upper()
     collected: dict[str, dict[str, Any]] = {}
@@ -3461,7 +3635,7 @@ async def monitoring_priority_scan(
     library_records_count, library_records_added = append_items_to_library(selected_items, priority)
 
     return PriorityScanResponse(
-        generated_at=datetime.utcnow(),
+        generated_at=brasilia_now(),
         priority=priority,
         items_found=len(items),
         items_added=items_added,
@@ -3553,7 +3727,7 @@ async def analyze_cnpj(
         description="Valor do contrato em reais. Exemplo: 750000.00",
     ),
     data_assinatura: date = Query(
-        default_factory=date.today,
+        default_factory=brasilia_today,
         description="Data de assinatura do contrato no formato AAAA-MM-DD.",
     ),
 ) -> CnpjAnalysisResponse:
@@ -3577,7 +3751,10 @@ async def analyze_cnpj(
 
 
 @app.post("/api/analyze-contract", response_model=ContractAnalysisResponse)
-async def analyze_contract(payload: ContractAnalysisRequest) -> ContractAnalysisResponse:
+async def analyze_contract(
+    payload: ContractAnalysisRequest,
+    _admin: None = Depends(require_admin_token),
+) -> ContractAnalysisResponse:
     company = await analyze_cnpj(payload.cnpj, payload.valor_contrato, payload.data_assinatura)
     flags = [*company.red_flags, apply_reference_price_flag(payload.objeto, payload.preco_unitario)]
 
@@ -3618,7 +3795,10 @@ async def analyze_contract(payload: ContractAnalysisRequest) -> ContractAnalysis
 
 
 @app.post("/api/analyze-superpricing", response_model=PurchaseAnalysisResponse)
-async def analyze_superpricing(payload: PurchaseAnalysisRequest) -> PurchaseAnalysisResponse:
+async def analyze_superpricing(
+    payload: PurchaseAnalysisRequest,
+    _admin: None = Depends(require_admin_token),
+) -> PurchaseAnalysisResponse:
     purchases = payload.compras or default_computer_purchases()
     if len(purchases) < 6:
         raise HTTPException(status_code=400, detail="Envie ao menos 6 compras para análise estatística.")
@@ -3697,7 +3877,10 @@ async def analyze_indexed_superpricing(
 
 
 @app.post("/api/analyze-spatial-risk", response_model=SpatialRiskResponse)
-async def analyze_spatial_risk(payload: SpatialRiskRequest) -> SpatialRiskResponse:
+async def analyze_spatial_risk(
+    payload: SpatialRiskRequest,
+    _admin: None = Depends(require_admin_token),
+) -> SpatialRiskResponse:
     distance = haversine_distance_km(
         payload.company_lat,
         payload.company_lng,
@@ -3752,34 +3935,29 @@ async def pipeline_readiness() -> PipelineReadinessResponse:
 
 
 @app.post("/api/scrape/public-page", response_model=ScrapeResponse)
-async def scrape_public_page(payload: ScrapeRequest) -> ScrapeResponse:
-    timeout = httpx.Timeout(15.0, connect=5.0)
-    headers = {"User-Agent": "COIBE.IA public-page-scraper/0.2"}
-
-    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-        try:
-            response = await client.get(str(payload.url))
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Não foi possível baixar a página pública.") from exc
+async def scrape_public_page(
+    payload: ScrapeRequest,
+    _admin: None = Depends(require_admin_token),
+) -> ScrapeResponse:
+    final_url, response_text = await fetch_public_page_text(str(payload.url))
 
     try:
         from bs4 import BeautifulSoup
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(response_text, "html.parser")
         title = soup.title.string.strip() if soup.title and soup.title.string else None
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
         text = " ".join(soup.get_text(" ").split())
     except Exception:
         title = None
-        text = " ".join(response.text.split())
+        text = " ".join(response_text.split())
 
     lowered = text.lower()
     hits = {keyword: lowered.count(keyword.lower()) for keyword in payload.keywords}
 
     return ScrapeResponse(
-        url=str(payload.url),
+        url=final_url,
         title=title,
         text_excerpt=text[:3000],
         keyword_hits=hits,

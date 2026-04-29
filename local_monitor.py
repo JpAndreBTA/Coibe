@@ -9,11 +9,13 @@ from decimal import Decimal
 from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
+BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
 DEFAULT_FEED_PAGE_SIZE = 50
 DEFAULT_SEARCH_TERMS = [
     "contrato",
@@ -30,6 +32,10 @@ DEFAULT_SEARCH_TERMS = [
 
 def now_slug() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def brasilia_now() -> datetime:
+    return datetime.now(BRASILIA_TZ)
 
 
 def safe_filename_part(value: Any) -> str:
@@ -96,7 +102,7 @@ async def collect_connector(
     path: str,
     kind: str,
 ) -> Any:
-    started_at = datetime.now(timezone.utc)
+    started_at = brasilia_now()
     try:
         payload = await get_json(client, path)
         record_count = 0
@@ -117,7 +123,7 @@ async def collect_connector(
                 "status": "ok",
                 "record_count": record_count,
                 "started_at": started_at.isoformat(),
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": brasilia_now().isoformat(),
             }
         )
         return payload
@@ -131,7 +137,7 @@ async def collect_connector(
                 "record_count": 0,
                 "error": str(exc),
                 "started_at": started_at.isoformat(),
-                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": brasilia_now().isoformat(),
             }
         )
         snapshot["errors"].append({"connector": name, "error": str(exc)})
@@ -139,10 +145,10 @@ async def collect_connector(
 
 
 async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, page_size: int, start_page: int = 1) -> dict[str, Any]:
-    timeout = httpx.Timeout(90.0, connect=10.0)
+    timeout = httpx.Timeout(25.0, connect=5.0)
     async with httpx.AsyncClient(base_url=api_base, timeout=timeout) as client:
         snapshot: dict[str, Any] = {
-            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "collected_at": brasilia_now().isoformat(),
             "api_base": api_base,
             "pipeline_order": ["connectors_and_scrapers", "raw_database_merge", "risk_rules_and_ml"],
             "connectors": [],
@@ -200,6 +206,8 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             )
             if feed_page is not None:
                 snapshot["feed_pages"].append(feed_page)
+            else:
+                break
 
         for term in search_terms:
             encoded = httpx.QueryParams({"q": term})
@@ -592,7 +600,7 @@ def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connect
             )
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": brasilia_now().isoformat(),
         "pipeline_order": snapshot.get("pipeline_order", []),
         "connectors": snapshot.get("connectors", []),
         "connector_records_count": len(connector_records),
@@ -604,6 +612,54 @@ def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connect
         "state_map": snapshot.get("state_map"),
         "collection_errors": snapshot.get("errors", []),
     }
+
+
+def cached_alerts_from_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
+    for item in items:
+        report = item.get("report", {}) if isinstance(item, dict) else {}
+        red_flags = report.get("red_flags", []) if isinstance(report, dict) else []
+        high_flags = [
+            flag for flag in red_flags
+            if isinstance(flag, dict) and flag.get("risk_level") == "alto"
+        ]
+        if high_flags or item.get("risk_score", 0) >= 35:
+            alerts.append(
+                {
+                    "id": item.get("id"),
+                    "date": item.get("date"),
+                    "title": item.get("title"),
+                    "entity": item.get("entity"),
+                    "supplier_name": item.get("supplier_name"),
+                    "supplier_cnpj": item.get("supplier_cnpj"),
+                    "value": item.get("value"),
+                    "risk_score": item.get("risk_score"),
+                    "risk_level": item.get("risk_level"),
+                    "red_flags": red_flags,
+                    "ml_analysis": None,
+                    "official_sources": report.get("official_sources", []) if isinstance(report, dict) else [],
+                }
+            )
+    return alerts
+
+
+def merge_cached_alerts(previous_alerts: list[dict[str, Any]], new_alerts: list[dict[str, Any]], fallback_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for alert in previous_alerts:
+        if not isinstance(alert, dict):
+            continue
+        key = f"{alert.get('id')}:{alert.get('date')}"
+        if key.strip(":"):
+            merged[key] = alert
+    for alert in new_alerts:
+        if not isinstance(alert, dict):
+            continue
+        key = f"{alert.get('id')}:{alert.get('date')}"
+        if key.strip(":"):
+            merged[key] = alert
+    if not merged:
+        return cached_alerts_from_items(fallback_items)
+    return list(merged.values())
 
 
 def analyze_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -724,7 +780,7 @@ def build_library_records(
     items: list[dict[str, Any]],
     public_records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    collected_at = snapshot.get("collected_at") or datetime.now(timezone.utc).isoformat()
+    collected_at = snapshot.get("collected_at") or brasilia_now().isoformat()
     records: list[dict[str, Any]] = []
 
     for connector in snapshot.get("connectors", []):
@@ -815,7 +871,7 @@ def update_public_codes(paths: dict[str, Path], library_records: list[dict[str, 
             codes["urls"].add(str(record["url"]))
 
     serializable = {key: sorted(value) for key, value in codes.items()}
-    serializable["updated_at"] = datetime.now(timezone.utc).isoformat()
+    serializable["updated_at"] = brasilia_now().isoformat()
     write_json(codes_path, serializable)
     return sum(len(value) for key, value in codes.items())
 
@@ -835,7 +891,7 @@ def append_platform_library(paths: dict[str, Path], library_records: list[dict[s
             pass
 
     added = 0
-    now = datetime.now(timezone.utc).isoformat()
+    now = brasilia_now().isoformat()
     with library_path.open("a", encoding="utf-8") as library_file:
         for record in library_records:
             key = str(record.get("library_key") or "")
@@ -877,15 +933,50 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
 
-    analysis = analyze_snapshot(snapshot)
+    existing_items = load_monitoring_database(paths)
+    existing_keys = {item_key(item) for item in existing_items}
+    feed_items = flatten_feed(snapshot)
+    new_feed_items = [item for item in feed_items if item_key(item) not in existing_keys]
+    connector_records = flatten_public_records(snapshot)
+
+    analysis = analyze_items(snapshot, new_feed_items, connector_records)
+    new_alerts = list(analysis["alerts"])
     database_count = merge_monitoring_database(paths, analysis["items"])
     public_records_count = merge_public_records_database(paths, analysis["public_records"])
     accumulated_items = load_monitoring_database(paths)
-    analysis = analyze_items(snapshot, accumulated_items, analysis["public_records"])
-    database_count = merge_monitoring_database(paths, analysis["items"])
+    latest_path = paths["processed"] / "latest_analysis.json"
+    previous_alerts: list[dict[str, Any]] = []
+    if latest_path.exists():
+        try:
+            previous_latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            if isinstance(previous_latest, dict) and isinstance(previous_latest.get("alerts"), list):
+                previous_alerts = [alert for alert in previous_latest["alerts"] if isinstance(alert, dict)]
+        except Exception:
+            previous_alerts = []
+    cached_alerts = merge_cached_alerts(previous_alerts, new_alerts, accumulated_items)
     analysis["items_analyzed"] = len(accumulated_items)
-    library_records = build_library_records(snapshot, accumulated_items, analysis["public_records"])
+    analysis["items_cached"] = len(existing_items)
+    analysis["new_items_analyzed"] = len(new_feed_items)
+    analysis["alerts"] = cached_alerts
+    analysis["alerts_count"] = len(cached_alerts)
+    library_records = build_library_records(snapshot, new_feed_items, analysis["public_records"])
     library_status = append_platform_library(paths, library_records)
+    feed_items_collected = sum(
+        len(page.get("items") or [])
+        for page in snapshot.get("feed_pages", [])
+        if isinstance(page, dict)
+    )
+    feed_pages_failed = sum(
+        1
+        for connector in snapshot.get("connectors", [])
+        if str(connector.get("name") or "").startswith("compras_feed_page_")
+        and connector.get("status") != "ok"
+    )
+    next_feed_page = start_page + args.pages
+    reset_reason = None
+    if feed_items_collected == 0:
+        next_feed_page = 1
+        reset_reason = "feed publico sem itens neste ciclo; voltando ao inicio da janela"
     analysis["database_items_count"] = database_count
     analysis["database_path"] = str(paths["processed"] / "monitoring_items.json")
     analysis["public_records_count"] = public_records_count
@@ -899,22 +990,28 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     analysis["collector_state"] = {
         "feed_page_start": start_page,
         "feed_page_end": start_page + args.pages - 1,
-        "next_feed_page": start_page + args.pages,
+        "next_feed_page": next_feed_page,
+        "feed_items_collected": feed_items_collected,
+        "new_items_analyzed": len(new_feed_items),
+        "items_cached": len(existing_items),
+        "feed_pages_failed": feed_pages_failed,
+        "reset_reason": reset_reason,
     }
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
-    latest_path = paths["processed"] / "latest_analysis.json"
     write_json(processed_path, analysis)
     write_json(latest_path, analysis)
-    save_collection_state(paths, {"next_feed_page": start_page + args.pages, "updated_at": analysis["generated_at"]})
+    save_collection_state(paths, {"next_feed_page": next_feed_page, "updated_at": analysis["generated_at"]})
 
-    for alert in analysis["alerts"]:
+    for alert in new_alerts:
         alert_path = paths["alerts"] / f"{stamp}-{safe_filename_part(alert.get('id'))}.json"
         write_json(alert_path, alert)
 
     log_line = (
-        f"{datetime.now(timezone.utc).isoformat()} "
+        f"{brasilia_now().isoformat()} "
         f"snapshot={raw_path.name} connectors={len(analysis['connectors'])} items={analysis['items_analyzed']} "
         f"db_items={database_count} public_records={public_records_count} "
+        f"feed_items={feed_items_collected} new_items={len(new_feed_items)} cached={len(existing_items)} "
+        f"feed_errors={feed_pages_failed} next_page={next_feed_page} "
         f"library={library_status['library_records_count']} added={library_status['library_records_added']} "
         f"alerts={analysis['alerts_count']}\n"
     )
@@ -944,7 +1041,7 @@ async def main() -> None:
         try:
             await run_once(args, paths)
         except Exception as exc:
-            error_line = f"{datetime.now(timezone.utc).isoformat()} ERROR {exc}\n"
+            error_line = f"{brasilia_now().isoformat()} ERROR {exc}\n"
             with (paths["logs"] / "monitor.log").open("a", encoding="utf-8") as log:
                 log.write(error_line)
             print(error_line.strip())

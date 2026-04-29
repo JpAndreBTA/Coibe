@@ -286,10 +286,20 @@ Se o bucket for S3 compatível e exigir endpoint próprio:
 Crie o `.env` a partir de `.env.example` e configure pelo menos:
 
 ```env
+COIBE_ENV=production
 PORTAL_TRANSPARENCIA_API_KEY=sua_chave
-COIBE_CORS_ORIGINS=https://seu-frontend-publico.com
+COIBE_CORS_ORIGINS=https://coibe.com.br,https://www.coibe.com.br
+COIBE_ADMIN_TOKEN=gere-um-token-longo-e-secreto
+COIBE_REQUIRE_ADMIN_TOKEN=true
+COIBE_ENABLE_DOCS=false
+COIBE_ENABLE_STORAGE_STATUS=false
 COIBE_AUTO_MONITOR=false
 ```
+
+Em producao, os endpoints pesados e administrativos exigem o header
+`X-Coibe-Admin-Token` com o valor de `COIBE_ADMIN_TOKEN`. Isso protege rotas
+como varredura prioritaria, scraping, analises POST, proxy da API do Portal da
+Transparencia e diagnostico de storage.
 
 O backend pode ser publicado com o `Dockerfile`:
 
@@ -341,11 +351,21 @@ Para enviar toda a pasta `data/` local para o Mega S4 no prefixo correto:
 .\upload-data-mega-s4.ps1 -Bucket "coibe" -EndpointUrl "https://s3.g.s4.mega.io" -Prefix "data"
 ```
 
-Depois do deploy, valide se a API está vendo os arquivos:
+Depois do deploy, valide se a API esta vendo os arquivos somente se voce ativar
+temporariamente `COIBE_ENABLE_STORAGE_STATUS=true` e enviar o header
+`X-Coibe-Admin-Token`:
 
 ```text
 https://sua-api.onrender.com/api/storage/status
 ```
+
+### Hardening para internet publica
+
+- CORS deve ficar limitado a `https://coibe.com.br` e `https://www.coibe.com.br`.
+- `/docs`, `/redoc` e `/openapi.json` ficam desligados por padrao em `COIBE_ENV=production`.
+- `/api/scrape/public-page` bloqueia localhost, IPs privados, IPs reservados e respostas grandes para reduzir risco de SSRF.
+- O backend aplica rate limit simples por IP e caminho. Para Cloudflare, adicione tambem regra de rate limit/WAF no painel.
+- Nao coloque `COIBE_ADMIN_TOKEN` no frontend. Ele e somente para operacao administrativa fora do navegador publico.
 
 ## Monitoramento contínuo
 

@@ -27,6 +27,8 @@ const API_BASES = configuredApiBases.length
   ? configuredApiBases
   : ['', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'];
 const COMPRAS_CONTRATOS_URL = 'https://dadosabertos.compras.gov.br/modulo-contratos/1_consultarContratos';
+const COMPRAS_PUBLIC_PORTAL_URL = 'https://www.gov.br/compras/pt-br';
+const BRASILIA_TIME_ZONE = 'America/Sao_Paulo';
 
 const IBGE_CODE_TO_UF = {
   11: 'RO', 12: 'AC', 13: 'AM', 14: 'RR', 15: 'PA', 16: 'AP', 17: 'TO',
@@ -94,7 +96,7 @@ async function apiGet(path) {
   let lastError;
   for (const base of API_BASES) {
     try {
-      const response = await fetch(`${base}${path}`);
+      const response = await fetch(`${base}${path}`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     } catch (error) {
@@ -132,7 +134,13 @@ function ufFromSearchText(value) {
 
 function formatDate(value) {
   if (!value) return 'DATA NÃO INFORMADA';
-  return new Date(`${value}T00:00:00`).toLocaleDateString('pt-BR', {
+  const rawValue = String(value);
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawValue)
+    ? new Date(`${rawValue}T00:00:00Z`)
+    : new Date(rawValue);
+  if (Number.isNaN(parsedDate.getTime())) return 'DATA NÃO INFORMADA';
+  return parsedDate.toLocaleDateString('pt-BR', {
+    timeZone: BRASILIA_TIME_ZONE,
     day: '2-digit',
     month: 'short',
     year: 'numeric'
@@ -240,18 +248,25 @@ function normalizeOfficialSource(alert, source, index = 0) {
   const label = String(source?.label || '');
   const isComprasSource = url.includes('dadosabertos.compras.gov.br') || label.toLowerCase().includes('compras.gov');
   if (!isComprasSource) return source;
-  const isGeneric = url.includes('swagger-ui') || !url.includes('/modulo-contratos/1_consultarContratos');
-  if (!isGeneric && index !== 0) return source;
   return {
     ...source,
     label: `Compras.gov.br Dados Abertos - contrato ${alert?.id || ''}`.trim(),
-    url: comprasUrlForAlert(alert),
-    kind: 'API oficial federal com filtros do item'
+    url: COMPRAS_PUBLIC_PORTAL_URL,
+    api_url: comprasUrlForAlert(alert),
+    kind: 'Portal oficial federal; a API de dados abertos pode oscilar no navegador'
   };
 }
 
 function officialSourcesForAlert(alert) {
-  return (alert?.report?.official_sources || []).map((source, index) => normalizeOfficialSource(alert, source, index));
+  return (alert?.report?.official_sources || [])
+    .map((source, index) => normalizeOfficialSource(alert, source, index))
+    .sort((left, right) => {
+      const leftUrl = String(left?.url || '').toLowerCase();
+      const rightUrl = String(right?.url || '').toLowerCase();
+      const leftPriority = leftUrl.includes('pncp.gov.br') ? 0 : leftUrl.includes('gov.br') ? 1 : 2;
+      const rightPriority = rightUrl.includes('pncp.gov.br') ? 0 : rightUrl.includes('gov.br') ? 1 : 2;
+      return leftPriority - rightPriority;
+    });
 }
 
 const DETAIL_LABELS = {
@@ -390,6 +405,27 @@ function friendlyComparison(flag) {
   return comparisons.slice(0, 2);
 }
 
+function alertBaselineValue(alert) {
+  const sources = [];
+  for (const flag of alert?.report?.red_flags || []) {
+    sources.push(flag?.evidence || {});
+  }
+  if (alert?.ml_analysis) sources.push(alert.ml_analysis);
+
+  for (const evidence of sources) {
+    const baseline = evidenceNumber(evidence, 'baseline');
+    if (baseline !== null && baseline > 0) return baseline;
+  }
+
+  const paidValue = Number(alert?.value);
+  const estimatedVariation = Number(alert?.estimated_variation);
+  if (Number.isFinite(paidValue) && Number.isFinite(estimatedVariation) && estimatedVariation > 0 && paidValue > estimatedVariation) {
+    return paidValue - estimatedVariation;
+  }
+
+  return null;
+}
+
 function flagDetails(flag) {
   const evidence = Object.entries(flag.evidence || {});
   return evidence
@@ -418,7 +454,6 @@ export default function CoibeApp() {
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [loadingMap, setLoadingMap] = useState(false);
   const [loadingSearch, setLoadingSearch] = useState(false);
-  const [priorityScanning, setPriorityScanning] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [error, setError] = useState('');
@@ -431,6 +466,16 @@ export default function CoibeApp() {
     Number(monitorStatus?.database_items_count || 0)
   );
   const libraryCount = Number(monitorStatus?.library_records_count || 0);
+  const collectorState = monitorStatus?.collector_state || {};
+  const feedItemsCollected = Number(collectorState.feed_items_collected || 0);
+  const newItemsAnalyzed = Number(collectorState.new_items_analyzed || 0);
+  const feedPagesFailed = Number(collectorState.feed_pages_failed || 0);
+  const statusUpdatedAt = monitorStatus?.generated_at
+    ? new Date(monitorStatus.generated_at).toLocaleString('pt-BR', { timeZone: BRASILIA_TIME_ZONE })
+    : null;
+  const analyzedCountNote = feedPagesFailed > 0 && feedItemsCollected === 0
+    ? 'Fonte pública instável no último ciclo'
+    : `Novos no último ciclo: ${newItemsAnalyzed.toLocaleString('pt-BR')}`;
 
   const stats = useMemo(() => {
     const feedTotal = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
@@ -619,27 +664,19 @@ export default function CoibeApp() {
   }
 
   async function scanPriority(uf, query = '', feedOptions = {}) {
-    setPriorityScanning(true);
     setError('');
     const immediateRisk = feedOptions.risk ?? feedRiskFilter;
     const immediateSizeOrder = feedOptions.sizeOrder ?? feedSizeOrder;
     const immediateDateFrom = feedOptions.dateFrom ?? feedDateFrom;
     const immediateDateTo = feedOptions.dateTo ?? feedDateTo;
-    loadFeed(1, false, query, uf || '', immediateRisk, immediateSizeOrder, immediateDateFrom, immediateDateTo);
     try {
-      const params = new URLSearchParams({ pages: '6', page_size: '50', limit: '120' });
-      if (uf) params.set('uf', uf);
-      if (query && !uf) params.set('q', query.trim());
-      await apiPost(`/api/monitoring/priority-scan?${params}`);
       await Promise.all([
         loadFeed(1, false, query, uf || '', immediateRisk, immediateSizeOrder, immediateDateFrom, immediateDateTo),
         loadMap(),
         loadMonitorStatus()
       ]);
     } catch {
-      setError('Não foi possível concluir a varredura prioritária agora.');
-    } finally {
-      setPriorityScanning(false);
+      setError('Não foi possível atualizar os dados de monitoramento agora.');
     }
   }
 
@@ -667,11 +704,14 @@ export default function CoibeApp() {
     scanPriority(uf, '', { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '' });
   }
 
-  function queryFromResult(result) {
-    const payload = result.payload || {};
-    if (result.type === 'cnpj') {
-      return payload.cnpj || payload.cnpj_basico || (result.subtitle || '').replace(/\D/g, '');
-    }
+function queryFromResult(result) {
+  const payload = result.payload || {};
+  if (result.type === 'politico_deputado' || result.type === 'politico_senador' || result.type === 'politico_relacionado') {
+    return payload.nomeCivil || payload.nome || payload.name || result.title || searchTerm;
+  }
+  if (result.type === 'cnpj') {
+    return payload.cnpj || payload.cnpj_basico || (result.subtitle || '').replace(/\D/g, '');
+  }
     if (result.type === 'contrato') {
       return payload.niFornecedor || payload.nomeRazaoSocialFornecedor || result.title;
     }
@@ -720,14 +760,13 @@ export default function CoibeApp() {
       };
     }
     if (result.type === 'politico_deputado' || result.type === 'politico_senador' || result.type === 'politico_relacionado') {
-      const relatedQueries = Array.isArray(payload.related_queries) ? payload.related_queries : [];
-      const relatedQuery = relatedQueries.length > 0 ? relatedQueries.join('|') : '';
+      const primaryName = payload.nomeCivil || payload.nome || payload.name || result.title;
       return {
-        query: uf ? '' : relatedQuery || result.title,
-        uf,
+        query: primaryName || result.title,
+        uf: '',
         label: result.title,
-        detail: uf ? `Dados relacionados ao estado do politico: ${uf}` : 'Politico relacionado',
-        scan: Boolean(uf)
+        detail: 'Foco principal no politico selecionado',
+        scan: false
       };
     }
     if (result.type === 'cnpj') {
@@ -760,11 +799,12 @@ export default function CoibeApp() {
       };
     }
     if (result.type === 'partido_politico') {
+      const partyQuery = [payload.sigla, payload.nome || result.title].filter(Boolean).join('|');
       return {
-        query: payload.sigla || payload.nome || result.title,
+        query: partyQuery || result.title,
         uf: '',
         label: result.title,
-        detail: 'Partido politico - Dados Abertos da Camara',
+        detail: 'Foco principal no partido selecionado',
         scan: false
       };
     }
@@ -821,10 +861,13 @@ export default function CoibeApp() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       loadMonitorStatus();
+      if (activeTab === 'feed' && page === 1 && !loadingFeed) {
+        loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
+      }
       if (activeTab === 'map') loadMap();
-    }, 30000);
+    }, 20000);
     return () => window.clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, page, loadingFeed, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
 
   useEffect(() => {
     if (suppressSearchEffectRef.current) {
@@ -966,6 +1009,7 @@ export default function CoibeApp() {
               <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
                 <span className="text-neutral-500">Itens analisados</span>
                 <strong className="block text-2xl text-white">{analyzedCount}</strong>
+                <small className="mt-1 block text-[11px] text-neutral-500">{analyzedCountNote}</small>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
                 <span className="text-neutral-500">Biblioteca</span>
@@ -987,12 +1031,8 @@ export default function CoibeApp() {
           </div>
           {monitorStatus?.generated_at && (
             <p className="mt-3 text-xs text-neutral-500">
-              Última análise: {new Date(monitorStatus.generated_at).toLocaleString('pt-BR')}
-            </p>
-          )}
-          {priorityScanning && (
-            <p className="mt-3 text-xs font-bold uppercase text-red-300">
-              Varredura prioritária em andamento
+              Última análise: {statusUpdatedAt}
+              {collectorState.next_feed_page ? ` - próxima página: ${collectorState.next_feed_page}` : ''}
             </p>
           )}
         </section>
@@ -1159,6 +1199,7 @@ export default function CoibeApp() {
 
                 {items.map((alert) => {
                   const risk = riskCopy[alert.risk_level] || riskCopy.indeterminado;
+                  const baselineValue = alertBaselineValue(alert);
                   return (
                     <button
                       key={`${alert.id}-${alert.date}`}
@@ -1181,13 +1222,17 @@ export default function CoibeApp() {
                         <span className="flex items-center gap-1.5"><User className="h-4 w-4" />{alert.entity}</span>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3">
+                      <div className="mt-4 grid items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
                         <div>
-                          <p className="text-xs text-neutral-400">Valor do Contrato/Despesa</p>
+                          <p className="text-xs text-neutral-400">Valor médio encontrado</p>
+                          <strong className="text-white">{baselineValue !== null ? compactValue(baselineValue, 'baseline') : 'Sem média confiável'}</strong>
+                        </div>
+                        <div>
+                          <p className="text-xs text-neutral-400">Valor pago/contratado</p>
                           <strong className="text-white">{alert.formatted_value}</strong>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs font-bold text-red-400">Superfaturamento Estimado (IA)</p>
+                          <p className="text-xs font-bold text-red-400">Possível valor acima da média</p>
                           <strong className="text-red-500">{alert.formatted_variation}</strong>
                         </div>
                         <ChevronRight className="hidden h-5 w-5 text-neutral-500 sm:block" />
