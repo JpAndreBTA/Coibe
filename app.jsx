@@ -390,6 +390,32 @@ function numericValue(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function politicalSuperpricingRisk(detail = {}) {
+  const level = String(detail.risk_level || '').toLowerCase();
+  const score = numericValue(detail.risk_score);
+  const value = numericValue(detail.value);
+  const isContract = detail.type === 'contratos';
+  const isMovement = ['vinculos', 'doacoes'].includes(detail.type);
+  const hasSupplier = Boolean(detail.supplier || detail.supplier_document);
+  let label = 'Baixo';
+  let color = riskCopy.baixo.color;
+  let message = 'Sem sinal forte de superfaturamento neste registro.';
+
+  if (level === 'alto' || score >= 70) {
+    label = 'Alto';
+    color = riskCopy.alto.color;
+    message = 'Registro relacionado a contrato ou movimentação com risco alto na base analisada.';
+  } else if (level === 'médio' || level === 'medio' || score >= 40 || (isContract && value >= 1000000) || (isMovement && value >= 250000)) {
+    label = 'Médio';
+    color = riskCopy.médio.color;
+    message = 'Registro merece conferência por valor, tipo, fornecedor ou score de risco.';
+  } else if (isContract || hasSupplier) {
+    message = 'Contrato, fornecedor ou pagamento relacionado para conferência preventiva.';
+  }
+
+  return { label, color, message, score, value };
+}
+
 function evidenceNumber(evidence, key) {
   const value = evidence?.[key];
   if (value === undefined || value === null || value === '') return null;
@@ -621,6 +647,9 @@ export default function CoibeApp() {
     const paymentDetails = details.filter((detail) => ['despesas', 'servicos', 'estrutura', 'comunicacao', 'outros'].includes(detail.type));
     const travelDetails = details.filter((detail) => detail.type === 'viagem');
     const riskMovementDetails = details.filter((detail) => ['vinculos', 'doacoes', 'contratos'].includes(detail.type));
+    const superpricingDetails = details
+      .map((detail) => ({ detail, risk: politicalSuperpricingRisk(detail) }))
+      .filter(({ risk, detail }) => risk.label !== 'Baixo' || detail.type === 'contratos');
     const highRiskCount = risks.filter((risk) => ['alto', 'médio', 'medio'].includes(String(risk.level || '').toLowerCase())).length;
     const contractValue = contractDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
     const paymentValue = paymentDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
@@ -636,6 +665,10 @@ export default function CoibeApp() {
       travelCount: travelDetails.length,
       riskMovementCount: riskMovementDetails.length,
       riskMovementValue,
+      superpricingCount: superpricingDetails.length,
+      superpricingHighCount: superpricingDetails.filter(({ risk }) => risk.label === 'Alto').length,
+      superpricingMediumCount: superpricingDetails.filter(({ risk }) => risk.label === 'Médio').length,
+      superpricingValue: superpricingDetails.reduce((sum, entry) => sum + entry.risk.value, 0),
       highRiskCount,
       risksCount: risks.length,
       sourcesCount: (selectedPoliticalItem.sources || []).length,
@@ -1941,6 +1974,26 @@ function queryFromResult(result) {
                     <div className="mt-3 space-y-3">
                       {pagedPoliticalDetails.map((detail, index) => (
                         <div key={`${detail.title || detail.type}-${index}`} className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200">
+                          {(() => {
+                            const superpricingRisk = politicalSuperpricingRisk(detail);
+                            return (
+                              <div className="mb-3 rounded border border-neutral-800 bg-neutral-950 p-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-black uppercase text-neutral-500">Risco de superfaturamento no registro</span>
+                                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${superpricingRisk.color}`}>
+                                    {superpricingRisk.label}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs leading-5 text-neutral-400">{superpricingRisk.message}</p>
+                                {(superpricingRisk.score > 0 || superpricingRisk.value > 0) && (
+                                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-neutral-500">
+                                    {superpricingRisk.score > 0 && <span>Score {superpricingRisk.score.toLocaleString('pt-BR')}</span>}
+                                    {superpricingRisk.value > 0 && <span>Valor {compactValue(superpricingRisk.value, 'value')}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <strong className="text-white">{detail.title || politicalTypeLabel(detail.type)}</strong>
                             <span className="rounded-full border border-neutral-700 bg-neutral-950 px-2 py-0.5 text-[11px] font-black text-neutral-300">
@@ -2096,6 +2149,14 @@ function queryFromResult(result) {
                       <p className="text-xs text-red-200">Movimentacao de risco</p>
                       <strong className="text-white">{selectedPoliticalMetrics?.riskMovementCount || 0} sinal(is)</strong>
                       <p className="mt-1 text-xs text-red-100/80">{compactValue(selectedPoliticalMetrics?.riskMovementValue || 0, 'value')}</p>
+                    </div>
+                    <div className="rounded border border-red-900/60 bg-red-950/20 p-3">
+                      <p className="text-xs text-red-200">Superfaturamento relacionado</p>
+                      <strong className="text-white">{selectedPoliticalMetrics?.superpricingCount || 0} registro(s)</strong>
+                      <p className="mt-1 text-xs text-red-100/80">
+                        {selectedPoliticalMetrics?.superpricingHighCount || 0} alto(s), {selectedPoliticalMetrics?.superpricingMediumCount || 0} medio(s)
+                      </p>
+                      <p className="mt-1 text-xs text-red-100/80">{compactValue(selectedPoliticalMetrics?.superpricingValue || 0, 'value')}</p>
                     </div>
                     <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
                       <p className="text-xs text-neutral-500">Atencao</p>
