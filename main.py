@@ -54,6 +54,7 @@ CAMARA_PARTIDOS_URL = "https://dadosabertos.camara.leg.br/api/v2/partidos"
 SENADO_SENADORES_URL = "https://legis.senado.leg.br/dadosabertos/senador/lista/atual.json"
 STF_PROCESSOS_URL = "https://portal.stf.jus.br/processos/listarProcessos.asp"
 STF_JURISPRUDENCIA_URL = "https://jurisprudencia.stf.jus.br/pages/search"
+TSE_PARTIDOS_URL = "https://www.tse.jus.br/partidos"
 IBGE_STATES_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
 IBGE_STATES_GEOJSON_URL = "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR"
 FALLBACK_CONTRACTS_START = "2025-09-01"
@@ -494,6 +495,40 @@ class PriorityScanResponse(BaseModel):
     items: list[MonitoringItem]
 
 
+class PoliticalRiskFactor(BaseModel):
+    level: str
+    title: str
+    message: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    source: str
+    url: str | None = None
+
+
+class PoliticalScanItem(BaseModel):
+    id: str
+    type: str
+    name: str
+    subtitle: str | None = None
+    party: str | None = None
+    role: str | None = None
+    uf: str | None = None
+    total_public_money: Decimal = Decimal("0")
+    travel_public_money: Decimal = Decimal("0")
+    records_count: int = 0
+    attention_level: str = "baixo"
+    summary: str
+    people: list[str] = Field(default_factory=list)
+    sources: list[MonitoringSource] = Field(default_factory=list)
+    risks: list[PoliticalRiskFactor] = Field(default_factory=list)
+
+
+class PoliticalScanResponse(BaseModel):
+    generated_at: datetime
+    kind: str
+    sources: list[str]
+    items: list[PoliticalScanItem]
+
+
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
 ADMIN_PROTECTED_PATHS = {
     "/api/storage/status",
@@ -509,6 +544,8 @@ HEAVY_RATE_LIMIT_PATHS = ADMIN_PROTECTED_PATHS | {
     "/api/monitoring/feed",
     "/api/monitoring/map",
     "/api/monitoring/state-map",
+    "/api/political/parties",
+    "/api/political/politicians",
 }
 
 
@@ -3388,6 +3425,310 @@ async def search_contracts_universal(query: str) -> list[UniversalSearchResult]:
     return results
 
 
+def political_attention_level(score: int) -> str:
+    if score >= 70:
+        return "alto"
+    if score >= 35:
+        return "médio"
+    return "baixo"
+
+
+def expense_value(expense: dict[str, Any]) -> Decimal:
+    return parse_decimal(expense.get("valorLiquido") or expense.get("valorDocumento") or expense.get("valorGlosa") or 0) or Decimal("0")
+
+
+def expense_kind_text(expense: dict[str, Any]) -> str:
+    return normalize_text(expense.get("tipoDespesa") or expense.get("descricao") or "")
+
+
+def is_travel_expense(expense: dict[str, Any]) -> bool:
+    text = expense_kind_text(expense)
+    return any(term in text for term in ("PASSAGEM", "AEREA", "HOSPEDAGEM", "LOCOMOCAO", "TAXI", "VEICULO", "COMBUSTIVEL"))
+
+
+async def fetch_deputy_expenses(deputy_id: Any, years: list[int] | None = None, limit_per_year: int = 80) -> list[dict[str, Any]]:
+    years = years or [brasilia_today().year, brasilia_today().year - 1]
+    expenses: list[dict[str, Any]] = []
+    for year in years:
+        try:
+            data = await get_json(
+                f"{CAMARA_DEPUTADOS_URL}/{deputy_id}/despesas",
+                params={"ano": year, "itens": limit_per_year, "ordem": "DESC", "ordenarPor": "dataDocumento"},
+            )
+        except HTTPException:
+            continue
+        expenses.extend(response_items(data))
+    return expenses
+
+
+def expense_sources_for_deputy(deputy_id: Any) -> list[MonitoringSource]:
+    return [
+        MonitoringSource(
+            label="Câmara dos Deputados - despesas parlamentares",
+            url=f"{CAMARA_DEPUTADOS_URL}/{deputy_id}/despesas",
+            kind="API oficial de despesas reembolsadas",
+        ),
+        MonitoringSource(
+            label="Câmara dos Deputados - cadastro parlamentar",
+            url=f"{CAMARA_DEPUTADOS_URL}/{deputy_id}",
+            kind="API oficial de parlamentares",
+        ),
+    ]
+
+
+def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, Any]]) -> PoliticalScanItem:
+    total = sum((expense_value(expense) for expense in expenses), Decimal("0"))
+    travel_total = sum((expense_value(expense) for expense in expenses if is_travel_expense(expense)), Decimal("0"))
+    suppliers: dict[str, Decimal] = {}
+    missing_docs = 0
+    for expense in expenses:
+        supplier = str(expense.get("nomeFornecedor") or "Fornecedor não informado")
+        suppliers[supplier] = suppliers.get(supplier, Decimal("0")) + expense_value(expense)
+        if not expense.get("urlDocumento"):
+            missing_docs += 1
+
+    top_supplier, top_supplier_value = max(suppliers.items(), key=lambda row: row[1], default=("", Decimal("0")))
+    score = 0
+    risks: list[PoliticalRiskFactor] = []
+
+    if total >= Decimal("120000"):
+        score += 35
+        risks.append(
+            PoliticalRiskFactor(
+                level="médio",
+                title="Gasto público alto no período",
+                message="O valor reembolsado está alto para leitura humana e comparação com pares.",
+                evidence={"total_public_money": str(total), "records_count": len(expenses)},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_DEPUTADOS_URL}/{deputy.get('id')}/despesas",
+            )
+        )
+    if travel_total >= Decimal("40000"):
+        score += 30
+        risks.append(
+            PoliticalRiskFactor(
+                level="médio",
+                title="Viagens e deslocamentos em destaque",
+                message="Passagens, hospedagem, locomoção ou combustível aparecem com valor relevante.",
+                evidence={"travel_public_money": str(travel_total)},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_DEPUTADOS_URL}/{deputy.get('id')}/despesas",
+            )
+        )
+    if top_supplier_value >= Decimal("50000"):
+        score += 25
+        risks.append(
+            PoliticalRiskFactor(
+                level="médio",
+                title="Pagamento concentrado em fornecedor",
+                message="Um fornecedor aparece com parcela importante dos pagamentos públicos analisados.",
+                evidence={"supplier": top_supplier, "supplier_total": str(top_supplier_value)},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_DEPUTADOS_URL}/{deputy.get('id')}/despesas",
+            )
+        )
+    if missing_docs >= 8:
+        score += 15
+        risks.append(
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Documentos para conferir",
+                message="Alguns registros não trouxeram link de documento na resposta consultada.",
+                evidence={"records_without_document_url": missing_docs},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_DEPUTADOS_URL}/{deputy.get('id')}/despesas",
+            )
+        )
+
+    if not risks:
+        risks.append(
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Sem atenção forte no recorte",
+                message="Os registros públicos consultados não mostraram concentração forte neste recorte.",
+                evidence={"records_count": len(expenses), "total_public_money": str(total)},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_DEPUTADOS_URL}/{deputy.get('id')}/despesas",
+            )
+        )
+
+    level = political_attention_level(score)
+    people = [str(deputy.get("nome") or "Parlamentar")]
+    people.extend([name for name, _ in sorted(suppliers.items(), key=lambda row: row[1], reverse=True)[:4] if name])
+
+    return PoliticalScanItem(
+        id=str(deputy.get("id")),
+        type="politico",
+        name=str(deputy.get("nome") or "Parlamentar"),
+        subtitle=f"{deputy.get('siglaPartido', '-')}/{deputy.get('siglaUf', '-')}",
+        party=deputy.get("siglaPartido"),
+        role="Deputado federal",
+        uf=deputy.get("siglaUf"),
+        total_public_money=total,
+        travel_public_money=travel_total,
+        records_count=len(expenses),
+        attention_level=level,
+        summary=f"{money(total)} em despesas públicas no recorte; {money(travel_total)} ligados a viagens ou deslocamentos.",
+        people=people,
+        sources=expense_sources_for_deputy(deputy.get("id")),
+        risks=risks,
+    )
+
+
+async def fetch_current_deputies(limit: int = 24, party: str | None = None) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"itens": min(max(limit, 1), 100), "ordem": "ASC", "ordenarPor": "nome"}
+    if party:
+        params["siglaPartido"] = party
+    try:
+        data = await get_json(CAMARA_DEPUTADOS_URL, params=params)
+    except HTTPException:
+        return []
+    return response_items(data)
+
+
+async def political_people_scan(limit: int = 18, q: str | None = None, party: str | None = None) -> list[PoliticalScanItem]:
+    deputies = await fetch_current_deputies(limit=max(limit * 2, 12), party=party)
+    normalized_query = normalize_text(q)
+    if normalized_query:
+        deputies = [
+            deputy for deputy in deputies
+            if normalized_query in normalize_text(" ".join(str(deputy.get(key) or "") for key in ("nome", "siglaPartido", "siglaUf")))
+        ]
+    deputies = deputies[:limit]
+    expense_batches = await asyncio.gather(*(fetch_deputy_expenses(deputy.get("id")) for deputy in deputies))
+    items = [political_item_from_deputy(deputy, expenses) for deputy, expenses in zip(deputies, expense_batches)]
+
+    try:
+        senate_data = await get_json(SENADO_SENADORES_URL)
+    except HTTPException:
+        senate_data = {}
+    senators = (
+        senate_data.get("ListaParlamentarEmExercicio", {})
+        .get("Parlamentares", {})
+        .get("Parlamentar", [])
+    )
+    for senator in senators[: max(0, min(6, limit - len(items)))]:
+        ident = senator.get("IdentificacaoParlamentar", {})
+        name = ident.get("NomeParlamentar") or ident.get("NomeCompletoParlamentar") or "Senador"
+        senator_party = ident.get("SiglaPartidoParlamentar")
+        uf = ident.get("UfParlamentar") or senator.get("Mandato", {}).get("UfParlamentar")
+        if normalized_query and normalized_query not in normalize_text(f"{name} {senator_party} {uf}"):
+            continue
+        if party and normalize_text(party) != normalize_text(senator_party):
+            continue
+        items.append(
+            PoliticalScanItem(
+                id=str(ident.get("CodigoParlamentar") or name),
+                type="politico",
+                name=str(name),
+                subtitle=f"{senator_party or '-'}/{uf or '-'}",
+                party=senator_party,
+                role="Senador",
+                uf=uf,
+                attention_level="baixo",
+                summary="Cadastro parlamentar encontrado. Despesas detalhadas do Senado não foram somadas neste recorte automático.",
+                people=[str(name)],
+                sources=[
+                    MonitoringSource(
+                        label="Senado Federal - parlamentares em exercício",
+                        url="https://legis.senado.leg.br/dadosabertos/senador/lista/atual",
+                        kind="API oficial de parlamentares",
+                    )
+                ],
+                risks=[
+                    PoliticalRiskFactor(
+                        level="baixo",
+                        title="Cadastro público monitorado",
+                        message="Registro mantido para cruzamento com contratos, pessoas, partidos e fontes externas.",
+                        evidence={"party": senator_party, "uf": uf},
+                        source="Senado Federal Dados Abertos",
+                        url="https://legis.senado.leg.br/dadosabertos/senador/lista/atual",
+                    )
+                ],
+            )
+        )
+
+    items.sort(key=lambda item: ({"alto": 3, "médio": 2, "baixo": 1}.get(item.attention_level, 0), item.total_public_money), reverse=True)
+    return items[:limit]
+
+
+async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[PoliticalScanItem]:
+    try:
+        parties_data = await get_json(CAMARA_PARTIDOS_URL, params={"itens": 40, "ordem": "ASC", "ordenarPor": "sigla"})
+    except HTTPException:
+        return []
+    normalized_query = normalize_text(q)
+    parties = response_items(parties_data)
+    if normalized_query:
+        parties = [
+            party for party in parties
+            if normalized_query in normalize_text(f"{party.get('sigla')} {party.get('nome')}")
+        ]
+    parties = parties[:limit]
+
+    async def build_party_item(party: dict[str, Any]) -> PoliticalScanItem:
+        sigla = str(party.get("sigla") or "")
+        members = await fetch_current_deputies(limit=10, party=sigla)
+        expense_batches = await asyncio.gather(*(fetch_deputy_expenses(member.get("id"), limit_per_year=35) for member in members[:8]))
+        member_items = [political_item_from_deputy(member, expenses) for member, expenses in zip(members[:8], expense_batches)]
+        total = sum((item.total_public_money for item in member_items), Decimal("0"))
+        travel_total = sum((item.travel_public_money for item in member_items), Decimal("0"))
+        records_count = sum(item.records_count for item in member_items)
+        high_or_medium = [item for item in member_items if item.attention_level in {"alto", "médio"}]
+        score = min(100, len(high_or_medium) * 18 + (35 if total >= Decimal("350000") else 0) + (25 if travel_total >= Decimal("90000") else 0))
+        level = political_attention_level(score)
+        risks = [
+            PoliticalRiskFactor(
+                level=level,
+                title="Leitura agregada de despesas do partido",
+                message="Soma de despesas públicas dos parlamentares encontrados no recorte automático.",
+                evidence={
+                    "members_checked": len(member_items),
+                    "attention_members": len(high_or_medium),
+                    "total_public_money": str(total),
+                    "travel_public_money": str(travel_total),
+                    "records_count": records_count,
+                },
+                source="Câmara dos Deputados - Dados Abertos",
+                url=f"{CAMARA_PARTIDOS_URL}/{party.get('id')}/membros" if party.get("id") else CAMARA_PARTIDOS_URL,
+            )
+        ]
+        people = [item.name for item in member_items[:6]]
+        for item in member_items[:3]:
+            people.extend(item.people[1:3])
+        return PoliticalScanItem(
+            id=str(party.get("id") or sigla),
+            type="partido",
+            name=f"{sigla} - {party.get('nome')}".strip(" -"),
+            subtitle=f"{len(member_items)} parlamentar(es) analisado(s) no recorte",
+            party=sigla,
+            role="Partido político",
+            total_public_money=total,
+            travel_public_money=travel_total,
+            records_count=records_count,
+            attention_level=level,
+            summary=f"{money(total)} em despesas dos parlamentares analisados; {money(travel_total)} em viagens/deslocamentos.",
+            people=list(dict.fromkeys([person for person in people if person]))[:10],
+            sources=[
+                MonitoringSource(
+                    label="Câmara dos Deputados - partidos e membros",
+                    url=f"{CAMARA_PARTIDOS_URL}/{party.get('id')}/membros" if party.get("id") else CAMARA_PARTIDOS_URL,
+                    kind="API oficial de partidos",
+                ),
+                MonitoringSource(
+                    label="TSE - partidos políticos",
+                    url=TSE_PARTIDOS_URL,
+                    kind="Portal oficial eleitoral",
+                ),
+            ],
+            risks=risks,
+        )
+
+    items = await asyncio.gather(*(build_party_item(party) for party in parties))
+    items.sort(key=lambda item: ({"alto": 3, "médio": 2, "baixo": 1}.get(item.attention_level, 0), item.total_public_money), reverse=True)
+    return list(items)
+
+
 async def get_state_name_map() -> dict[str, str]:
     try:
         states = await get_json(IBGE_STATES_URL)
@@ -3947,6 +4288,41 @@ async def monitoring_search(
     page_size: int = Query(10, ge=10, le=50),
 ) -> MonitoringFeedResponse:
     return await monitoring_feed(page=page, page_size=page_size, q=q, uf=None)
+
+
+@app.get("/api/political/parties", response_model=PoliticalScanResponse)
+async def political_parties(
+    q: str | None = Query(None, min_length=2),
+    limit: int = Query(12, ge=1, le=24),
+) -> PoliticalScanResponse:
+    return PoliticalScanResponse(
+        generated_at=brasilia_now(),
+        kind="partidos",
+        sources=[
+            "Câmara dos Deputados Dados Abertos",
+            "TSE - Partidos Políticos",
+            "COIBE.IA - cruzamento preventivo de despesas públicas",
+        ],
+        items=await political_parties_scan(limit=limit, q=q),
+    )
+
+
+@app.get("/api/political/politicians", response_model=PoliticalScanResponse)
+async def political_politicians(
+    q: str | None = Query(None, min_length=2),
+    party: str | None = Query(None, min_length=2, max_length=12),
+    limit: int = Query(18, ge=1, le=36),
+) -> PoliticalScanResponse:
+    return PoliticalScanResponse(
+        generated_at=brasilia_now(),
+        kind="politicos",
+        sources=[
+            "Câmara dos Deputados Dados Abertos",
+            "Senado Federal Dados Abertos",
+            "COIBE.IA - cruzamento preventivo de despesas públicas",
+        ],
+        items=await political_people_scan(limit=limit, q=q, party=party),
+    )
 
 
 @app.post("/api/monitoring/priority-scan", response_model=PriorityScanResponse)

@@ -156,6 +156,8 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
             "portal_transparencia": {},
             "feed_pages": [],
             "state_map": {},
+            "political_parties": {},
+            "political_people": {},
             "searches": {},
             "errors": [],
         }
@@ -193,6 +195,26 @@ async def collect_snapshot(api_base: str, search_terms: list[str], pages: int, p
         )
         if state_map is not None:
             snapshot["state_map"] = state_map
+
+        political_parties = await collect_connector(
+            client,
+            snapshot,
+            "political_parties_scan",
+            "/api/political/parties?limit=12",
+            "public_political_risk_scan",
+        )
+        if political_parties is not None:
+            snapshot["political_parties"] = political_parties
+
+        political_people = await collect_connector(
+            client,
+            snapshot,
+            "political_people_scan",
+            "/api/political/politicians?limit=18",
+            "public_political_risk_scan",
+        )
+        if political_people is not None:
+            snapshot["political_people"] = political_people
 
         start_page = max(start_page, 1)
         end_page = start_page + pages
@@ -296,6 +318,29 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "payload": state,
             }
         )
+
+    for bucket_name, source_name in [
+        ("political_parties", "COIBE.IA/Camara/TSE - Partidos"),
+        ("political_people", "COIBE.IA/Camara/Senado - Politicos"),
+    ]:
+        response = snapshot.get(bucket_name, {})
+        if not isinstance(response, dict):
+            continue
+        for item in response.get("items", []) or []:
+            if not isinstance(item, dict):
+                continue
+            records.append(
+                {
+                    "record_key": f"{bucket_name}:{item.get('id')}:{item.get('attention_level')}",
+                    "record_type": bucket_name,
+                    "collected_at": collected_at,
+                    "source": source_name,
+                    "title": item.get("name"),
+                    "subtitle": item.get("summary"),
+                    "risk_level": item.get("attention_level"),
+                    "payload": item,
+                }
+            )
 
     for item in flatten_feed(snapshot):
         report = item.get("report", {}) if isinstance(item, dict) else {}

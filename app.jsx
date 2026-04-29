@@ -327,7 +327,8 @@ const CURRENCY_KEYS = new Set([
   'total_window_value',
   'reference_limit',
   'supplier_total_value',
-  'window_total_value'
+  'window_total_value',
+  'value'
 ]);
 
 const PERCENT_KEYS = new Set(['percent_above_baseline']);
@@ -445,6 +446,10 @@ export default function CoibeApp() {
   const [items, setItems] = useState([]);
   const [mapPoints, setMapPoints] = useState([]);
   const [stateRisks, setStateRisks] = useState({});
+  const [politicalParties, setPoliticalParties] = useState([]);
+  const [politicalPeople, setPoliticalPeople] = useState([]);
+  const [loadingPolitical, setLoadingPolitical] = useState(false);
+  const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [geoJson, setGeoJson] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
@@ -578,6 +583,25 @@ export default function CoibeApp() {
       setError('Não foi possível carregar o mapa real agora.');
     } finally {
       setLoadingMap(false);
+    }
+  }
+
+  async function loadPoliticalData(kind = activeTab) {
+    setLoadingPolitical(true);
+    setError('');
+    try {
+      if (kind === 'parties') {
+        const data = await apiGet('/api/political/parties?limit=12');
+        setPoliticalParties(data.items || []);
+      }
+      if (kind === 'politicians') {
+        const data = await apiGet('/api/political/politicians?limit=18');
+        setPoliticalPeople(data.items || []);
+      }
+    } catch {
+      setError('Não foi possível carregar a varredura política pública agora.');
+    } finally {
+      setLoadingPolitical(false);
     }
   }
 
@@ -856,7 +880,10 @@ function queryFromResult(result) {
     if (activeTab === 'feed') {
       loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
     }
-  }, [feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
+    if (activeTab === 'parties' || activeTab === 'politicians') {
+      loadPoliticalData(activeTab);
+    }
+  }, [activeTab, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -865,6 +892,7 @@ function queryFromResult(result) {
         loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
       }
       if (activeTab === 'map') loadMap();
+      if (activeTab === 'parties' || activeTab === 'politicians') loadPoliticalData(activeTab);
     }, 20000);
     return () => window.clearInterval(interval);
   }, [activeTab, page, loadingFeed, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
@@ -1094,6 +1122,18 @@ function queryFromResult(result) {
               >
                 Mapa de Alertas
               </button>
+              <button
+                onClick={() => setActiveTab('parties')}
+                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'parties' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+              >
+                Partido
+              </button>
+              <button
+                onClick={() => setActiveTab('politicians')}
+                className={`px-5 py-3 text-sm font-bold transition ${activeTab === 'politicians' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+              >
+                Político
+              </button>
             </div>
             {activeSearchFilter && activeTab === 'feed' && (
               <div className="mt-4 flex items-center justify-between rounded-lg border border-red-900/70 bg-red-950/20 px-4 py-3 text-sm text-red-100">
@@ -1264,7 +1304,7 @@ function queryFromResult(result) {
                   </>
                 )}
               </div>
-            ) : (
+            ) : activeTab === 'map' ? (
               <div className="mt-5 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900">
                 <div className="border-b border-neutral-800 px-5 py-4">
                   <h2 className="font-black text-white">Mapa de Alertas por Estado</h2>
@@ -1376,6 +1416,75 @@ function queryFromResult(result) {
                     </div>
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                  <p className="text-xs font-black uppercase text-red-400">
+                    {activeTab === 'parties' ? 'Partidos' : 'Políticos'}
+                  </p>
+                  <h2 className="mt-1 font-black text-white">
+                    Varredura de dinheiro público e fatores de atenção
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-neutral-400">
+                    Leitura preventiva com dados oficiais. A plataforma mostra pontos para conferir, sem afirmar culpa ou irregularidade.
+                  </p>
+                </div>
+
+                {loadingPolitical && (
+                  <div className="flex h-44 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Consultando fontes oficiais...
+                  </div>
+                )}
+
+                {(activeTab === 'parties' ? politicalParties : politicalPeople).map((item) => {
+                  const risk = riskCopy[item.attention_level] || riskCopy.baixo;
+                  return (
+                    <button
+                      key={`${item.type}-${item.id}`}
+                      type="button"
+                      onClick={() => setSelectedPoliticalItem(item)}
+                      className="w-full rounded-lg border border-neutral-800 bg-neutral-900 p-5 text-left transition hover:border-red-700"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-black text-white">{item.name}</h3>
+                          {item.subtitle && <p className="mt-1 text-sm text-neutral-400">{item.subtitle}</p>}
+                        </div>
+                        <span className={`rounded-full border px-3 py-1 text-xs font-black ${risk.color}`}>
+                          {risk.label}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-neutral-300">{item.summary}</p>
+                      <div className="mt-4 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 sm:grid-cols-3">
+                        <div>
+                          <p className="text-xs text-neutral-500">Dinheiro público</p>
+                          <strong className="text-white">{compactValue(item.total_public_money, 'value')}</strong>
+                        </div>
+                        <div>
+                          <p className="text-xs text-neutral-500">Viagens/deslocamento</p>
+                          <strong className="text-white">{compactValue(item.travel_public_money, 'value')}</strong>
+                        </div>
+                        <div>
+                          <p className="text-xs text-neutral-500">Registros lidos</p>
+                          <strong className="text-white">{Number(item.records_count || 0).toLocaleString('pt-BR')}</strong>
+                        </div>
+                      </div>
+                      {item.people?.length > 0 && (
+                        <p className="mt-3 text-xs text-neutral-500">
+                          Envolvidos no recorte: {item.people.slice(0, 4).join(', ')}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
+
+                {!loadingPolitical && (activeTab === 'parties' ? politicalParties : politicalPeople).length === 0 && (
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-sm text-neutral-400">
+                    Nenhum registro encontrado nesta varredura agora.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1501,6 +1610,101 @@ function queryFromResult(result) {
             )}
           </aside>
         </section>
+        {selectedPoliticalItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-neutral-800 p-5">
+                <div>
+                  <p className="text-xs font-black uppercase text-red-400">
+                    {selectedPoliticalItem.type === 'partido' ? 'Partido' : 'Político'}
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-white">{selectedPoliticalItem.name}</h2>
+                  {selectedPoliticalItem.subtitle && <p className="mt-1 text-sm text-neutral-400">{selectedPoliticalItem.subtitle}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPoliticalItem(null)}
+                  className="rounded border border-neutral-700 px-3 py-1 text-sm font-bold text-neutral-300 hover:bg-neutral-800"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="space-y-5 p-5">
+                <p className="text-sm leading-6 text-neutral-300">{selectedPoliticalItem.summary}</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
+                    <p className="text-xs text-neutral-500">Dinheiro público</p>
+                    <strong className="text-white">{compactValue(selectedPoliticalItem.total_public_money, 'value')}</strong>
+                  </div>
+                  <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
+                    <p className="text-xs text-neutral-500">Viagens/deslocamento</p>
+                    <strong className="text-white">{compactValue(selectedPoliticalItem.travel_public_money, 'value')}</strong>
+                  </div>
+                  <div className="rounded border border-neutral-800 bg-neutral-900 p-3">
+                    <p className="text-xs text-neutral-500">Atenção</p>
+                    <strong className="text-white">{riskCopy[selectedPoliticalItem.attention_level]?.label || selectedPoliticalItem.attention_level}</strong>
+                  </div>
+                </div>
+
+                <section>
+                  <h3 className="text-xs font-black uppercase text-neutral-500">Riscos e atenções</h3>
+                  <div className="mt-3 space-y-2">
+                    {(selectedPoliticalItem.risks || []).map((risk, index) => (
+                      <div key={`${risk.title}-${index}`} className="rounded border border-red-900/50 bg-red-950/20 p-3 text-sm text-neutral-200">
+                        <div className="flex items-start justify-between gap-3">
+                          <strong className="text-white">{risk.title}</strong>
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${riskCopy[risk.level]?.color || riskCopy.baixo.color}`}>
+                            {riskCopy[risk.level]?.label || risk.level}
+                          </span>
+                        </div>
+                        <p className="mt-2 leading-6 text-neutral-300">{risk.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {selectedPoliticalItem.people?.length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-black uppercase text-neutral-500">Pessoas e fornecedores no recorte</h3>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedPoliticalItem.people.map((person) => (
+                        <span key={person} className="rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300">
+                          {person}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <section>
+                  <h3 className="text-xs font-black uppercase text-neutral-500">Fontes reais</h3>
+                  <div className="mt-3 grid gap-2">
+                    {(selectedPoliticalItem.sources || []).map((source) => (
+                      <a
+                        key={`${source.label}-${source.url}`}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-start justify-between gap-3 rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200 hover:border-red-700"
+                      >
+                        <span>
+                          <strong className="block">{source.label}</strong>
+                          <small className="text-neutral-500">{source.kind}</small>
+                        </span>
+                        <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-red-400" />
+                      </a>
+                    ))}
+                  </div>
+                </section>
+
+                <div className="rounded border border-neutral-800 bg-neutral-900 p-3 text-xs leading-5 text-neutral-400">
+                  Nota: estes pontos indicam prioridade de conferência em dados oficiais. Não são acusação, prova de crime ou conclusão jurídica.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -162,6 +162,19 @@ Fontes usadas nesta etapa:
 - PNCP: referência oficial de contratação quando o identificador estiver disponível
 - Querido Diário: busca complementar em diários oficiais municipais
 
+### Varredura política preventiva
+
+```http
+GET /api/political/parties?limit=12
+GET /api/political/politicians?limit=18
+```
+
+As abas **Partido** e **Político** mostram fatores de atenção em linguagem simples,
+sem acusação ou conclusão jurídica. A leitura usa dados reais da Câmara dos
+Deputados, Senado Federal, TSE e cruzamentos internos da plataforma para destacar:
+volume de dinheiro público no recorte, viagens/deslocamentos, concentração de
+fornecedores, pessoas e empresas envolvidas e fontes oficiais para conferência.
+
 ### CNPJ + Red Flag 01
 
 ```http
