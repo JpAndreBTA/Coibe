@@ -1,10 +1,26 @@
-# Coibe IA
+# Coibe IA - Plataforma aberta de monitoramento público
 
-Plataforma aberta para monitoramento de dados públicos, análise de fatores de atenção em contratações governamentais e triagem de possíveis variações atípicas de preço.
+Coibe IA é uma plataforma aberta para acompanhar contratações públicas, cruzar bases governamentais e destacar fatores de atenção que merecem revisão humana.
 
-O projeto combina um backend FastAPI, frontend React/Vite e um pipeline local de coleta/análise para cruzar fontes públicas como Compras.gov.br, Brasil API, IBGE, Câmara dos Deputados, Senado Federal e STF. A proposta é apoiar leitura técnica, jornalística, cívica e institucional de dados abertos, sem substituir auditoria humana ou conclusão de órgãos competentes.
+O objetivo é tornar dados públicos mais acessíveis, pesquisáveis e compreensíveis para cidadãos, jornalistas, pesquisadores, desenvolvedores, organizações civis e equipes de controle. A plataforma organiza informações de fontes oficiais e apresenta indícios estatísticos, históricos e contextuais sem fazer acusações definitivas.
 
-## Links
+## O que a plataforma faz
+
+- Consulta e cruza fontes públicas oficiais.
+- Monitora contratos, fornecedores, órgãos, cidades e estados.
+- Aponta variações atípicas de valor e outros fatores de atenção.
+- Mantém um feed pesquisável com lazy load para grandes bases.
+- Expõe uma API pública para integração e auditoria técnica.
+- Preserva rastreabilidade por links e evidências das fontes consultadas.
+
+## Para quem é
+
+- Cidadãos interessados em transparência pública.
+- Jornalistas e pesquisadores investigando bases abertas.
+- Desenvolvedores que queiram auditar, reaproveitar ou melhorar os conectores.
+- Organizações e equipes que precisam priorizar leitura humana de muitos contratos.
+
+## Acesse
 
 - API pública via túnel: `https://api.coibe.com.br`
 - Repositório: `https://github.com/JpAndreBTA/Coibe`
@@ -22,9 +38,9 @@ Coibe IA é um projeto de código aberto. Contribuições, auditorias, issues e 
 - Monitoramento: `local_monitor.py` coleta, normaliza, analisa e atualiza a base.
 - Publicação leve: frontend estático na Hostinger e backend local exposto via Cloudflare Tunnel ou backend Docker em Render.
 
-## Uso responsável
+## Uso responsável dos dados
 
-A plataforma não acusa fraude, corrupção ou irregularidade definitiva. Ela aponta fatores de atenção, padrões estatísticos e cruzamentos públicos para revisão humana.
+A Coibe IA não acusa fraude, corrupção ou irregularidade definitiva. Os resultados indicam fatores de atenção, padrões estatísticos e cruzamentos públicos que precisam ser interpretados por pessoas e, quando aplicável, por órgãos competentes.
 
 ## Backend
 

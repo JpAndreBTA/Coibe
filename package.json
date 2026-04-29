@@ -1,6 +1,7 @@
 {
+  "name": "coibe-ia",
   "type": "module",
-  "description": "Plataforma aberta para monitoramento de dados publicos e fatores de atencao em contratacoes governamentais.",
+  "description": "Plataforma aberta para monitoramento publico, dados governamentais e fatores de atencao em contratacoes.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
