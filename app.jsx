@@ -75,6 +75,8 @@ const POLITICAL_TYPE_LABELS = {
   outros: 'Outros'
 };
 
+const POLITICAL_DETAIL_PAGE_SIZE = 6;
+
 function politicalTypeLabel(value) {
   return POLITICAL_TYPE_LABELS[value] || String(value || 'Outros');
 }
@@ -383,6 +385,11 @@ function compactValue(value, key = '') {
   return String(value);
 }
 
+function numericValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 function evidenceNumber(evidence, key) {
   const value = evidence?.[key];
   if (value === undefined || value === null || value === '') return null;
@@ -489,6 +496,7 @@ export default function CoibeApp() {
     politicians: { page: 1, hasMore: false }
   });
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
+  const [politicalDetailPage, setPoliticalDetailPage] = useState(1);
   const [geoJson, setGeoJson] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
@@ -596,6 +604,45 @@ export default function CoibeApp() {
       }
     ];
   }, [items, monitorStatus]);
+
+  const selectedPoliticalDetails = selectedPoliticalItem?.analysis_details || [];
+  const selectedPoliticalDetailPages = Math.max(1, Math.ceil(selectedPoliticalDetails.length / POLITICAL_DETAIL_PAGE_SIZE));
+  const selectedPoliticalDetailPage = Math.min(politicalDetailPage, selectedPoliticalDetailPages);
+  const pagedPoliticalDetails = selectedPoliticalDetails.slice(
+    (selectedPoliticalDetailPage - 1) * POLITICAL_DETAIL_PAGE_SIZE,
+    selectedPoliticalDetailPage * POLITICAL_DETAIL_PAGE_SIZE
+  );
+  const selectedPoliticalMetrics = useMemo(() => {
+    if (!selectedPoliticalItem) return null;
+    const details = selectedPoliticalItem.analysis_details || [];
+    const risks = selectedPoliticalItem.risks || [];
+    const totalDetailValue = details.reduce((sum, detail) => sum + numericValue(detail.value), 0);
+    const contractDetails = details.filter((detail) => detail.type === 'contratos');
+    const paymentDetails = details.filter((detail) => ['despesas', 'servicos', 'estrutura', 'comunicacao', 'outros'].includes(detail.type));
+    const travelDetails = details.filter((detail) => detail.type === 'viagem');
+    const riskMovementDetails = details.filter((detail) => ['vinculos', 'doacoes', 'contratos'].includes(detail.type));
+    const highRiskCount = risks.filter((risk) => ['alto', 'médio', 'medio'].includes(String(risk.level || '').toLowerCase())).length;
+    const contractValue = contractDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
+    const paymentValue = paymentDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
+    const riskMovementValue = riskMovementDetails.reduce((sum, detail) => sum + numericValue(detail.value), 0);
+    const topDetail = [...details].sort((left, right) => numericValue(right.value) - numericValue(left.value))[0];
+
+    return {
+      totalDetailValue,
+      contractCount: contractDetails.length,
+      contractValue,
+      paymentCount: paymentDetails.length,
+      paymentValue,
+      travelCount: travelDetails.length,
+      riskMovementCount: riskMovementDetails.length,
+      riskMovementValue,
+      highRiskCount,
+      risksCount: risks.length,
+      sourcesCount: (selectedPoliticalItem.sources || []).length,
+      peopleCount: (selectedPoliticalItem.people || []).length,
+      topDetail
+    };
+  }, [selectedPoliticalItem]);
 
   async function loadFeed(
     nextPage = 1,
@@ -971,6 +1018,10 @@ function queryFromResult(result) {
     loadMap();
     loadMonitorStatus();
   }, []);
+
+  useEffect(() => {
+    setPoliticalDetailPage(1);
+  }, [selectedPoliticalItem?.id, selectedPoliticalItem?.type]);
 
   useEffect(() => {
     if (activeTab === 'feed') {
@@ -1832,7 +1883,7 @@ function queryFromResult(result) {
             onClick={() => setSelectedPoliticalItem(null)}
           >
             <div
-              className="my-2 max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl sm:my-0 sm:max-h-[90vh]"
+              className="my-2 max-h-[calc(100dvh-1rem)] w-full max-w-6xl overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl sm:my-0 sm:max-h-[90vh]"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-start justify-between gap-3 border-b border-neutral-800 p-4 sm:gap-4 sm:p-5">
@@ -1857,7 +1908,8 @@ function queryFromResult(result) {
                 </button>
               </div>
 
-              <div className="space-y-5 p-5">
+              <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <section className="space-y-5">
                 <p className="text-sm leading-6 text-neutral-300">{selectedPoliticalItem.summary}</p>
                 {selectedPoliticalItem.analysis_types?.length > 0 && (
                   <div className="flex flex-wrap gap-2">
@@ -1887,7 +1939,7 @@ function queryFromResult(result) {
                   <section>
                     <h3 className="text-xs font-black uppercase text-neutral-500">Descrições da análise</h3>
                     <div className="mt-3 space-y-3">
-                      {selectedPoliticalItem.analysis_details.slice(0, 30).map((detail, index) => (
+                      {pagedPoliticalDetails.map((detail, index) => (
                         <div key={`${detail.title || detail.type}-${index}`} className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <strong className="text-white">{detail.title || politicalTypeLabel(detail.type)}</strong>
@@ -1925,6 +1977,29 @@ function queryFromResult(result) {
                           )}
                         </div>
                       ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-400">
+                      <span>
+                        Pagina {selectedPoliticalDetailPage} de {selectedPoliticalDetailPages} - {selectedPoliticalDetails.length.toLocaleString('pt-BR')} registro(s)
+                      </span>
+                      <span className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPoliticalDetailPage((current) => Math.max(1, current - 1))}
+                          disabled={selectedPoliticalDetailPage <= 1}
+                          className="rounded border border-neutral-700 px-3 py-1 font-bold text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPoliticalDetailPage((current) => Math.min(selectedPoliticalDetailPages, current + 1))}
+                          disabled={selectedPoliticalDetailPage >= selectedPoliticalDetailPages}
+                          className="rounded border border-neutral-700 px-3 py-1 font-bold text-neutral-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Proxima
+                        </button>
+                      </span>
                     </div>
                   </section>
                 )}
@@ -1983,6 +2058,74 @@ function queryFromResult(result) {
                 <div className="rounded border border-neutral-800 bg-neutral-900 p-3 text-xs leading-5 text-neutral-400">
                   Nota: estes pontos indicam prioridade de conferência em dados oficiais. Links de processos, contas e controle externo são consultas públicas para leitura humana. A plataforma não afirma crime, culpa, suborno, corrupção nem desfecho jurídico.
                 </div>
+                </section>
+
+                <aside className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:sticky lg:top-4 lg:self-start">
+                  <div>
+                    <p className="text-xs font-black uppercase text-red-400">Dinheiro e numeros</p>
+                    <h3 className="mt-1 font-black text-white">Resumo financeiro do recorte</h3>
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <p className="text-xs text-neutral-500">Gasto publico analisado</p>
+                      <strong className="text-lg text-white">{compactValue(selectedPoliticalItem.total_public_money, 'value')}</strong>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                        <p className="text-xs text-neutral-500">Viagens</p>
+                        <strong className="text-white">{compactValue(selectedPoliticalItem.travel_public_money, 'value')}</strong>
+                      </div>
+                      <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                        <p className="text-xs text-neutral-500">Registros</p>
+                        <strong className="text-white">{Number(selectedPoliticalItem.records_count || 0).toLocaleString('pt-BR')}</strong>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                        <p className="text-xs text-neutral-500">Pagamentos</p>
+                        <strong className="text-white">{selectedPoliticalMetrics?.paymentCount || 0}</strong>
+                        <p className="mt-1 text-xs text-neutral-500">{compactValue(selectedPoliticalMetrics?.paymentValue || 0, 'value')}</p>
+                      </div>
+                      <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                        <p className="text-xs text-neutral-500">Contratos</p>
+                        <strong className="text-white">{selectedPoliticalMetrics?.contractCount || 0}</strong>
+                        <p className="mt-1 text-xs text-neutral-500">{compactValue(selectedPoliticalMetrics?.contractValue || 0, 'value')}</p>
+                      </div>
+                    </div>
+                    <div className="rounded border border-red-900/60 bg-red-950/20 p-3">
+                      <p className="text-xs text-red-200">Movimentacao de risco</p>
+                      <strong className="text-white">{selectedPoliticalMetrics?.riskMovementCount || 0} sinal(is)</strong>
+                      <p className="mt-1 text-xs text-red-100/80">{compactValue(selectedPoliticalMetrics?.riskMovementValue || 0, 'value')}</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <p className="text-xs text-neutral-500">Atencao</p>
+                      <strong className="text-white">{riskCopy[selectedPoliticalItem.attention_level]?.label || selectedPoliticalItem.attention_level}</strong>
+                      <p className="mt-1 text-xs text-neutral-500">{selectedPoliticalMetrics?.highRiskCount || 0} fator(es) medio/alto</p>
+                    </div>
+                  </div>
+
+                  {selectedPoliticalMetrics?.topDetail && (
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-300">
+                      <p className="text-xs font-black uppercase text-neutral-500">Maior item financeiro</p>
+                      <strong className="mt-1 block text-white">{selectedPoliticalMetrics.topDetail.title || politicalTypeLabel(selectedPoliticalMetrics.topDetail.type)}</strong>
+                      <p className="mt-1 text-neutral-400">{compactValue(selectedPoliticalMetrics.topDetail.value, 'value')}</p>
+                    </div>
+                  )}
+
+                  {(selectedPoliticalItem.risks || []).length > 0 && (
+                    <section>
+                      <h3 className="text-xs font-black uppercase text-neutral-500">Riscos principais</h3>
+                      <div className="mt-3 space-y-2">
+                        {(selectedPoliticalItem.risks || []).slice(0, 5).map((risk, index) => (
+                          <div key={`${risk.title}-side-${index}`} className="rounded border border-red-900/50 bg-red-950/20 p-3 text-xs text-neutral-200">
+                            <strong className="block text-white">{risk.title}</strong>
+                            <p className="mt-2 leading-5 text-neutral-300">{risk.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </aside>
               </div>
             </div>
           </div>
