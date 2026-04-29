@@ -60,6 +60,8 @@ const riskCopy = {
   indeterminado: { label: 'Análise Pendente', color: 'text-neutral-300 border-neutral-700 bg-neutral-800', panel: 'bg-neutral-800/70' }
 };
 
+riskCopy.medio = Object.values(riskCopy).find((entry) => entry.color.includes('amber')) || riskCopy.baixo;
+
 const POLITICAL_TYPE_LABELS = {
   todos: 'Todos',
   viagem: 'Viagem/deslocamento',
@@ -398,9 +400,108 @@ function compactValue(value, key = '') {
   return String(value);
 }
 
+function compactText(text = '', limit = 180) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= limit) return cleaned;
+  return `${cleaned.slice(0, limit).trimEnd()}...`;
+}
+
 function numericValue(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function isGenericPreventiveFlag(flag = {}) {
+  const text = normalizeSearchText(`${flag.code || ''} ${flag.title || ''} ${flag.message || ''}`);
+  return flag.code === 'RFBASE'
+    || flag.code === 'SEARCH_CONTEXT'
+    || text.includes('monitoramento preventivo')
+    || text.includes('sem fator forte nos dados comparaveis');
+}
+
+function contextualAttentionFlag(flag = {}, context = {}) {
+  const payload = context.payload || {};
+  const evidence = flag.evidence || {};
+  const normalizedFlag = {
+    title: flag.title || 'Fator de atenção',
+    message: compactText(flag.message || 'Conferir este ponto na fonte oficial.', 160),
+    risk_level: flag.risk_level || flag.level || context.risk_level || 'baixo',
+    level: flag.risk_level || flag.level || context.risk_level || 'baixo',
+    evidence,
+    code: flag.code || ''
+  };
+
+  if (!isGenericPreventiveFlag(flag)) return normalizedFlag;
+
+  const value = numericValue(
+    evidence.valor_global
+    || evidence.value
+    || payload.value
+    || payload.valorGlobal
+    || payload.valorInicial
+    || context.value
+  );
+  const formattedValue = value > 0 ? compactValue(value, 'value') : '';
+  const supplier = evidence.supplier
+    || evidence.supplier_name
+    || payload.supplier_name
+    || payload.nomeRazaoSocialFornecedor
+    || payload.nomeFornecedor
+    || context.supplier_name
+    || context.supplier
+    || '';
+  const entity = evidence.entity
+    || payload.entity
+    || payload.nomeUnidadeGestora
+    || payload.nomeOrgao
+    || context.entity
+    || context.orgao
+    || '';
+  const objectText = evidence.objeto
+    || payload.objeto
+    || payload.objetoContrato
+    || context.object
+    || context.title
+    || '';
+  const date = context.date || payload.date || payload.dataAssinatura || payload.dataVigenciaInicial || '';
+  const pieces = [];
+  if (formattedValue) pieces.push(`valor ${formattedValue}`);
+  if (supplier) pieces.push(`fornecedor ${supplier}`);
+  if (entity) pieces.push(`órgão ${entity}`);
+  if (date) pieces.push(`data ${formatDate(date)}`);
+
+  return {
+    ...normalizedFlag,
+    title: 'Conferência preventiva',
+    message: pieces.length > 0
+      ? compactText(`Sem alerta forte. Conferir fonte oficial porque envolve ${pieces.join(', ')}. Compare objeto, valor, fornecedor e repetição.`, 170)
+      : 'Sem alerta forte. Conferir fonte oficial, valor, objeto, fornecedor e repetição.',
+    evidence: {
+      ...evidence,
+      ...(formattedValue ? { valor_global: String(value) } : {}),
+      ...(supplier ? { supplier } : {}),
+      ...(entity ? { entity } : {}),
+      ...(objectText ? { objeto: String(objectText).slice(0, 240) } : {})
+    }
+  };
+}
+
+function contextualAttentionFlags(flags = [], context = {}) {
+  const validFlags = Array.isArray(flags) ? flags.filter(Boolean) : [];
+  const specificFlags = validFlags.filter((flag) => !isGenericPreventiveFlag(flag));
+  const selectedFlags = specificFlags.length > 0
+    ? specificFlags
+    : validFlags.length > 0
+      ? validFlags
+      : [{
+          code: 'SEARCH_CONTEXT',
+          title: 'Conferência preventiva do registro',
+          has_risk: false,
+          risk_level: context.risk_level || 'baixo',
+          message: 'Resultado encontrado para conferencia na fonte oficial.',
+          evidence: {}
+        }];
+  return selectedFlags.map((flag) => contextualAttentionFlag(flag, context));
 }
 
 function politicalSuperpricingRisk(detail = {}) {
@@ -441,26 +542,26 @@ function politicalDetailReview(detail = {}) {
   const supplierText = supplier ? ` envolvendo ${supplier}` : '';
   const dateText = readableDate ? ` em ${readableDate}` : '';
   const checksByType = {
-    contratos: `A plataforma encontrou um contrato ou compra pública ligado a ${who}${supplierText}${valueText}${dateText}. Para leigos: o ponto principal é conferir se o objeto comprado combina com o preço e se o mesmo fornecedor aparece repetidas vezes.`,
-    despesas: `Este é um gasto público ligado a ${who}${supplierText}${valueText}${dateText}. A leitura simples é: quem recebeu, por qual motivo, em qual data e se existe documento oficial que explique o pagamento.`,
-    servicos: `Este registro parece ser serviço ou consultoria ligado a ${who}${supplierText}${valueText}. O cuidado é verificar qual entrega foi contratada e se o valor faz sentido perto de serviços parecidos.`,
-    comunicacao: `Este item envolve comunicação, conteúdo ou divulgação ligado a ${who}${supplierText}${valueText}. O que importa é conferir o material entregue, a recorrência do fornecedor e a justificativa do gasto.`,
-    estrutura: `Este gasto é de estrutura, gabinete ou apoio operacional para ${who}${supplierText}${valueText}. Vale conferir se o item era necessário, se há nota/documento e se há repetição de pagamentos semelhantes.`,
-    viagem: `Este registro é de viagem ou deslocamento ligado a ${who}${supplierText}${valueText}${dateText}. Para entender bem, confira destino, motivo, datas, documento fiscal e se há muitas viagens parecidas no mesmo período.`,
-    processos: `Este item aponta consulta em processo ou fonte jurídica relacionada a ${who}. Antes de qualquer interpretação, é essencial abrir a fonte oficial e confirmar se não é homônimo, qual é a classe do processo e a situação atual.`,
-    contas: `Este registro envolve contas eleitorais ou prestação oficial ligada a ${who}. A leitura deve focar em origem do dinheiro, destino, fornecedor, campanha/partido e documento no TSE.`,
-    doacoes: `Este item aponta possível registro eleitoral relacionado a ${who}${supplierText}${valueText}. Confira na fonte oficial quem doou, quem recebeu, data, valor e se o fornecedor também aparece em contratos públicos.`,
-    vinculos: `Este sinal mostra proximidade textual ou operacional no recorte de ${who}${supplierText}${valueText}. Isso não prova parentesco nem favorecimento; serve para orientar a checagem de documentos e repetição de nomes.`,
-    controle: `Este item indica fonte de controle externo relacionada a ${who}. A leitura deve verificar órgão responsável, processo/acórdão, data, escopo e se existe decisão final.`,
-    prioridade: `Este item entrou antes na fila porque ${who} tem prioridade institucional ou política no monitor. Prioridade não é acusação; é só ordem de leitura para não deixar cargos ou partidos relevantes por último.`
+    contratos: `Contrato ligado a ${who}${supplierText}${valueText}${dateText}. Confira objeto, preço e repetição do fornecedor.`,
+    despesas: `Gasto público ligado a ${who}${supplierText}${valueText}${dateText}. Veja quem recebeu, motivo, data e documento.`,
+    servicos: `Serviço/consultoria ligado a ${who}${supplierText}${valueText}. Compare entrega e preço com serviços parecidos.`,
+    comunicacao: `Comunicação/divulgação ligada a ${who}${supplierText}${valueText}. Confira material entregue, fornecedor e justificativa.`,
+    estrutura: `Estrutura ou apoio para ${who}${supplierText}${valueText}. Ver nota, necessidade e pagamentos repetidos.`,
+    viagem: `Viagem ligada a ${who}${supplierText}${valueText}${dateText}. Confira destino, motivo, datas e documento fiscal.`,
+    processos: `Processo ou fonte jurídica relacionada a ${who}. Abra a fonte e confira homônimo, classe e situação.`,
+    contas: `Conta eleitoral ligada a ${who}. Veja origem, destino, fornecedor, campanha/partido e documento no TSE.`,
+    doacoes: `Registro eleitoral relacionado a ${who}${supplierText}${valueText}. Veja doador, recebedor, data, valor e vínculos com contratos.`,
+    vinculos: `Sinal de proximidade textual/operacional em ${who}${supplierText}${valueText}. Não prova irregularidade; guia a checagem.`,
+    controle: `Fonte de controle externo ligada a ${who}. Confira órgão, processo/acórdão, data, escopo e decisão.`,
+    prioridade: `${who} entrou antes na leitura por prioridade pública. Prioridade não é acusação.`
   };
   const hiddenSignals = [];
-  if (value >= 1000000) hiddenSignals.push(`Valor alto (${formattedValue}); comparar com contratos parecidos antes de tirar conclusão.`);
-  if (supplier) hiddenSignals.push(`Fornecedor/CNPJ identificado: confira se aparece em outros pagamentos ou contratos.`);
+  if (value >= 1000000) hiddenSignals.push(`Valor alto: ${formattedValue}. Compare com contratos parecidos.`);
+  if (supplier) hiddenSignals.push(`Fornecedor/CNPJ: confira repetição em pagamentos e contratos.`);
   if (detail.matched_records) hiddenSignals.push(`${Number(detail.matched_records || 0).toLocaleString('pt-BR')} registro(s) relacionado(s) encontrados na base.`);
-  if (detail.risk_score) hiddenSignals.push(`Score técnico ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}; use como prioridade de leitura, não como prova.`);
-  if (risk.label !== 'Baixo') hiddenSignals.push(`Atenção de superfaturamento: ${risk.label}. ${risk.message}`);
-  if (detail.document_url) hiddenSignals.push('Existe documento oficial: abra o link e confira a informação na fonte.');
+  if (detail.risk_score) hiddenSignals.push(`Score ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}: prioridade de leitura, não prova.`);
+  if (risk.label !== 'Baixo') hiddenSignals.push(`Superfaturamento: ${risk.label}. ${risk.message}`);
+  if (detail.document_url) hiddenSignals.push('Documento oficial disponível.');
 
   return {
     title: checksByType[type] || 'Conferir fonte oficial, valor, data, pessoa/partido, fornecedor e recorrência no conjunto analisado.',
@@ -470,6 +571,14 @@ function politicalDetailReview(detail = {}) {
 
 function searchResultReview(result = {}) {
   const payload = result.payload || {};
+  const rawFlags = Array.isArray(payload.coibe_red_flags)
+    ? payload.coibe_red_flags
+    : Array.isArray(payload.red_flags)
+      ? payload.red_flags
+      : [];
+  const riskFlags = rawFlags.filter((flag) => flag && !isGenericPreventiveFlag(flag));
+  const preventiveFlags = rawFlags.filter((flag) => flag && isGenericPreventiveFlag(flag));
+  const visibleFlags = riskFlags.length > 0 ? riskFlags : preventiveFlags;
   const value = numericValue(payload.value || payload.valorGlobal || payload.valorInicial || payload.estimated_variation);
   const formattedValue = value > 0 ? compactValue(value, 'value') : '';
   const supplier = payload.supplier_name || payload.nomeRazaoSocialFornecedor || payload.nomeFornecedor || payload.niFornecedor || payload.cnpj || '';
@@ -477,10 +586,18 @@ function searchResultReview(result = {}) {
   const type = String(result.type || '').replaceAll('_', ' ');
   const source = result.source || 'Fonte pública';
   const base = {
-    title: 'Resultado encontrado na busca pública',
-    summary: `A plataforma encontrou este item em ${source}. Ele deve ser lido como ponto de partida: confira a fonte oficial, o valor, o órgão/pessoa envolvida e se há repetição em outros registros.`,
-    checks: ['Abrir a fonte oficial antes de concluir qualquer coisa.', 'Comparar nome, data, valor e órgão com outros registros da plataforma.'],
-    metrics: []
+    title: 'Resultado encontrado',
+    summary: `Fonte: ${source}. Confira valor, data, órgão/pessoa e repetições antes de concluir.`,
+    checks: ['Abrir a fonte oficial.', 'Comparar nome, data, valor e órgão/pessoa.'],
+    metrics: [],
+    legacyFlags: visibleFlags.map((flag) => ({
+      title: flag.title || 'Fator de atenção',
+      message: flag.message || 'Ponto identificado para conferência na fonte oficial.',
+      level: flag.risk_level || 'baixo',
+      evidence: flag.evidence || {},
+      code: flag.code || ''
+    })),
+    flags: contextualAttentionFlags(visibleFlags, { ...result, ...payload, payload })
   };
   if (formattedValue) base.metrics.push(['Valor citado', formattedValue]);
   if (supplier) base.metrics.push(['Fornecedor/CNPJ', supplier]);
@@ -490,57 +607,66 @@ function searchResultReview(result = {}) {
   if (result.type === 'risco_superfaturamento') {
     return {
       ...base,
-      title: 'Possível risco de superfaturamento encontrado',
-      summary: `Este resultado já passou por leitura de risco do COIBE. Para uma pessoa leiga: o sistema encontrou valor, fornecedor ou padrão que parece fora do normal e merece comparação com contratos parecidos.`,
-      checks: ['Veja qual item foi comprado e por quanto.', 'Confira se o fornecedor aparece em outros contratos.', 'Leia a variação estimada e abra o documento oficial.']
+      title: 'Possível valor acima da média',
+      summary: 'O COIBE encontrou valor, fornecedor ou padrão fora do comum. Compare com contratos parecidos.',
+      checks: [
+        formattedValue ? `Valor: ${formattedValue}.` : 'Ver item e valor.',
+        supplier ? `Fornecedor/CNPJ: ${supplier}.` : 'Ver fornecedor/CNPJ.',
+        'Abrir documento oficial.'
+      ]
     };
   }
   if (result.type === 'contrato') {
     return {
       ...base,
-      title: 'Contrato público encontrado em API oficial',
-      summary: `Este é um contrato ou compra pública${formattedValue ? ` de ${formattedValue}` : ''}${supplier ? ` envolvendo ${supplier}` : ''}. O foco é entender o que foi comprado, quem pagou, quem recebeu e se o valor é compatível.`,
-      checks: ['Conferir objeto do contrato em linguagem simples.', 'Checar órgão contratante e fornecedor.', 'Comparar valor com contratos semelhantes e ver sinais de repetição.']
+      title: 'Contrato público encontrado',
+      summary: `Contrato${formattedValue ? ` de ${formattedValue}` : ''}${supplier ? ` com ${supplier}` : ''}. Veja objeto, pagador, fornecedor e preço.`,
+      checks: [
+        `Objeto: ${payload.objeto || payload.objetoContrato || result.title}.`,
+        entity ? `Órgão/gestor: ${entity}.` : 'Ver órgão contratante.',
+        supplier ? `Fornecedor: ${supplier}.` : 'Ver fornecedor e CNPJ.',
+        'Comparar com contratos semelhantes.'
+      ]
     };
   }
   if (result.type?.startsWith('politico')) {
     return {
       ...base,
       title: 'Pessoa pública encontrada',
-      summary: `Este resultado identifica ${result.title}. A busca serve para abrir recortes de despesas, contratos, processos e fontes oficiais ligados ao nome, sem afirmar culpa ou irregularidade.`,
-      checks: ['Confirmar se é a mesma pessoa, evitando homônimos.', 'Verificar partido/cargo e período.', 'Cruzar com contratos, doações e despesas já analisadas.']
+      summary: `${result.title}. Use para ver despesas, contratos, processos e fontes oficiais ligados ao nome.`,
+      checks: ['Confirmar homônimos.', 'Ver partido/cargo e período.', 'Cruzar contratos, doações e despesas.']
     };
   }
   if (result.type === 'partido_politico') {
     return {
       ...base,
       title: 'Partido político encontrado',
-      summary: `Este resultado identifica o partido ${result.title}. A análise deve olhar valores públicos agregados, parlamentares do recorte, contratos e contas eleitorais relacionadas.`,
-      checks: ['Conferir sigla e nome oficial.', 'Abrir a aba de partido para ver valores agregados.', 'Comparar contratos, despesas e doações relacionadas.']
+      summary: `${result.title}. Veja valores agregados, parlamentares, contratos e contas eleitorais.`,
+      checks: ['Conferir sigla e nome oficial.', 'Abrir aba de partido.', 'Comparar contratos, despesas e doações.']
     };
   }
   if (result.type === 'cnpj') {
     return {
       ...base,
       title: 'CNPJ encontrado',
-      summary: `Este resultado identifica uma empresa ou entidade. Para entender o risco, confira atividade econômica, data de abertura, capital social, contratos públicos e vínculos com fornecedores recorrentes.`,
-      checks: ['Confirmar razão social e município/UF.', 'Comparar capital social com valores de contratos.', 'Procurar contratos recentes ligados ao mesmo CNPJ.']
+      summary: 'Empresa ou entidade encontrada. Confira atividade, abertura, capital social e contratos públicos.',
+      checks: ['Confirmar razão social e UF.', 'Comparar capital social e contratos.', 'Procurar contratos recentes do CNPJ.']
     };
   }
   if (result.type === 'stf_processo' || result.type === 'stf_jurisprudencia') {
     return {
       ...base,
       title: 'Consulta oficial do STF',
-      summary: `Este resultado é um caminho para a fonte oficial do STF. A plataforma não interpreta automaticamente o mérito; ela ajuda a chegar na consulta correta.`,
-      checks: ['Abrir o portal oficial.', 'Conferir número, classe, partes e data.', 'Verificar se há homônimo ou processo sem relação com o recorte.']
+      summary: 'Atalho para consulta oficial do STF. O mérito deve ser lido na fonte.',
+      checks: ['Abrir o portal oficial.', 'Conferir número, classe, partes e data.', 'Checar homônimos.']
     };
   }
   if (result.type === 'estado' || result.type === 'municipio') {
     return {
       ...base,
       title: 'Localidade encontrada',
-      summary: `Este resultado identifica uma localidade. Ao aplicar no feed, a plataforma filtra contratos, alertas e riscos relacionados à UF ou município.`,
-      checks: ['Aplicar o filtro no feed.', 'Ver os contratos de maior valor.', 'Abrir mapa e alertas da região.']
+      summary: 'Use para filtrar contratos, alertas e riscos da UF ou município.',
+      checks: ['Aplicar filtro no feed.', 'Ver maiores contratos.', 'Abrir mapa da região.']
     };
   }
   return { ...base, title: `Resultado de busca: ${type || 'registro público'}` };
@@ -611,6 +737,28 @@ function alertBaselineValue(alert) {
   return null;
 }
 
+function alertComparisonMetrics(alert) {
+  if (!alert) return [];
+  const paidValue = numericValue(alert.value);
+  const variation = numericValue(alert.estimated_variation);
+  const baseline = alertBaselineValue(alert);
+  const percent = baseline && baseline > 0 && paidValue > 0
+    ? ((paidValue - baseline) / baseline) * 100
+    : null;
+  const metrics = [];
+
+  metrics.push(['Pago/contratado', paidValue > 0 ? compactValue(paidValue, 'value') : alert.formatted_value || 'n/d']);
+  metrics.push(['Média comparável', baseline !== null ? compactValue(baseline, 'baseline') : 'Sem média confiável']);
+  metrics.push(['Acima da média', variation > 0 ? compactValue(variation, 'estimated_variation') : alert.formatted_variation || 'n/d']);
+  if (percent !== null && Number.isFinite(percent)) metrics.push(['Percentual acima', compactValue(percent, 'percent_above_baseline')]);
+
+  const firstEvidence = (alert.report?.red_flags || []).map((flag) => flag?.evidence || {}).find((evidence) => evidence.sample_size || evidence.category);
+  if (firstEvidence?.sample_size) metrics.push(['Contratos comparados', compactValue(firstEvidence.sample_size, 'sample_size')]);
+  if (firstEvidence?.category) metrics.push(['Grupo comparado', compactText(firstEvidence.category, 80)]);
+
+  return metrics;
+}
+
 function flagDetails(flag) {
   const evidence = Object.entries(flag.evidence || {});
   return evidence
@@ -658,6 +806,7 @@ export default function CoibeApp() {
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const [showFullAlertTitle, setShowFullAlertTitle] = useState(false);
   const [selectedSearchResult, setSelectedSearchResult] = useState(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -1204,6 +1353,10 @@ function applySearchResult(result) {
   }, [selectedPoliticalItem?.id, selectedPoliticalItem?.type]);
 
   useEffect(() => {
+    setShowFullAlertTitle(false);
+  }, [selectedAlert?.id]);
+
+  useEffect(() => {
     if (activeTab === 'feed') {
       loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
     }
@@ -1326,6 +1479,10 @@ function applySearchResult(result) {
   const selectedPublicEvidence = Array.isArray(selectedAlert?.report?.public_evidence)
     ? selectedAlert.report.public_evidence
     : [];
+  const selectedAlertFlags = selectedAlert
+    ? contextualAttentionFlags(selectedAlert.report?.red_flags || [], selectedAlert)
+    : [];
+  const selectedAlertMetrics = selectedAlert ? alertComparisonMetrics(selectedAlert) : [];
   const selectedSearchReview = selectedSearchResult ? searchResultReview(selectedSearchResult) : null;
 
   return (
@@ -1452,7 +1609,10 @@ function applySearchResult(result) {
               {loadingSearch && <Loader2 className="h-5 w-5 animate-spin text-red-500" />}
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              {searchResults.map((result, index) => (
+              {searchResults.map((result, index) => {
+                const previewReview = searchResultReview(result);
+                const previewFlag = previewReview.flags[0];
+                return (
                 <button
                   key={`${result.type}-${result.title}-${index}`}
                   type="button"
@@ -1469,9 +1629,17 @@ function applySearchResult(result) {
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-red-400" />
                   </div>
+                  {previewFlag && (
+                    <div className="mt-3 rounded border border-red-900/40 bg-red-950/10 p-2">
+                      <p className="text-[11px] font-black uppercase text-red-300">Risco e detalhe</p>
+                      <strong className="mt-1 block text-sm text-white">{previewFlag.title}</strong>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-400">{previewFlag.message}</p>
+                    </div>
+                  )}
                   <p className="mt-3 text-xs text-neutral-500">{result.source}</p>
                 </button>
-              ))}
+                );
+              })}
               {!loadingSearch && searchResults.length === 0 && (
                 <div className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-4 text-sm text-neutral-400">
                   Nenhum resultado direto encontrado nas fontes unificadas.
@@ -1963,9 +2131,28 @@ function applySearchResult(result) {
                   </h2>
                 </div>
                 <div className="p-5">
-                  <h3 className="line-clamp-3 font-black text-white">{selectedAlert.title}</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowFullAlertTitle((current) => !current)}
+                    title={selectedAlert.title}
+                    className={`block w-full text-left font-black text-white hover:text-red-100 ${showFullAlertTitle ? '' : 'line-clamp-3'}`}
+                    aria-expanded={showFullAlertTitle}
+                  >
+                    {selectedAlert.title}
+                  </button>
                   <p className="mt-1 text-sm text-neutral-400">Id. {selectedAlert.report.id}</p>
-                  <p className="mt-3 text-sm leading-6 text-neutral-300">{selectedAlert.report.summary}</p>
+                  <p className="mt-3 text-sm leading-6 text-neutral-300">{compactText(selectedAlert.report.summary, 190)}</p>
+
+                  {selectedAlertMetrics.length > 0 && (
+                    <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                      {selectedAlertMetrics.map(([label, value]) => (
+                        <div key={`${label}-${value}`} className="rounded border border-neutral-800 bg-neutral-950/70 p-3">
+                          <p className="text-[11px] font-black uppercase text-neutral-500">{label}</p>
+                          <strong className="mt-1 block break-words text-sm text-white">{value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-950/70 p-4">
                     <p className="text-xs font-bold uppercase text-neutral-500">Fontes oficiais reais</p>
@@ -2010,35 +2197,39 @@ function applySearchResult(result) {
                     </div>
                   )}
 
-                  <h4 className="mt-5 text-xs font-black uppercase text-neutral-500">Fatores de atenção identificados</h4>
+                  <h4 className="mt-5 text-xs font-black uppercase text-neutral-500">Risco e detalhes</h4>
                   <ul className="mt-3 space-y-3">
-                    {selectedAlert.report.red_flags.map((flag) => (
-                      <li key={`${flag.code}-${flag.title}`} className="flex gap-3 rounded-lg border border-red-900/70 bg-red-950/20 p-3 text-sm text-neutral-200">
-                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
-                        <span>
-                          <strong className="block text-white">{flag.title}</strong>
-                          {flag.message}
-                          {friendlyComparison(flag).length > 0 && (
-                            <span className="mt-3 grid gap-1 text-xs font-semibold text-red-100">
-                              {friendlyComparison(flag).map((comparison) => (
-                                <span key={`${flag.code}-${comparison}`} className="rounded border border-red-900/60 bg-red-950/30 px-2 py-1">
-                                  {comparison}
-                                </span>
-                              ))}
-                            </span>
-                          )}
-                          {flagDetails(flag).length > 0 && (
-                            <span className="mt-3 grid gap-1 text-xs text-neutral-400">
-                              {flagDetails(flag).map(([key, value]) => (
-                                <span key={`${flag.code}-${key}`} className="rounded border border-neutral-800 bg-neutral-950/70 px-2 py-1">
-                                  <strong className="text-neutral-300">{readableKey(key)}:</strong> {compactValue(value, key)}
-                                </span>
-                              ))}
-                            </span>
-                          )}
-                        </span>
-                      </li>
-                    ))}
+                    {selectedAlertFlags.map((flag) => {
+                      const comparisons = friendlyComparison(flag);
+                      const details = flagDetails(flag);
+                      return (
+                        <li key={`${flag.code}-${flag.title}`} className="flex gap-3 rounded-lg border border-red-900/70 bg-red-950/20 p-3 text-sm text-neutral-200">
+                          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                          <span>
+                            <strong className="block text-white">{flag.title}</strong>
+                            <span className="mt-1 block leading-6 text-neutral-300">{compactText(flag.message, 170)}</span>
+                            {comparisons.length > 0 && (
+                              <span className="mt-3 grid gap-1 text-xs font-semibold text-red-100">
+                                {comparisons.map((comparison) => (
+                                  <span key={`${flag.code}-${comparison}`} className="rounded border border-red-900/60 bg-red-950/30 px-2 py-1">
+                                    {comparison}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                            {details.length > 0 && (
+                              <span className="mt-3 grid gap-1 text-xs text-neutral-400">
+                                {details.map(([key, value]) => (
+                                  <span key={`${flag.code}-${key}`} className="rounded border border-neutral-800 bg-neutral-950/70 px-2 py-1">
+                                    <strong className="text-neutral-300">{readableKey(key)}:</strong> {compactValue(value, key)}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
 
                   <div className="mt-5 space-y-3">
@@ -2061,7 +2252,7 @@ function applySearchResult(result) {
                   </div>
 
                   <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-center text-xs leading-5 text-neutral-400">
-                    <strong className="text-neutral-300">Nota Legal:</strong> A plataforma aponta variações estatísticas e padrões atípicos com base em dados abertos. A análise final e conclusão sobre eventuais irregularidades cabem exclusivamente aos órgãos de controle competentes.
+                    <strong className="text-neutral-300">Nota:</strong> O COIBE aponta sinais em dados abertos. Conclusão oficial cabe aos órgãos de controle.
                   </div>
                 </div>
               </>
@@ -2114,7 +2305,46 @@ function applySearchResult(result) {
                       Parecer Analítico do COIBE
                     </h3>
                     <strong className="mt-3 block text-white">{selectedSearchReview.title}</strong>
-                    <p className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchReview.summary}</p>
+                    <p className="mt-2 text-sm leading-6 text-neutral-300">{compactText(selectedSearchReview.summary, 170)}</p>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+                    <p className="text-xs font-black uppercase text-neutral-500">Riscos e detalhes do resultado</p>
+                    <div className="mt-3 space-y-3">
+                      {selectedSearchReview.flags.map((flag) => {
+                        const flagRisk = riskCopy[flag.level] || riskCopy[flag.risk_level] || riskCopy.baixo;
+                        const comparisons = friendlyComparison(flag);
+                        return (
+                          <div key={`${flag.code}-${flag.title}`} className="rounded border border-red-900/60 bg-red-950/20 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <strong className="text-sm text-white">{flag.title}</strong>
+                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${flagRisk.color}`}>
+                                {flagRisk.label}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-neutral-300">{compactText(flag.message, 160)}</p>
+                            {comparisons.length > 0 && (
+                              <div className="mt-3 grid gap-1 text-xs font-semibold text-red-100">
+                                {comparisons.map((comparison) => (
+                                  <span key={`${flag.code}-${comparison}`} className="rounded border border-red-900/60 bg-red-950/30 px-2 py-1">
+                                    {comparison}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {flagDetails(flag).length > 0 && (
+                              <div className="mt-3 grid gap-1 text-xs text-neutral-400">
+                                {flagDetails(flag).map(([key, value]) => (
+                                  <span key={`${flag.code}-${key}`} className="rounded border border-neutral-800 bg-neutral-950/70 px-2 py-1">
+                                    <strong className="text-neutral-300">{readableKey(key)}:</strong> {compactValue(value, key)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
@@ -2205,7 +2435,7 @@ function applySearchResult(result) {
 
               <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px]">
                 <section className="space-y-5">
-                <p className="text-sm leading-6 text-neutral-300">{selectedPoliticalItem.summary}</p>
+                <p className="text-sm leading-6 text-neutral-300">{compactText(selectedPoliticalItem.summary, 210)}</p>
                 {selectedPoliticalItem.analysis_types?.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {selectedPoliticalItem.analysis_types.map((type) => (
@@ -2261,7 +2491,7 @@ function applySearchResult(result) {
                                     {superpricingRisk.label}
                                   </span>
                                 </div>
-                                <p className="mt-1 text-xs leading-5 text-neutral-400">{superpricingRisk.message}</p>
+                                <p className="mt-1 text-xs leading-5 text-neutral-400">{compactText(superpricingRisk.message, 120)}</p>
                                 {(superpricingRisk.score > 0 || superpricingRisk.value > 0) && (
                                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-neutral-500">
                                     {superpricingRisk.score > 0 && <span>Score {superpricingRisk.score.toLocaleString('pt-BR')}</span>}
@@ -2277,7 +2507,7 @@ function applySearchResult(result) {
                               {politicalTypeLabel(detail.type)}
                             </span>
                           </div>
-                          {detail.description && <p className="mt-2 leading-6 text-neutral-300">{detail.description}</p>}
+                          {detail.description && <p className="mt-2 leading-6 text-neutral-300">{compactText(detail.description, 180)}</p>}
                           <div className="mt-3 grid gap-2 text-xs text-neutral-400 sm:grid-cols-2">
                             <p><strong className="text-neutral-300">Data:</strong> {detail.date ? formatDate(detail.date) : detail.month && detail.year ? `${String(detail.month).padStart(2, '0')}/${detail.year}` : 'Não informada'}</p>
                             {detail.value !== undefined && detail.value !== null && detail.value !== '' && (
@@ -2355,7 +2585,7 @@ function applySearchResult(result) {
                             {riskCopy[risk.level]?.label || risk.level}
                           </span>
                         </div>
-                        <p className="mt-2 leading-6 text-neutral-300">{risk.message}</p>
+                        <p className="mt-2 leading-6 text-neutral-300">{compactText(risk.message, 160)}</p>
                       </div>
                     ))}
                   </div>
@@ -2414,7 +2644,7 @@ function applySearchResult(result) {
                         <div>
                           <strong className="block text-white">{selectedPoliticalDetail.title || politicalTypeLabel(selectedPoliticalDetail.type)}</strong>
                           {selectedPoliticalDetail.description && (
-                            <p className="mt-2 leading-6 text-neutral-300">{selectedPoliticalDetail.description}</p>
+                            <p className="mt-2 leading-6 text-neutral-300">{compactText(selectedPoliticalDetail.description, 180)}</p>
                           )}
                         </div>
                         {selectedPoliticalDetailRisk && (
@@ -2425,13 +2655,13 @@ function applySearchResult(result) {
                                 {selectedPoliticalDetailRisk.label}
                               </span>
                             </div>
-                            <p className="mt-2 text-xs leading-5 text-neutral-400">{selectedPoliticalDetailRisk.message}</p>
+                            <p className="mt-2 text-xs leading-5 text-neutral-400">{compactText(selectedPoliticalDetailRisk.message, 120)}</p>
                           </div>
                         )}
                         {selectedPoliticalDetailReview && (
                           <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
                             <p className="text-xs font-black uppercase text-neutral-500">Como verificar</p>
-                            <p className="mt-2 leading-6 text-neutral-300">{selectedPoliticalDetailReview.title}</p>
+                            <p className="mt-2 leading-6 text-neutral-300">{compactText(selectedPoliticalDetailReview.title, 170)}</p>
                             {selectedPoliticalDetailReview.hiddenSignals.length > 0 && (
                               <div className="mt-3 space-y-2">
                                 {selectedPoliticalDetailReview.hiddenSignals.map((signal) => (
@@ -2534,7 +2764,7 @@ function applySearchResult(result) {
                         {(selectedPoliticalItem.risks || []).slice(0, 5).map((risk, index) => (
                           <div key={`${risk.title}-side-${index}`} className="rounded border border-red-900/50 bg-red-950/20 p-3 text-xs text-neutral-200">
                             <strong className="block text-white">{risk.title}</strong>
-                            <p className="mt-2 leading-5 text-neutral-300">{risk.message}</p>
+                            <p className="mt-2 leading-5 text-neutral-300">{compactText(risk.message, 140)}</p>
                           </div>
                         ))}
                       </div>
