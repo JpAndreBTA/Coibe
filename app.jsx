@@ -664,6 +664,10 @@ export default function CoibeApp() {
     try {
       if (kind === 'parties') {
         const params = new URLSearchParams({ limit: '24', source: 'local', page: String(nextPage), page_size: '10' });
+        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
+        if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
+        if (politicalSizeOrder) params.set('size_order', politicalSizeOrder);
         const data = await apiGet(`/api/political/parties?${params}`);
         const nextItems = data.items || [];
         setPoliticalParties((current) => append ? mergePoliticalItems(current, nextItems) : nextItems);
@@ -676,6 +680,10 @@ export default function CoibeApp() {
       }
       if (kind === 'politicians') {
         const params = new URLSearchParams({ limit: '36', source: 'local', page: String(nextPage), page_size: '10' });
+        if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
+        if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
+        if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
+        if (politicalSizeOrder) params.set('size_order', politicalSizeOrder);
         const data = await apiGet(`/api/political/politicians?${params}`);
         const nextItems = data.items || [];
         setPoliticalPeople((current) => append ? mergePoliticalItems(current, nextItems) : nextItems);
@@ -981,6 +989,14 @@ function queryFromResult(result) {
   }, [activeTab, monitorStatus?.generated_at]);
 
   useEffect(() => {
+    if (activeTab !== 'parties' && activeTab !== 'politicians') return undefined;
+    const timeout = window.setTimeout(() => {
+      loadPoliticalData(activeTab, true, 1, false);
+    }, politicalSearch.trim() ? 450 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       loadMonitorStatus();
       if (activeTab === 'feed' && page === 1 && !loadingFeed) {
@@ -1041,7 +1057,7 @@ function queryFromResult(result) {
 
     observer.observe(loadMorePoliticalRef.current);
     return () => observer.disconnect();
-  }, [activeTab, loadingPolitical, politicalPagination]);
+  }, [activeTab, loadingPolitical, politicalPagination, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter]);
 
   function handleSearch(event) {
     event.preventDefault();
@@ -1620,6 +1636,7 @@ function queryFromResult(result) {
 
                 {filteredPoliticalItems.map((item) => {
                   const risk = riskCopy[item.attention_level] || riskCopy.baixo;
+                  const analyzedDate = item.analyzed_at || politicalDataStampRef.current[activeTab];
                   return (
                     <button
                       key={`${item.type}-${item.id}`}
@@ -1631,6 +1648,7 @@ function queryFromResult(result) {
                         <div>
                           <h3 className="text-lg font-black text-white">{item.name}</h3>
                           {item.subtitle && <p className="mt-1 text-sm text-neutral-400">{item.subtitle}</p>}
+                          {analyzedDate && <p className="mt-1 text-xs font-bold uppercase text-neutral-500">Analisado em {formatDate(analyzedDate)}</p>}
                         </div>
                         <span className={`rounded-full border px-3 py-1 text-xs font-black ${risk.color}`}>
                           {risk.label}
@@ -1824,6 +1842,11 @@ function queryFromResult(result) {
                   </p>
                   <h2 className="mt-1 break-words text-lg font-black text-white sm:text-xl">{selectedPoliticalItem.name}</h2>
                   {selectedPoliticalItem.subtitle && <p className="mt-1 text-sm text-neutral-400">{selectedPoliticalItem.subtitle}</p>}
+                  {(selectedPoliticalItem.analyzed_at || politicalDataStampRef.current[activeTab]) && (
+                    <p className="mt-1 text-xs font-bold uppercase text-neutral-500">
+                      Analisado em {formatDate(selectedPoliticalItem.analyzed_at || politicalDataStampRef.current[activeTab])}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -1864,7 +1887,7 @@ function queryFromResult(result) {
                   <section>
                     <h3 className="text-xs font-black uppercase text-neutral-500">Descrições da análise</h3>
                     <div className="mt-3 space-y-3">
-                      {selectedPoliticalItem.analysis_details.slice(0, 10).map((detail, index) => (
+                      {selectedPoliticalItem.analysis_details.slice(0, 30).map((detail, index) => (
                         <div key={`${detail.title || detail.type}-${index}`} className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-200">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <strong className="text-white">{detail.title || politicalTypeLabel(detail.type)}</strong>

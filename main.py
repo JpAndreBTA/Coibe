@@ -524,6 +524,7 @@ class PoliticalScanItem(BaseModel):
     people: list[str] = Field(default_factory=list)
     analysis_types: list[str] = Field(default_factory=list)
     analysis_details: list[dict[str, Any]] = Field(default_factory=list)
+    analyzed_at: datetime | None = None
     sources: list[MonitoringSource] = Field(default_factory=list)
     risks: list[PoliticalRiskFactor] = Field(default_factory=list)
 
@@ -4283,7 +4284,7 @@ async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[
             summary=f"{money(total)} em despesas dos parlamentares analisados; {money(travel_total)} em viagens/deslocamentos.",
             people=list(dict.fromkeys([person for person in people if person]))[:16],
             analysis_types=analysis_types,
-            analysis_details=analysis_details[:16],
+            analysis_details=analysis_details[:30],
             sources=[
                 MonitoringSource(
                     label="Câmara dos Deputados - partidos e membros",
@@ -4336,6 +4337,9 @@ def cached_political_items(
     record_type: str,
     q: str | None = None,
     party: str | None = None,
+    risk_level: str | None = None,
+    analysis_type: str | None = None,
+    size_order: str | None = None,
     limit: int = 24,
 ) -> tuple[list[PoliticalScanItem], datetime | None]:
     records = sorted(
@@ -4349,6 +4353,10 @@ def cached_political_items(
     )
     normalized_query = normalize_text(q)
     normalized_party = normalize_text(party)
+    normalized_risk = normalize_text(risk_level)
+    if normalized_risk == "medio":
+        normalized_risk = "medio"
+    normalized_analysis_type = normalize_text(analysis_type)
     by_key: dict[str, PoliticalScanItem] = {}
     latest_collected_at: datetime | None = None
 
@@ -4361,10 +4369,23 @@ def cached_political_items(
         if normalized_party and normalize_text(item.party) != normalized_party:
             continue
 
+        if normalized_risk and normalized_risk != "todos" and normalize_text(item.attention_level) != normalized_risk:
+            continue
+
+        if normalized_analysis_type and normalized_analysis_type != "todos":
+            item_types = {normalize_text(value) for value in item.analysis_types}
+            detail_types = {
+                normalize_text(detail.get("type"))
+                for detail in item.analysis_details
+                if isinstance(detail, dict)
+            }
+            if normalized_analysis_type not in item_types and normalized_analysis_type not in detail_types:
+                continue
+
         detail_text = " ".join(
             " ".join(
                 str(detail.get(key) or "")
-                for key in ("title", "description", "supplier", "person", "party", "type")
+                for key in ("title", "description", "supplier", "person", "party", "type", "entity", "value", "source")
             )
             for detail in item.analysis_details
             if isinstance(detail, dict)
@@ -4389,6 +4410,8 @@ def cached_political_items(
         parsed_collected_at = parse_iso_datetime(str(record.get("collected_at") or ""))
         if parsed_collected_at and (latest_collected_at is None or parsed_collected_at > latest_collected_at):
             latest_collected_at = parsed_collected_at
+        if parsed_collected_at and item.analyzed_at is None:
+            item.analyzed_at = parsed_collected_at
 
         key = f"{item.type}:{item.id or normalize_text(item.name)}"
         if key not in by_key:
@@ -4396,15 +4419,14 @@ def cached_political_items(
 
     risk_rank = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1}
     items = list(by_key.values())
-    items.sort(
-        key=lambda item: (
-            risk_rank.get(normalize_text(item.attention_level), 0),
-            item.total_public_money,
-            item.records_count,
-            item.name,
-        ),
-        reverse=True,
-    )
+    if size_order == "risco":
+        items.sort(key=lambda item: (risk_rank.get(normalize_text(item.attention_level), 0), item.total_public_money, item.records_count, item.name), reverse=True)
+    elif size_order == "viagens":
+        items.sort(key=lambda item: (item.travel_public_money, item.total_public_money, item.records_count, item.name), reverse=True)
+    elif size_order == "registros":
+        items.sort(key=lambda item: (item.records_count, item.total_public_money, item.name), reverse=True)
+    else:
+        items.sort(key=lambda item: (item.total_public_money, risk_rank.get(normalize_text(item.attention_level), 0), item.records_count, item.name), reverse=True)
     return items[:limit], latest_collected_at
 
 
@@ -4986,12 +5008,22 @@ async def political_parties(
     limit: int = Query(12, ge=1, le=24),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
+    risk_level: str | None = Query(None),
+    analysis_type: str | None = Query(None),
+    size_order: str | None = Query(None, pattern="^(valor|viagens|registros|risco)$"),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
     if source != "live":
         cached_limit = max(limit, page * page_size + 1)
-        cached_items, generated_at = cached_political_items("political_parties", q=q, limit=cached_limit)
+        cached_items, generated_at = cached_political_items(
+            "political_parties",
+            q=q,
+            risk_level=risk_level,
+            analysis_type=analysis_type,
+            size_order=size_order,
+            limit=cached_limit,
+        )
         start = (page - 1) * page_size
         items = cached_items[start : start + page_size]
         return PoliticalScanResponse(
@@ -5006,15 +5038,16 @@ async def political_parties(
         )
 
     allow_local_or_admin_live_scan(request, x_coibe_admin_token)
+    live_items = await political_parties_scan(limit=limit, q=q)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="partidos",
         sources=POLITICAL_PARTY_SOURCES,
-        items=await political_parties_scan(limit=limit, q=q),
+        items=live_items,
         page=1,
         page_size=limit,
         has_more=False,
-        total_returned=limit,
+        total_returned=len(live_items),
     )
 
 
@@ -5026,12 +5059,23 @@ async def political_politicians(
     limit: int = Query(18, ge=1, le=36),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
+    risk_level: str | None = Query(None),
+    analysis_type: str | None = Query(None),
+    size_order: str | None = Query(None, pattern="^(valor|viagens|registros|risco)$"),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
     if source != "live":
         cached_limit = max(limit, page * page_size + 1)
-        cached_items, generated_at = cached_political_items("political_people", q=q, party=party, limit=cached_limit)
+        cached_items, generated_at = cached_political_items(
+            "political_people",
+            q=q,
+            party=party,
+            risk_level=risk_level,
+            analysis_type=analysis_type,
+            size_order=size_order,
+            limit=cached_limit,
+        )
         start = (page - 1) * page_size
         items = cached_items[start : start + page_size]
         return PoliticalScanResponse(
@@ -5046,15 +5090,16 @@ async def political_politicians(
         )
 
     allow_local_or_admin_live_scan(request, x_coibe_admin_token)
+    live_items = await political_people_scan(limit=limit, q=q, party=party)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="politicos",
         sources=POLITICAL_PEOPLE_SOURCES,
-        items=await political_people_scan(limit=limit, q=q, party=party),
+        items=live_items,
         page=1,
         page_size=limit,
         has_more=False,
-        total_returned=limit,
+        total_returned=len(live_items),
     )
 
 
