@@ -167,8 +167,6 @@ Fontes usadas nesta etapa:
 ```http
 GET /api/political/parties?limit=12
 GET /api/political/politicians?limit=18
-GET /api/political/parties?limit=24&source=live
-GET /api/political/politicians?limit=36&source=live
 ```
 
 As abas **Partido** e **Político** mostram fatores de atenção em linguagem simples,
@@ -182,8 +180,13 @@ externo. A plataforma lista consultas oficiais; não conclui crime, culpa,
 suborno, corrupção ou desfecho judicial.
 
 Por padrao, essas abas leem a base local consolidada em segundo plano pelo
-monitor, como o feed. Use `source=live` apenas no coletor ou em manutencao
-manual para consultar novamente as fontes oficiais e atualizar o cache.
+monitor, como o feed. A consulta publica das abas nao dispara nova varredura:
+se o termo nao estiver no cache, retorna vazio. O modo `source=live` fica
+reservado ao monitor local em `127.0.0.1` ou a chamadas administrativas com
+`X-Coibe-Admin-Token`.
+Na interface, Partido e Politico tambem usam lazy loading: a tela carrega
+blocos pequenos da base ja analisada e busca mais registros conforme o usuario
+desce, sem recalcular totais nem reconsultar as fontes oficiais.
 
 ### CNPJ + Red Flag 01
 
@@ -392,6 +395,9 @@ https://sua-api.onrender.com/api/storage/status
 - `/docs`, `/redoc` e `/openapi.json` ficam desligados por padrao em `COIBE_ENV=production`.
 - `/api/scrape/public-page` bloqueia localhost, IPs privados, IPs reservados e respostas grandes para reduzir risco de SSRF.
 - O backend aplica rate limit simples por IP e caminho. Para Cloudflare, adicione tambem regra de rate limit/WAF no painel.
+- As abas de Partido e Politico consultam somente cache por padrao. `source=live`
+  nessas rotas e permitido apenas a partir do loopback local ou com token admin,
+  evitando que usuarios externos pelo tunnel iniciem varreduras repetidas.
 - Nao coloque `COIBE_ADMIN_TOKEN` no frontend. Ele e somente para operacao administrativa fora do navegador publico.
 
 ## Monitoramento contínuo

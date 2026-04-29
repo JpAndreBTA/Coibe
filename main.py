@@ -531,6 +531,10 @@ class PoliticalScanResponse(BaseModel):
     kind: str
     sources: list[str]
     items: list[PoliticalScanItem]
+    page: int = 1
+    page_size: int = 0
+    has_more: bool = False
+    total_returned: int = 0
 
 
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
@@ -583,6 +587,16 @@ def require_admin_token(x_coibe_admin_token: str | None = Header(default=None)) 
         raise HTTPException(status_code=503, detail="Endpoint administrativo indisponivel sem COIBE_ADMIN_TOKEN.")
     if x_coibe_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Token administrativo invalido ou ausente.")
+
+
+def allow_local_or_admin_live_scan(request: Request, x_coibe_admin_token: str | None = None) -> None:
+    try:
+        client_ip = ipaddress.ip_address(client_ip_from_request(request))
+    except ValueError:
+        client_ip = None
+    if client_ip and client_ip.is_loopback:
+        return
+    require_admin_token(x_coibe_admin_token)
 
 
 def blocked_ip_address(value: str) -> bool:
@@ -4652,50 +4666,80 @@ async def monitoring_search(
 
 @app.get("/api/political/parties", response_model=PoliticalScanResponse)
 async def political_parties(
+    request: Request,
     q: str | None = Query(None, min_length=2),
     limit: int = Query(12, ge=1, le=24),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=10, le=50),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
+    x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
     if source != "live":
-        cached_items, generated_at = cached_political_items("political_parties", q=q, limit=limit)
-        if cached_items or source == "local":
-            return PoliticalScanResponse(
-                generated_at=generated_at or brasilia_now(),
-                kind="partidos",
-                sources=["Base COIBE.IA autoatualizável", *POLITICAL_PARTY_SOURCES],
-                items=cached_items,
-            )
+        cached_limit = max(limit, page * page_size + 1)
+        cached_items, generated_at = cached_political_items("political_parties", q=q, limit=cached_limit)
+        start = (page - 1) * page_size
+        items = cached_items[start : start + page_size]
+        return PoliticalScanResponse(
+            generated_at=generated_at or brasilia_now(),
+            kind="partidos",
+            sources=["Base COIBE.IA autoatualizável", *POLITICAL_PARTY_SOURCES],
+            items=items,
+            page=page,
+            page_size=page_size,
+            has_more=start + page_size < len(cached_items),
+            total_returned=len(items),
+        )
 
+    allow_local_or_admin_live_scan(request, x_coibe_admin_token)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="partidos",
         sources=POLITICAL_PARTY_SOURCES,
         items=await political_parties_scan(limit=limit, q=q),
+        page=1,
+        page_size=limit,
+        has_more=False,
+        total_returned=limit,
     )
 
 
 @app.get("/api/political/politicians", response_model=PoliticalScanResponse)
 async def political_politicians(
+    request: Request,
     q: str | None = Query(None, min_length=2),
     party: str | None = Query(None, min_length=2, max_length=12),
     limit: int = Query(18, ge=1, le=36),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=10, le=50),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
+    x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
     if source != "live":
-        cached_items, generated_at = cached_political_items("political_people", q=q, party=party, limit=limit)
-        if cached_items or source == "local":
-            return PoliticalScanResponse(
-                generated_at=generated_at or brasilia_now(),
-                kind="politicos",
-                sources=["Base COIBE.IA autoatualizável", *POLITICAL_PEOPLE_SOURCES],
-                items=cached_items,
-            )
+        cached_limit = max(limit, page * page_size + 1)
+        cached_items, generated_at = cached_political_items("political_people", q=q, party=party, limit=cached_limit)
+        start = (page - 1) * page_size
+        items = cached_items[start : start + page_size]
+        return PoliticalScanResponse(
+            generated_at=generated_at or brasilia_now(),
+            kind="politicos",
+            sources=["Base COIBE.IA autoatualizável", *POLITICAL_PEOPLE_SOURCES],
+            items=items,
+            page=page,
+            page_size=page_size,
+            has_more=start + page_size < len(cached_items),
+            total_returned=len(items),
+        )
 
+    allow_local_or_admin_live_scan(request, x_coibe_admin_token)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="politicos",
         sources=POLITICAL_PEOPLE_SOURCES,
         items=await political_people_scan(limit=limit, q=q, party=party),
+        page=1,
+        page_size=limit,
+        has_more=False,
+        total_returned=limit,
     )
 
 

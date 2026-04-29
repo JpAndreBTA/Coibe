@@ -453,6 +453,16 @@ function flagDetails(flag) {
     .slice(0, 6);
 }
 
+function mergePoliticalItems(currentItems, nextItems) {
+  const seen = new Set();
+  return [...currentItems, ...nextItems].filter((item) => {
+    const key = `${item.type || 'item'}:${item.id || item.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export default function CoibeApp() {
   const [searchTerm, setSearchTerm] = useState('');
   const [feedRiskFilter, setFeedRiskFilter] = useState('todos');
@@ -472,6 +482,10 @@ export default function CoibeApp() {
   const [politicalSizeOrder, setPoliticalSizeOrder] = useState('valor');
   const [politicalTypeFilter, setPoliticalTypeFilter] = useState('todos');
   const [loadingPolitical, setLoadingPolitical] = useState(false);
+  const [politicalPagination, setPoliticalPagination] = useState({
+    parties: { page: 1, hasMore: false },
+    politicians: { page: 1, hasMore: false }
+  });
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [geoJson, setGeoJson] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
@@ -486,6 +500,7 @@ export default function CoibeApp() {
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [error, setError] = useState('');
   const loadMoreRef = useRef(null);
+  const loadMorePoliticalRef = useRef(null);
   const suppressSearchEffectRef = useRef(false);
   const searchRequestIdRef = useRef(0);
   const loadedPoliticalTabsRef = useRef({ parties: false, politicians: false });
@@ -508,6 +523,7 @@ export default function CoibeApp() {
     : `Novos no último ciclo: ${newItemsAnalyzed.toLocaleString('pt-BR')}`;
 
   const politicalCurrentItems = activeTab === 'parties' ? politicalParties : politicalPeople;
+  const currentPoliticalPagination = politicalPagination[activeTab] || { page: 1, hasMore: false };
   const filteredPoliticalItems = useMemo(() => {
     const query = politicalSearch.trim().toLowerCase();
     const riskOrder = { alto: 3, 'médio': 2, medio: 2, baixo: 1 };
@@ -639,26 +655,34 @@ export default function CoibeApp() {
     }
   }
 
-  async function loadPoliticalData(kind = activeTab, force = false) {
-    if (!force && loadedPoliticalTabsRef.current[kind]) return;
+  async function loadPoliticalData(kind = activeTab, force = false, nextPage = 1, append = false) {
+    if (!force && !append && loadedPoliticalTabsRef.current[kind]) return;
     setLoadingPolitical(true);
     setError('');
     try {
       if (kind === 'parties') {
-        const params = new URLSearchParams({ limit: '24', source: 'local' });
+        const params = new URLSearchParams({ limit: '24', source: 'local', page: String(nextPage), page_size: '10' });
         const data = await apiGet(`/api/political/parties?${params}`);
         const nextItems = data.items || [];
-        setPoliticalParties(nextItems);
-        loadedPoliticalTabsRef.current.parties = nextItems.length > 0;
+        setPoliticalParties((current) => append ? mergePoliticalItems(current, nextItems) : nextItems);
+        loadedPoliticalTabsRef.current.parties = true;
         politicalDataStampRef.current.parties = data.generated_at || politicalDataStampRef.current.parties;
+        setPoliticalPagination((current) => ({
+          ...current,
+          parties: { page: nextPage, hasMore: Boolean(data.has_more) }
+        }));
       }
       if (kind === 'politicians') {
-        const params = new URLSearchParams({ limit: '36', source: 'local' });
+        const params = new URLSearchParams({ limit: '36', source: 'local', page: String(nextPage), page_size: '10' });
         const data = await apiGet(`/api/political/politicians?${params}`);
         const nextItems = data.items || [];
-        setPoliticalPeople(nextItems);
-        loadedPoliticalTabsRef.current.politicians = nextItems.length > 0;
+        setPoliticalPeople((current) => append ? mergePoliticalItems(current, nextItems) : nextItems);
+        loadedPoliticalTabsRef.current.politicians = true;
         politicalDataStampRef.current.politicians = data.generated_at || politicalDataStampRef.current.politicians;
+        setPoliticalPagination((current) => ({
+          ...current,
+          politicians: { page: nextPage, hasMore: Boolean(data.has_more) }
+        }));
       }
     } catch {
       setError('Não foi possível carregar a varredura política pública agora.');
@@ -998,6 +1022,24 @@ function queryFromResult(result) {
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
   }, [activeTab, hasMore, loadingFeed, page, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
+
+  useEffect(() => {
+    if (!loadMorePoliticalRef.current || (activeTab !== 'parties' && activeTab !== 'politicians')) return undefined;
+    const pagination = politicalPagination[activeTab] || { page: 1, hasMore: false };
+    if (!pagination.hasMore) return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !loadingPolitical) {
+          loadPoliticalData(activeTab, true, pagination.page + 1, true);
+        }
+      },
+      { rootMargin: '320px 0px' }
+    );
+
+    observer.observe(loadMorePoliticalRef.current);
+    return () => observer.disconnect();
+  }, [activeTab, loadingPolitical, politicalPagination]);
 
   function handleSearch(event) {
     event.preventDefault();
@@ -1567,7 +1609,7 @@ function queryFromResult(result) {
                   </label>
                 </div>
 
-                {loadingPolitical && (
+                {loadingPolitical && politicalCurrentItems.length === 0 && (
                   <div className="flex h-44 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400">
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Carregando base ja analisada...
@@ -1620,6 +1662,19 @@ function queryFromResult(result) {
                     </button>
                   );
                 })}
+
+                <div ref={loadMorePoliticalRef} className="h-1" />
+                {politicalCurrentItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => loadPoliticalData(activeTab, true, currentPoliticalPagination.page + 1, true)}
+                    disabled={!currentPoliticalPagination.hasMore || loadingPolitical}
+                    className="flex w-full items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm font-bold text-neutral-300 transition hover:border-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {loadingPolitical ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {currentPoliticalPagination.hasMore ? 'Carregar mais registros' : 'Base carregada'}
+                  </button>
+                )}
 
                 {!loadingPolitical && filteredPoliticalItems.length === 0 && (
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-sm text-neutral-400">
