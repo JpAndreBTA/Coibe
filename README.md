@@ -9,9 +9,30 @@ O objetivo é tornar dados públicos mais acessíveis, pesquisáveis e compreens
 - Consulta e cruza fontes públicas oficiais.
 - Monitora contratos, fornecedores, órgãos, cidades e estados.
 - Aponta variações atípicas de valor e outros fatores de atenção.
+- Cruza empresas, CNPJs, sócios, localização, histórico de contratação e valores.
+- Exibe mapas por UF e município para leitura geográfica dos alertas.
+- Usa coordenadas aproximadas e distância logística para indicar possíveis incompatibilidades operacionais.
 - Mantém um feed pesquisável com lazy load para grandes bases.
 - Expõe uma API pública para integração e auditoria técnica.
 - Preserva rastreabilidade por links e evidências das fontes consultadas.
+
+## Cruzamentos de dados
+
+A Coibe IA organiza cada contrato como um registro investigável, combinando dados públicos de contratação, empresa, território e contexto institucional.
+
+Principais cruzamentos:
+
+- **Contratos e fornecedores:** objeto contratado, valor, data, órgão, unidade gestora, fornecedor, CNPJ e fonte oficial.
+- **Empresas e CNPJ:** dados cadastrais, abertura da empresa, capital social, atividade econômica e quadro societário quando disponível em fonte pública.
+- **Órgãos e território:** cidade, UF, unidade gestora, estado e agregações por região para leitura rápida no painel.
+- **GPS, mapas e distância:** uso de coordenadas públicas ou aproximadas por município/UF para mapear alertas e estimar distância entre fornecedor e órgão contratante.
+- **Risco logístico:** sinalização quando há contrato de alto valor, atividade que exige presença física e grande distância entre empresa e órgão.
+- **Histórico e recorrência:** comparação com contratos anteriores, concentração por fornecedor, recorrência em janela curta e possíveis padrões de repetição.
+- **Preço e superfaturamento estimado:** comparação estatística por grupos de itens similares para estimar valores atípicos que merecem revisão.
+- **Pessoas e relações públicas:** busca complementar por políticos, partidos, CNPJ, STF, Câmara, Senado e bases abertas relacionadas.
+- **Evidências rastreáveis:** cada alerta preserva links, critérios e campos usados no cálculo para facilitar auditoria humana.
+
+Esses cruzamentos servem para priorizar leitura e investigação. Eles não substituem análise jurídica, contábil, técnica ou decisão de autoridade competente.
 
 ## Para quem é
 
