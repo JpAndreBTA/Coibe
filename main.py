@@ -541,6 +541,7 @@ class PoliticalScanResponse(BaseModel):
 
 
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
+POLITICAL_LOCAL_ITEMS_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
 ADMIN_PROTECTED_PATHS = {
     "/api/storage/status",
     "/api/public-data/portal-transparencia/proxy",
@@ -3552,6 +3553,42 @@ def political_related_terms(name: str, party: str | None = None, people: list[st
     return unique_terms[:12]
 
 
+def cached_local_monitoring_items_for_political() -> list[MonitoringItem]:
+    now = time.monotonic()
+    if now - float(POLITICAL_LOCAL_ITEMS_CACHE.get("loaded_at") or 0) < 90:
+        cached_items = POLITICAL_LOCAL_ITEMS_CACHE.get("items") or []
+        if isinstance(cached_items, list):
+            return cached_items
+    items = load_local_monitoring_items()
+    POLITICAL_LOCAL_ITEMS_CACHE["loaded_at"] = now
+    POLITICAL_LOCAL_ITEMS_CACHE["items"] = items
+    return items
+
+
+def political_term_matches_item(item: MonitoringItem, normalized_terms: list[str], digit_terms: list[str]) -> bool:
+    searchable = " ".join(
+        str(value or "")
+        for value in [
+            item.id,
+            item.title,
+            item.entity,
+            item.supplier_name,
+            item.supplier_cnpj,
+            item.object,
+            item.city,
+            item.uf,
+            item.location,
+        ]
+    )
+    searchable_normalized = normalize_text(searchable)
+    searchable_digits = "".join(ch for ch in searchable if ch.isdigit())
+    for term in normalized_terms:
+        tokens = [token for token in term.split() if len(token) >= 2]
+        if term and (term in searchable_normalized or all(token in searchable_normalized for token in tokens[:6])):
+            return True
+    return any(digits and digits in searchable_digits for digits in digit_terms)
+
+
 def local_contract_crosscheck_for_political(
     name: str,
     role: str | None = None,
@@ -3565,13 +3602,18 @@ def local_contract_crosscheck_for_political(
 
     matched: dict[str, MonitoringItem] = {}
     term_hits: dict[str, int] = {}
-    for term in terms:
-        matches = load_local_monitoring_items(q=term)[:limit]
-        if matches:
-            term_hits[term] = len(matches)
-        for item in matches:
-            key = f"{item.id}:{item.date.isoformat()}"
-            matched.setdefault(key, item)
+    normalized_terms = [normalize_text(term) for term in terms]
+    digit_terms = ["".join(ch for ch in term if ch.isdigit()) for term in terms]
+    for item in cached_local_monitoring_items_for_political():
+        if not political_term_matches_item(item, normalized_terms, digit_terms):
+            continue
+        key = f"{item.id}:{item.date.isoformat()}"
+        matched.setdefault(key, item)
+        for term, normalized_term, digit_term in zip(terms, normalized_terms, digit_terms):
+            if political_term_matches_item(item, [normalized_term], [digit_term]):
+                term_hits[term] = min(term_hits.get(term, 0) + 1, limit)
+        if len(matched) >= limit * 4:
+            break
 
     items = sorted(
         matched.values(),

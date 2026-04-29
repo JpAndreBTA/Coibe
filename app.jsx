@@ -26,6 +26,7 @@ const configuredApiBases = (import.meta.env.VITE_API_BASE_URL || '')
 const API_BASES = configuredApiBases.length
   ? configuredApiBases
   : ['', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'];
+const API_REQUEST_TIMEOUT_MS = 12000;
 const COMPRAS_CONTRATOS_URL = 'https://dadosabertos.compras.gov.br/modulo-contratos/1_consultarContratos';
 const COMPRAS_PUBLIC_PORTAL_URL = 'https://www.gov.br/compras/pt-br';
 const BRASILIA_TIME_ZONE = 'America/Sao_Paulo';
@@ -115,11 +116,21 @@ function mergeSearchResults(...lists) {
   });
 }
 
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 async function apiGet(path) {
   let lastError;
   for (const base of API_BASES) {
     try {
-      const response = await fetch(`${base}${path}`, { cache: 'no-store' });
+      const response = await fetchWithTimeout(`${base}${path}`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     } catch (error) {
@@ -133,7 +144,7 @@ async function apiPost(path) {
   let lastError;
   for (const base of API_BASES) {
     try {
-      const response = await fetch(`${base}${path}`, { method: 'POST' });
+      const response = await fetchWithTimeout(`${base}${path}`, { method: 'POST' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     } catch (error) {
