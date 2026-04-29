@@ -1873,7 +1873,7 @@ def load_local_monitoring_items(
 
         items.append(item)
 
-    items.sort(key=lambda item: (item.date, item.report.generated_at, item.id), reverse=True)
+    items.sort(key=lambda item: (item.date.isoformat(), item.report.generated_at.isoformat(), item.id), reverse=True)
     return items
 
 
@@ -1905,7 +1905,7 @@ def filter_and_order_monitoring_items(
     elif size_order == "asc":
         filtered.sort(key=lambda item: (item.value, item.date, item.id))
     else:
-        filtered.sort(key=lambda item: (item.date, item.report.generated_at, item.id), reverse=True)
+        filtered.sort(key=lambda item: (item.date.isoformat(), item.report.generated_at.isoformat(), item.id), reverse=True)
 
     return filtered
 
