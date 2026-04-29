@@ -50,9 +50,22 @@ RESEARCH_TIMEOUT_SECONDS = int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90")
 MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12"))
 MONITOR_SEARCH_TERMS_PER_CYCLE = int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE", "8"))
 MONITOR_SEARCH_DELAY_SECONDS = float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0"))
+MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE", "4"))
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
 CUDA_DLL_HANDLES: list[Any] = []
+
+HIGH_RISK_FEED_QUERIES = [
+    "superfaturamento",
+    "sobrepreco",
+    "dispensa licitacao",
+    "contrato emergencial",
+    "fornecedor recorrente",
+    "valor unitario",
+    "merenda",
+    "combustivel",
+    "pavimentacao",
+]
 
 
 def now_slug() -> str:
@@ -163,6 +176,7 @@ def load_monitor_config() -> dict[str, Any]:
         "learned_terms_per_cycle": MAX_LEARNED_TERMS_PER_CYCLE,
         "search_terms_per_cycle": MONITOR_SEARCH_TERMS_PER_CYCLE,
         "search_delay_seconds": MONITOR_SEARCH_DELAY_SECONDS,
+        "priority_feed_queries_per_cycle": MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
     }
     if MONITOR_MODEL_CONFIG_PATH.exists():
         try:
@@ -301,6 +315,33 @@ def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -
             seen.add(normalized)
             output.append(term)
     return output[:60]
+
+
+def priority_feed_queries(search_terms: list[str], limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    risk_words = {
+        "SUPERFATURAMENTO", "SOBREPRECO", "SOBRE PRECO", "DISPENSA", "EMERGENCIAL",
+        "FORNECEDOR", "RECORRENTE", "VALOR UNITARIO", "MERENDA", "COMBUSTIVEL",
+        "PAVIMENTACAO", "ASFALTO", "MEDICAMENTO",
+    }
+    candidates = [*HIGH_RISK_FEED_QUERIES]
+    for term in search_terms:
+        normalized = normalize_text(term)
+        if any(word in normalized for word in risk_words):
+            candidates.append(term)
+    output: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        clean = str(candidate or "").strip()
+        normalized = normalize_text(clean)
+        if len(normalized) < 3 or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(clean)
+        if len(output) >= limit:
+            break
+    return output
 
 
 def candidate_terms_from_text(value: Any) -> list[str]:
@@ -702,6 +743,7 @@ async def collect_snapshot(
     political_people_limit: int = POLITICAL_PEOPLE_SCAN_LIMIT,
     search_terms_per_cycle: int = MONITOR_SEARCH_TERMS_PER_CYCLE,
     search_delay_seconds: float = MONITOR_SEARCH_DELAY_SECONDS,
+    priority_feed_queries_per_cycle: int = MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
 ) -> dict[str, Any]:
     timeout_value = max(15, int(timeout_seconds))
     timeout = httpx.Timeout(float(timeout_value), connect=min(10.0, float(timeout_value)))
@@ -717,6 +759,7 @@ async def collect_snapshot(
             "state_map": {},
             "political_parties": {},
             "political_people": {},
+            "priority_feed_queries": [],
             "searches": {},
             "errors": [],
         }
@@ -774,6 +817,34 @@ async def collect_snapshot(
         )
         if political_people is not None:
             snapshot["political_people"] = political_people
+
+        priority_queries = priority_feed_queries(search_terms, priority_feed_queries_per_cycle)
+        snapshot["priority_feed_queries"] = priority_queries
+        for index, query in enumerate(priority_queries):
+            if index > 0:
+                await asyncio.sleep(0.5)
+            encoded = httpx.QueryParams(
+                {
+                    "page": 1,
+                    "page_size": min(page_size, 50),
+                    "source": "live",
+                    "q": query,
+                    "risk_level": "alto",
+                    "size_order": "desc",
+                }
+            )
+            priority_page = await collect_connector(
+                client,
+                snapshot,
+                f"priority_high_risk_feed:{query}",
+                f"/api/monitoring/feed?{encoded}",
+                "priority_high_risk_feed",
+            )
+            if priority_page is not None:
+                snapshot["feed_pages"].append(priority_page)
+            latest_connector = snapshot["connectors"][-1] if snapshot.get("connectors") else {}
+            if latest_connector.get("status") == "rate_limited":
+                break
 
         start_page = max(start_page, 1)
         end_page = start_page + pages
@@ -1623,6 +1694,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     political_people_limit = int(monitor_config.get("political_people_scan_limit") or POLITICAL_PEOPLE_SCAN_LIMIT)
     search_terms_per_cycle = int(monitor_config.get("search_terms_per_cycle") or MONITOR_SEARCH_TERMS_PER_CYCLE)
     search_delay_seconds = float(monitor_config.get("search_delay_seconds") or MONITOR_SEARCH_DELAY_SECONDS)
+    priority_feed_queries_per_cycle = int(monitor_config.get("priority_feed_queries_per_cycle") or MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
     monitor_print(
         "Iniciando ciclo de monitoramento | "
@@ -1642,6 +1714,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         political_people_limit=political_people_limit,
         search_terms_per_cycle=search_terms_per_cycle,
         search_delay_seconds=search_delay_seconds,
+        priority_feed_queries_per_cycle=priority_feed_queries_per_cycle,
     )
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
@@ -1679,6 +1752,11 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         for page in snapshot.get("feed_pages", [])
         if isinstance(page, dict)
     )
+    priority_feed_items_collected = sum(
+        int(connector.get("record_count") or 0)
+        for connector in snapshot.get("connectors", [])
+        if connector.get("kind") == "priority_high_risk_feed"
+    )
     feed_pages_failed = sum(
         1
         for connector in snapshot.get("connectors", [])
@@ -1688,8 +1766,12 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     next_feed_page = start_page + pages
     reset_reason = None
     if feed_items_collected == 0:
-        next_feed_page = 1
-        reset_reason = "feed publico sem itens neste ciclo; voltando ao inicio da janela"
+        if feed_pages_failed > 0:
+            next_feed_page = start_page
+            reset_reason = "feed publico falhou neste ciclo; mantendo pagina para nova tentativa"
+        else:
+            next_feed_page = start_page + pages
+            reset_reason = "feed publico sem itens neste ciclo; avancando janela para nao ficar preso na pagina 1"
     analysis["database_items_count"] = database_count
     analysis["database_path"] = str(paths["processed"] / "monitoring_items.json")
     analysis["public_records_count"] = public_records_count
@@ -1705,6 +1787,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "feed_page_end": start_page + pages - 1,
         "next_feed_page": next_feed_page,
         "feed_items_collected": feed_items_collected,
+        "priority_feed_items_collected": priority_feed_items_collected,
+        "priority_feed_queries": snapshot.get("priority_feed_queries", []),
         "new_items_analyzed": len(new_feed_items),
         "items_cached": len(existing_items),
         "feed_pages_failed": feed_pages_failed,

@@ -432,31 +432,118 @@ function politicalSuperpricingRisk(detail = {}) {
 function politicalDetailReview(detail = {}) {
   const type = String(detail.type || 'outros');
   const value = numericValue(detail.value);
+  const formattedValue = value > 0 ? compactValue(value, 'value') : '';
+  const who = detail.person || detail.party || 'este recorte';
+  const supplier = detail.supplier || detail.supplier_document || '';
+  const readableDate = detail.date ? formatDate(detail.date) : detail.month && detail.year ? `${String(detail.month).padStart(2, '0')}/${detail.year}` : '';
+  const risk = politicalSuperpricingRisk(detail);
+  const valueText = formattedValue ? ` no valor de ${formattedValue}` : '';
+  const supplierText = supplier ? ` envolvendo ${supplier}` : '';
+  const dateText = readableDate ? ` em ${readableDate}` : '';
   const checksByType = {
-    contratos: 'Verificar objeto, fornecedor, CNPJ, órgão pagador, valor total, repetição em outros registros e documento oficial vinculado.',
-    despesas: 'Conferir tipo da despesa, fornecedor, data, documento fiscal e se o valor conversa com o padrão do recorte.',
-    servicos: 'Ler a descrição do serviço, entregável, fornecedor, recorrência e compatibilidade do valor com serviços parecidos.',
-    comunicacao: 'Checar conteúdo contratado, fornecedor, recorrência, documento fiscal e eventual concentração de pagamentos.',
-    estrutura: 'Conferir item de estrutura/gabinete, fornecedor, data, documento e relação com outros pagamentos próximos.',
-    viagem: 'Verificar destino, motivo, dias, fornecedor, documento fiscal e concentração de passagens, hospedagem ou locomoção.',
-    processos: 'Abrir a fonte oficial e conferir se há homônimo, classe processual, partes, data e situação atual antes de qualquer conclusão.',
-    contas: 'Conferir registros eleitorais, origem/destino de recursos, fornecedor, partido/candidato e prestação oficial no TSE.',
-    doacoes: 'Cruzar doador, recebedor, partido, campanha, fornecedor e valor na fonte oficial eleitoral.',
-    vinculos: 'Tratar como proximidade textual/operacional: conferir documentos antes de presumir parentesco, favorecimento ou irregularidade.',
-    controle: 'Ler órgão de controle, processo, acórdão ou relatório oficial e conferir escopo, data e situação.',
-    prioridade: 'Prioridade apenas ordena a leitura. A verificação depende dos registros financeiros e fontes oficiais associados.'
+    contratos: `A plataforma encontrou um contrato ou compra pública ligado a ${who}${supplierText}${valueText}${dateText}. Para leigos: o ponto principal é conferir se o objeto comprado combina com o preço e se o mesmo fornecedor aparece repetidas vezes.`,
+    despesas: `Este é um gasto público ligado a ${who}${supplierText}${valueText}${dateText}. A leitura simples é: quem recebeu, por qual motivo, em qual data e se existe documento oficial que explique o pagamento.`,
+    servicos: `Este registro parece ser serviço ou consultoria ligado a ${who}${supplierText}${valueText}. O cuidado é verificar qual entrega foi contratada e se o valor faz sentido perto de serviços parecidos.`,
+    comunicacao: `Este item envolve comunicação, conteúdo ou divulgação ligado a ${who}${supplierText}${valueText}. O que importa é conferir o material entregue, a recorrência do fornecedor e a justificativa do gasto.`,
+    estrutura: `Este gasto é de estrutura, gabinete ou apoio operacional para ${who}${supplierText}${valueText}. Vale conferir se o item era necessário, se há nota/documento e se há repetição de pagamentos semelhantes.`,
+    viagem: `Este registro é de viagem ou deslocamento ligado a ${who}${supplierText}${valueText}${dateText}. Para entender bem, confira destino, motivo, datas, documento fiscal e se há muitas viagens parecidas no mesmo período.`,
+    processos: `Este item aponta consulta em processo ou fonte jurídica relacionada a ${who}. Antes de qualquer interpretação, é essencial abrir a fonte oficial e confirmar se não é homônimo, qual é a classe do processo e a situação atual.`,
+    contas: `Este registro envolve contas eleitorais ou prestação oficial ligada a ${who}. A leitura deve focar em origem do dinheiro, destino, fornecedor, campanha/partido e documento no TSE.`,
+    doacoes: `Este item aponta possível registro eleitoral relacionado a ${who}${supplierText}${valueText}. Confira na fonte oficial quem doou, quem recebeu, data, valor e se o fornecedor também aparece em contratos públicos.`,
+    vinculos: `Este sinal mostra proximidade textual ou operacional no recorte de ${who}${supplierText}${valueText}. Isso não prova parentesco nem favorecimento; serve para orientar a checagem de documentos e repetição de nomes.`,
+    controle: `Este item indica fonte de controle externo relacionada a ${who}. A leitura deve verificar órgão responsável, processo/acórdão, data, escopo e se existe decisão final.`,
+    prioridade: `Este item entrou antes na fila porque ${who} tem prioridade institucional ou política no monitor. Prioridade não é acusação; é só ordem de leitura para não deixar cargos ou partidos relevantes por último.`
   };
   const hiddenSignals = [];
-  if (value >= 1000000) hiddenSignals.push('valor alto para abrir comparação com registros semelhantes');
-  if (detail.supplier || detail.supplier_document) hiddenSignals.push('fornecedor/CNPJ deve ser cruzado com contratos recorrentes');
-  if (detail.matched_records) hiddenSignals.push(`${Number(detail.matched_records || 0).toLocaleString('pt-BR')} registro(s) relacionado(s) na base`);
-  if (detail.risk_score) hiddenSignals.push(`score de risco ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}`);
-  if (detail.document_url) hiddenSignals.push('documento oficial disponível para leitura humana');
+  if (value >= 1000000) hiddenSignals.push(`Valor alto (${formattedValue}); comparar com contratos parecidos antes de tirar conclusão.`);
+  if (supplier) hiddenSignals.push(`Fornecedor/CNPJ identificado: confira se aparece em outros pagamentos ou contratos.`);
+  if (detail.matched_records) hiddenSignals.push(`${Number(detail.matched_records || 0).toLocaleString('pt-BR')} registro(s) relacionado(s) encontrados na base.`);
+  if (detail.risk_score) hiddenSignals.push(`Score técnico ${Number(detail.risk_score || 0).toLocaleString('pt-BR')}; use como prioridade de leitura, não como prova.`);
+  if (risk.label !== 'Baixo') hiddenSignals.push(`Atenção de superfaturamento: ${risk.label}. ${risk.message}`);
+  if (detail.document_url) hiddenSignals.push('Existe documento oficial: abra o link e confira a informação na fonte.');
 
   return {
     title: checksByType[type] || 'Conferir fonte oficial, valor, data, pessoa/partido, fornecedor e recorrência no conjunto analisado.',
     hiddenSignals
   };
+}
+
+function searchResultReview(result = {}) {
+  const payload = result.payload || {};
+  const value = numericValue(payload.value || payload.valorGlobal || payload.valorInicial || payload.estimated_variation);
+  const formattedValue = value > 0 ? compactValue(value, 'value') : '';
+  const supplier = payload.supplier_name || payload.nomeRazaoSocialFornecedor || payload.nomeFornecedor || payload.niFornecedor || payload.cnpj || '';
+  const entity = payload.entity || payload.nomeUnidadeGestora || payload.nomeOrgao || payload.orgao || payload.uf || '';
+  const type = String(result.type || '').replaceAll('_', ' ');
+  const source = result.source || 'Fonte pública';
+  const base = {
+    title: 'Resultado encontrado na busca pública',
+    summary: `A plataforma encontrou este item em ${source}. Ele deve ser lido como ponto de partida: confira a fonte oficial, o valor, o órgão/pessoa envolvida e se há repetição em outros registros.`,
+    checks: ['Abrir a fonte oficial antes de concluir qualquer coisa.', 'Comparar nome, data, valor e órgão com outros registros da plataforma.'],
+    metrics: []
+  };
+  if (formattedValue) base.metrics.push(['Valor citado', formattedValue]);
+  if (supplier) base.metrics.push(['Fornecedor/CNPJ', supplier]);
+  if (entity) base.metrics.push(['Órgão/UF', entity]);
+  if (payload.coibe_risk_score) base.metrics.push(['Score COIBE', Number(payload.coibe_risk_score).toLocaleString('pt-BR')]);
+
+  if (result.type === 'risco_superfaturamento') {
+    return {
+      ...base,
+      title: 'Possível risco de superfaturamento encontrado',
+      summary: `Este resultado já passou por leitura de risco do COIBE. Para uma pessoa leiga: o sistema encontrou valor, fornecedor ou padrão que parece fora do normal e merece comparação com contratos parecidos.`,
+      checks: ['Veja qual item foi comprado e por quanto.', 'Confira se o fornecedor aparece em outros contratos.', 'Leia a variação estimada e abra o documento oficial.']
+    };
+  }
+  if (result.type === 'contrato') {
+    return {
+      ...base,
+      title: 'Contrato público encontrado em API oficial',
+      summary: `Este é um contrato ou compra pública${formattedValue ? ` de ${formattedValue}` : ''}${supplier ? ` envolvendo ${supplier}` : ''}. O foco é entender o que foi comprado, quem pagou, quem recebeu e se o valor é compatível.`,
+      checks: ['Conferir objeto do contrato em linguagem simples.', 'Checar órgão contratante e fornecedor.', 'Comparar valor com contratos semelhantes e ver sinais de repetição.']
+    };
+  }
+  if (result.type?.startsWith('politico')) {
+    return {
+      ...base,
+      title: 'Pessoa pública encontrada',
+      summary: `Este resultado identifica ${result.title}. A busca serve para abrir recortes de despesas, contratos, processos e fontes oficiais ligados ao nome, sem afirmar culpa ou irregularidade.`,
+      checks: ['Confirmar se é a mesma pessoa, evitando homônimos.', 'Verificar partido/cargo e período.', 'Cruzar com contratos, doações e despesas já analisadas.']
+    };
+  }
+  if (result.type === 'partido_politico') {
+    return {
+      ...base,
+      title: 'Partido político encontrado',
+      summary: `Este resultado identifica o partido ${result.title}. A análise deve olhar valores públicos agregados, parlamentares do recorte, contratos e contas eleitorais relacionadas.`,
+      checks: ['Conferir sigla e nome oficial.', 'Abrir a aba de partido para ver valores agregados.', 'Comparar contratos, despesas e doações relacionadas.']
+    };
+  }
+  if (result.type === 'cnpj') {
+    return {
+      ...base,
+      title: 'CNPJ encontrado',
+      summary: `Este resultado identifica uma empresa ou entidade. Para entender o risco, confira atividade econômica, data de abertura, capital social, contratos públicos e vínculos com fornecedores recorrentes.`,
+      checks: ['Confirmar razão social e município/UF.', 'Comparar capital social com valores de contratos.', 'Procurar contratos recentes ligados ao mesmo CNPJ.']
+    };
+  }
+  if (result.type === 'stf_processo' || result.type === 'stf_jurisprudencia') {
+    return {
+      ...base,
+      title: 'Consulta oficial do STF',
+      summary: `Este resultado é um caminho para a fonte oficial do STF. A plataforma não interpreta automaticamente o mérito; ela ajuda a chegar na consulta correta.`,
+      checks: ['Abrir o portal oficial.', 'Conferir número, classe, partes e data.', 'Verificar se há homônimo ou processo sem relação com o recorte.']
+    };
+  }
+  if (result.type === 'estado' || result.type === 'municipio') {
+    return {
+      ...base,
+      title: 'Localidade encontrada',
+      summary: `Este resultado identifica uma localidade. Ao aplicar no feed, a plataforma filtra contratos, alertas e riscos relacionados à UF ou município.`,
+      checks: ['Aplicar o filtro no feed.', 'Ver os contratos de maior valor.', 'Abrir mapa e alertas da região.']
+    };
+  }
+  return { ...base, title: `Resultado de busca: ${type || 'registro público'}` };
 }
 
 function evidenceNumber(evidence, key) {
@@ -571,6 +658,7 @@ export default function CoibeApp() {
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const [selectedSearchResult, setSelectedSearchResult] = useState(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingFeed, setLoadingFeed] = useState(false);
@@ -1074,7 +1162,8 @@ function queryFromResult(result) {
     };
   }
 
-  function applySearchResult(result) {
+function applySearchResult(result) {
+    setSelectedSearchResult(null);
     if (result.type === 'stf_processo' || result.type === 'stf_jurisprudencia') {
       if (result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
       setSearchResults([]);
@@ -1237,6 +1326,7 @@ function queryFromResult(result) {
   const selectedPublicEvidence = Array.isArray(selectedAlert?.report?.public_evidence)
     ? selectedAlert.report.public_evidence
     : [];
+  const selectedSearchReview = selectedSearchResult ? searchResultReview(selectedSearchResult) : null;
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -1366,7 +1456,7 @@ function queryFromResult(result) {
                 <button
                   key={`${result.type}-${result.title}-${index}`}
                   type="button"
-                  onClick={() => applySearchResult(result)}
+                  onClick={() => setSelectedSearchResult(result)}
                   className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-4 text-left transition hover:border-red-700"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1984,6 +2074,104 @@ function queryFromResult(result) {
             )}
           </aside>
         </section>
+        {selectedSearchResult && selectedSearchReview && (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-2 sm:items-center sm:p-4"
+            onClick={() => setSelectedSearchResult(null)}
+          >
+            <div
+              className="my-2 max-h-[calc(100dvh-1rem)] w-full max-w-4xl overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl sm:my-0 sm:max-h-[90vh]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-neutral-800 p-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase text-red-400">Busca unificada</p>
+                  <h2 className="mt-1 text-lg font-black text-white">Risco de Superfaturamento, políticos, partidos, STF, CNPJ e contratos</h2>
+                  <p className="mt-2 text-sm text-neutral-400">{selectedSearchResult.source}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSearchResult(null)}
+                  className="shrink-0 rounded border border-neutral-700 px-3 py-1 text-sm font-bold text-neutral-300 hover:bg-neutral-800"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="grid max-h-[calc(90vh-92px)] gap-5 overflow-y-auto p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <section className="space-y-4">
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+                    <span className="rounded border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] font-black uppercase text-red-300">
+                      {selectedSearchResult.type.replaceAll('_', ' ')}
+                    </span>
+                    <h3 className="mt-3 break-words text-xl font-black text-white">{selectedSearchResult.title}</h3>
+                    {selectedSearchResult.subtitle && <p className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchResult.subtitle}</p>}
+                  </div>
+
+                  <div className="rounded-lg border border-red-900/60 bg-red-950/20 p-4">
+                    <h3 className="flex items-center gap-2 text-sm font-black text-red-100">
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
+                      Parecer Analítico do COIBE
+                    </h3>
+                    <strong className="mt-3 block text-white">{selectedSearchReview.title}</strong>
+                    <p className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchReview.summary}</p>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+                    <p className="text-xs font-black uppercase text-neutral-500">Como ler este resultado</p>
+                    <div className="mt-3 space-y-2">
+                      {selectedSearchReview.checks.map((check) => (
+                        <p key={check} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm leading-6 text-neutral-300">
+                          {check}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <aside className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 lg:sticky lg:top-0 lg:self-start">
+                  <div>
+                    <p className="text-xs font-black uppercase text-red-400">Dados do resultado</p>
+                    <h3 className="mt-1 font-black text-white">Resumo rápido</h3>
+                  </div>
+                  <div className="grid gap-2">
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <p className="text-xs text-neutral-500">Tipo</p>
+                      <strong className="text-white">{selectedSearchResult.type.replaceAll('_', ' ')}</strong>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <p className="text-xs text-neutral-500">Risco</p>
+                      <strong className="text-white">{riskCopy[selectedSearchResult.risk_level]?.label || selectedSearchResult.risk_level || 'Baixo'}</strong>
+                    </div>
+                    {selectedSearchReview.metrics.map(([label, value]) => (
+                      <div key={`${label}-${value}`} className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                        <p className="text-xs text-neutral-500">{label}</p>
+                        <strong className="break-words text-white">{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedSearchResult.url && (
+                    <a
+                      href={selectedSearchResult.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded bg-red-600 px-3 py-2 text-sm font-black text-white hover:bg-red-500"
+                    >
+                      Abrir fonte oficial <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => applySearchResult(selectedSearchResult)}
+                    className="flex w-full items-center justify-center gap-2 rounded border border-neutral-700 px-3 py-2 text-sm font-bold text-neutral-200 hover:bg-neutral-800"
+                  >
+                    Aplicar no feed <ChevronRight className="h-4 w-4 text-red-400" />
+                  </button>
+                </aside>
+              </div>
+            </div>
+          </div>
+        )}
         {selectedPoliticalItem && (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-2 sm:items-center sm:p-4"

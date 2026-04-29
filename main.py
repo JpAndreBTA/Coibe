@@ -86,6 +86,7 @@ PLATFORM_LIBRARY_INDEX_PATH = Path(os.getenv("COIBE_LIBRARY_INDEX_PATH", "data/l
 PLATFORM_PUBLIC_CODES_PATH = Path(os.getenv("COIBE_PUBLIC_CODES_PATH", "data/library/public_codes.json"))
 SEARCH_CACHE_DIR = Path(os.getenv("COIBE_SEARCH_CACHE_DIR", "data/cache/search"))
 SEARCH_CACHE_TTL_HOURS = float(os.getenv("COIBE_SEARCH_CACHE_TTL_HOURS", "24"))
+IBGE_STATES_GEOJSON_CACHE_PATH = Path(os.getenv("COIBE_IBGE_STATES_GEOJSON_CACHE_PATH", "data/cache/ibge-states-geojson.json"))
 AUTO_MONITOR_ENABLED = os.getenv("COIBE_AUTO_MONITOR", "true").lower() not in {"0", "false", "no"}
 AUTO_MONITOR_INTERVAL_MINUTES = float(os.getenv("COIBE_AUTO_MONITOR_INTERVAL_MINUTES", "15"))
 AUTO_MONITOR_PAGES = int(os.getenv("COIBE_AUTO_MONITOR_PAGES", "10"))
@@ -490,6 +491,7 @@ class MonitorModelConfig(BaseModel):
     learned_terms_per_cycle: int = Field(default=12, ge=1, le=100)
     search_terms_per_cycle: int = Field(default=8, ge=0, le=60)
     search_delay_seconds: float = Field(default=2.0, ge=0, le=60)
+    priority_feed_queries_per_cycle: int = Field(default=4, ge=0, le=20)
 
 
 class SpatialRiskRequest(BaseModel):
@@ -2135,14 +2137,23 @@ def read_monitor_model_state() -> dict[str, Any]:
             loaded = empty_state
         state = loaded if isinstance(loaded, dict) else empty_state
 
-    learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
-    if learned_terms:
-        return state
-
     latest = read_data_json(LOCAL_MONITOR_LATEST_PATH, {})
     recovered = latest.get("model") if isinstance(latest, dict) and isinstance(latest.get("model"), dict) else {}
     recovered_terms = recovered.get("learned_terms") if isinstance(recovered.get("learned_terms"), list) else []
-    if recovered_terms:
+    recovered_checks = recovered.get("learned_checks") if isinstance(recovered.get("learned_checks"), list) else []
+    current_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
+    current_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
+    should_recover = False
+    if recovered_terms or recovered_checks:
+        should_recover = len(recovered_terms) > len(current_terms) or len(recovered_checks) > len(current_checks)
+        try:
+            current_updated = datetime.fromisoformat(str(state.get("updated_at")).replace("Z", "+00:00")) if state.get("updated_at") else None
+            recovered_updated = datetime.fromisoformat(str(recovered.get("updated_at")).replace("Z", "+00:00")) if recovered.get("updated_at") else None
+            should_recover = should_recover or bool(recovered_updated and (not current_updated or recovered_updated > current_updated))
+        except Exception:
+            should_recover = should_recover or not current_terms
+
+    if should_recover:
         recovered_state = {**empty_state, **recovered}
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         MONITOR_MODEL_STATE_PATH.write_text(
@@ -2167,6 +2178,7 @@ def default_monitor_model_config() -> MonitorModelConfig:
         learned_terms_per_cycle=int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE", "12")),
         search_terms_per_cycle=int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE", "8")),
         search_delay_seconds=float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0")),
+        priority_feed_queries_per_cycle=int(os.getenv("COIBE_MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE", "4")),
     )
 
 
@@ -5160,6 +5172,7 @@ async def backend_ui(request: Request) -> HTMLResponse:
       <label>Partidos por varredura<input name="political_party_scan_limit" type="number" min="1" max="24" /></label>
       <label>Políticos por varredura<input name="political_people_scan_limit" type="number" min="1" max="36" /></label>
       <label>Termos aprendidos por ciclo<input name="learned_terms_per_cycle" type="number" min="1" max="100" /></label>
+      <label>Recortes de alto risco por ciclo<input name="priority_feed_queries_per_cycle" type="number" min="0" max="20" /></label>
       <label>Buscas universais por ciclo<input name="search_terms_per_cycle" type="number" min="0" max="60" /></label>
       <label>Espera entre buscas universais (segundos)<input name="search_delay_seconds" type="number" min="0" max="60" step="0.5" /></label>
       <button type="submit">Salvar configuração local</button>
@@ -6013,14 +6026,23 @@ async def monitoring_state_map(
 
 @app.get("/api/public-data/ibge/states-geojson")
 async def ibge_states_geojson() -> dict[str, Any]:
-    return await get_json(
-        IBGE_STATES_GEOJSON_URL,
-        params={
-            "formato": "application/vnd.geo+json",
-            "qualidade": "intermediaria",
-            "intrarregiao": "UF",
-        },
-    )
+    try:
+        data = await get_json(
+            IBGE_STATES_GEOJSON_URL,
+            params={
+                "formato": "application/vnd.geo+json",
+                "qualidade": "intermediaria",
+                "intrarregiao": "UF",
+            },
+        )
+        write_json(IBGE_STATES_GEOJSON_CACHE_PATH, data)
+        return data
+    except HTTPException:
+        cached = read_data_json(IBGE_STATES_GEOJSON_CACHE_PATH, None)
+        if isinstance(cached, dict):
+            cached["coibe_cache_fallback"] = True
+            return cached
+        raise
 
 
 @app.get("/api/public-data/cnpj/{cnpj}")
