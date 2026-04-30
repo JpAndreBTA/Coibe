@@ -2403,7 +2403,7 @@ function applySearchResult(result) {
           </div>
 
           {activeTab !== 'about' && activeTab !== 'donate' && (
-          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-5.5rem)] lg:self-start lg:overflow-hidden">
+          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:fixed lg:right-8 lg:top-20 lg:z-30 lg:block lg:h-[calc(100vh-5.5rem)] lg:w-[360px] lg:overflow-hidden">
             {selectedAlert ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className={`rounded-t-lg px-5 py-4 ${selectedRisk.panel}`}>
