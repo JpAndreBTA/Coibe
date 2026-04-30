@@ -1,6 +1,7 @@
 import os
 import asyncio
 import hashlib
+import hmac
 import ipaddress
 import math
 import re
@@ -164,6 +165,11 @@ IBGE_STATES_GEOJSON_CACHE_PATH = Path(os.getenv("COIBE_IBGE_STATES_GEOJSON_CACHE
 MONITORING_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_MAP_CACHE_PATH", "data/cache/monitoring-map.json"))
 MONITORING_STATE_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_STATE_MAP_CACHE_PATH", "data/cache/monitoring-state-map.json"))
 API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
+API_RESPONSE_CACHE_MAX_ENTRIES = int(os.getenv("COIBE_API_RESPONSE_CACHE_MAX_ENTRIES", "512"))
+RATE_LIMIT_BUCKET_MAX_KEYS = int(os.getenv("COIBE_RATE_LIMIT_BUCKET_MAX_KEYS", "5000"))
+MAX_REQUEST_BODY_BYTES = int(os.getenv("COIBE_MAX_REQUEST_BODY_BYTES", str(256 * 1024)))
+MAX_QUERY_STRING_BYTES = int(os.getenv("COIBE_MAX_QUERY_STRING_BYTES", "2048"))
+TRUST_X_FORWARDED_FOR = os.getenv("COIBE_TRUST_X_FORWARDED_FOR", "false").lower() in {"1", "true", "yes"}
 MAP_CACHE_TTL_SECONDS = int(os.getenv("COIBE_MAP_CACHE_TTL_SECONDS", "120"))
 POSTGIS_DATABASE_URL = os.getenv("COIBE_POSTGIS_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 POSTGIS_ENABLED = bool(POSTGIS_DATABASE_URL) and os.getenv("COIBE_POSTGIS_ENABLED", "true").lower() not in {"0", "false", "no"}
@@ -203,7 +209,7 @@ CORS_ORIGINS = [
 ]
 CORS_ORIGIN_REGEX = os.getenv(
     "COIBE_CORS_ORIGIN_REGEX",
-    r"https://.*\.trycloudflare\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
+    "" if IS_PRODUCTION else r"http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
 ).strip() or None
 if IS_PRODUCTION and "*" in CORS_ORIGINS:
     CORS_ORIGINS = ["https://coibe.com.br", "https://www.coibe.com.br"]
@@ -405,7 +411,7 @@ class ContractAnalysisResponse(BaseModel):
 
 class ScrapeRequest(BaseModel):
     url: HttpUrl
-    keywords: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list, max_length=25)
 
 
 class ScrapeResponse(BaseModel):
@@ -722,10 +728,30 @@ HEAVY_RATE_LIMIT_PATHS = ADMIN_PROTECTED_PATHS | {
 
 
 def client_ip_from_request(request: Request) -> str:
-    forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for")
+    forwarded = request.headers.get("cf-connecting-ip")
+    if not forwarded and TRUST_X_FORWARDED_FOR:
+        forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",", 1)[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def request_host_name(request: Request) -> str:
+    host = (request.headers.get("host") or "").strip().lower()
+    if host.startswith("[") and "]" in host:
+        return host[1 : host.index("]")]
+    return host.split(":", 1)[0]
+
+
+def is_strict_local_request(request: Request) -> bool:
+    host = request_host_name(request)
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return False
+    try:
+        peer_ip = ipaddress.ip_address(request.client.host if request.client else "")
+    except ValueError:
+        return False
+    return peer_ip.is_loopback
 
 
 def check_rate_limit(request: Request) -> None:
@@ -748,6 +774,16 @@ def check_rate_limit(request: Request) -> None:
         )
     timestamps.append(now)
     RATE_LIMIT_BUCKETS[key] = timestamps
+    if len(RATE_LIMIT_BUCKETS) > RATE_LIMIT_BUCKET_MAX_KEYS:
+        expired_keys = [
+            bucket_key
+            for bucket_key, bucket_timestamps in RATE_LIMIT_BUCKETS.items()
+            if not any(now - stamp < window for stamp in bucket_timestamps)
+        ]
+        for bucket_key in expired_keys:
+            RATE_LIMIT_BUCKETS.pop(bucket_key, None)
+        while len(RATE_LIMIT_BUCKETS) > RATE_LIMIT_BUCKET_MAX_KEYS:
+            RATE_LIMIT_BUCKETS.pop(next(iter(RATE_LIMIT_BUCKETS)), None)
 
 
 async def cached_api_value(key: str, ttl_seconds: int, builder):
@@ -762,6 +798,16 @@ async def cached_api_value(key: str, ttl_seconds: int, builder):
         if cached and cached[0] > time.monotonic():
             return cached[1]
         value = await builder()
+        if len(API_RESPONSE_CACHE) >= API_RESPONSE_CACHE_MAX_ENTRIES:
+            current = time.monotonic()
+            expired_keys = [cache_key for cache_key, (expires_at, _) in API_RESPONSE_CACHE.items() if expires_at <= current]
+            for cache_key in expired_keys:
+                API_RESPONSE_CACHE.pop(cache_key, None)
+                API_RESPONSE_LOCKS.pop(cache_key, None)
+            while len(API_RESPONSE_CACHE) >= API_RESPONSE_CACHE_MAX_ENTRIES:
+                cache_key = next(iter(API_RESPONSE_CACHE))
+                API_RESPONSE_CACHE.pop(cache_key, None)
+                API_RESPONSE_LOCKS.pop(cache_key, None)
         API_RESPONSE_CACHE[key] = (time.monotonic() + max(1, ttl_seconds), value)
         return value
 
@@ -786,23 +832,18 @@ def require_admin_token(x_coibe_admin_token: str | None = Header(default=None)) 
         return
     if not ADMIN_TOKEN:
         raise HTTPException(status_code=503, detail="Endpoint administrativo indisponivel sem COIBE_ADMIN_TOKEN.")
-    if x_coibe_admin_token != ADMIN_TOKEN:
+    if not x_coibe_admin_token or not hmac.compare_digest(x_coibe_admin_token, ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Token administrativo invalido ou ausente.")
 
 
 def allow_local_or_admin_live_scan(request: Request, x_coibe_admin_token: str | None = None) -> None:
-    try:
-        client_ip = ipaddress.ip_address(client_ip_from_request(request))
-    except ValueError:
-        client_ip = None
-    if client_ip and client_ip.is_loopback:
+    if is_strict_local_request(request):
         return
     require_admin_token(x_coibe_admin_token)
 
 
 def require_local_request(request: Request) -> None:
-    host = (request.headers.get("host") or "").split(":", 1)[0].lower()
-    if host in {"127.0.0.1", "localhost", "::1"}:
+    if is_strict_local_request(request):
         return
     raise HTTPException(status_code=404, detail="Recurso disponivel apenas localmente.")
 
@@ -919,7 +960,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS or ["*"],
+    allow_origins=CORS_ORIGINS or ([] if IS_PRODUCTION else ["*"]),
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
@@ -929,11 +970,25 @@ app.add_middleware(
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
+    if len(request.scope.get("query_string", b"")) > MAX_QUERY_STRING_BYTES:
+        return JSONResponse(status_code=414, content={"detail": "Query string maior que o limite permitido."})
+    content_length = request.headers.get("content-length")
+    if content_length and request.method in {"POST", "PUT", "PATCH"}:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Corpo da requisicao maior que o limite permitido."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Content-Length invalido."})
     try:
         check_rate_limit(request)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    return response
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1252,6 +1307,21 @@ async def get_json(url: str, params: dict[str, Any] | None = None) -> Any:
     return response.json()
 
 
+def sanitize_portal_transparencia_path(path: str) -> str:
+    raw_path = str(path or "").strip().lstrip("/")
+    parsed = urlparse(raw_path)
+    if parsed.scheme or parsed.netloc:
+        raise HTTPException(status_code=400, detail="Caminho de proxy invalido.")
+    if not raw_path or len(raw_path) > 180:
+        raise HTTPException(status_code=400, detail="Caminho de proxy invalido.")
+    if "\\" in raw_path or ".." in raw_path or any(ord(char) < 32 for char in raw_path):
+        raise HTTPException(status_code=400, detail="Caminho de proxy bloqueado.")
+    allowed = re.fullmatch(r"[A-Za-z0-9/_\-.]+", raw_path)
+    if not allowed:
+        raise HTTPException(status_code=400, detail="Caminho de proxy bloqueado.")
+    return raw_path
+
+
 async def get_portal_transparencia_json(path: str, params: dict[str, Any] | None = None) -> Any:
     if not PORTAL_TRANSPARENCIA_API_KEY:
         raise HTTPException(status_code=503, detail="PORTAL_TRANSPARENCIA_API_KEY não configurada no .env.")
@@ -1264,7 +1334,8 @@ async def get_portal_transparencia_json(path: str, params: dict[str, Any] | None
     if PORTAL_TRANSPARENCIA_EMAIL:
         headers["From"] = PORTAL_TRANSPARENCIA_EMAIL
 
-    url = f"{PORTAL_TRANSPARENCIA_BASE_URL}/{path.lstrip('/')}"
+    safe_path = sanitize_portal_transparencia_path(path)
+    url = f"{PORTAL_TRANSPARENCIA_BASE_URL}/{safe_path}"
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
         try:
             response = await client.get(url, params=params)
@@ -6882,7 +6953,7 @@ async def library_status() -> LibraryStatusResponse:
 
 @app.get("/api/search", response_model=UniversalSearchResponse)
 async def universal_search(
-    q: str = Query(..., min_length=2),
+    q: str = Query(..., min_length=2, max_length=120),
     refresh: bool = Query(False, description="Ignora cache e consulta as APIs publicas novamente."),
 ) -> UniversalSearchResponse:
     cached = load_cached_universal_search(q)
@@ -6933,7 +7004,7 @@ async def universal_search(
 
 
 @app.get("/api/search/local", response_model=LocalSearchResponse)
-async def local_fuzzy_search(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=30)) -> LocalSearchResponse:
+async def local_fuzzy_search(q: str = Query(..., min_length=2, max_length=120), limit: int = Query(10, ge=1, le=30)) -> LocalSearchResponse:
     limit_value = int(limit) if isinstance(limit, int) else 10
     scored: list[tuple[float, UniversalSearchResult]] = []
     risk_results = superpricing_search_results(q, limit=max(3, min(limit_value, 8)))
@@ -7012,12 +7083,12 @@ async def local_fuzzy_search(q: str = Query(..., min_length=2), limit: int = Que
 
 
 @app.get("/api/search/autocomplete", response_model=LocalSearchResponse)
-async def search_autocomplete(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=20)) -> LocalSearchResponse:
+async def search_autocomplete(q: str = Query(..., min_length=2, max_length=120), limit: int = Query(10, ge=1, le=20)) -> LocalSearchResponse:
     return await local_fuzzy_search(q=q, limit=limit)
 
 
 @app.get("/api/search/index", response_model=LocalSearchResponse)
-async def indexed_search(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=30)) -> LocalSearchResponse:
+async def indexed_search(q: str = Query(..., min_length=2, max_length=120), limit: int = Query(10, ge=1, le=30)) -> LocalSearchResponse:
     return await local_fuzzy_search(q=q, limit=limit)
 
 
@@ -7034,7 +7105,7 @@ async def portal_transparencia_status() -> dict[str, Any]:
 
 @app.get("/api/public-data/portal-transparencia/proxy")
 async def portal_transparencia_proxy(
-    path: str = Query(..., description="Caminho da API, ex: contratos ou contratos/{id}"),
+    path: str = Query(..., min_length=1, max_length=180, description="Caminho da API, ex: contratos ou contratos/{id}"),
     _admin: None = Depends(require_admin_token),
 ) -> Any:
     return await get_portal_transparencia_json(path)
@@ -7044,9 +7115,9 @@ async def portal_transparencia_proxy(
 async def monitoring_feed(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=100),
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
-    city: str | None = Query(None, min_length=2),
+    city: str | None = Query(None, min_length=2, max_length=100),
     risk_level: str | None = Query(None),
     size_order: str | None = Query(None, pattern="^(data|data_asc|asc|desc)$"),
     date_from: date | None = Query(None, description="Data inicial do conteúdo/contrato, não da análise."),
@@ -7146,7 +7217,7 @@ async def monitoring_feed(
 
 @app.get("/api/monitoring/search", response_model=MonitoringFeedResponse)
 async def monitoring_search(
-    q: str = Query(..., min_length=2),
+    q: str = Query(..., min_length=2, max_length=120),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
 ) -> MonitoringFeedResponse:
@@ -7156,7 +7227,7 @@ async def monitoring_search(
 @app.get("/api/political/parties", response_model=PoliticalScanResponse)
 async def political_parties(
     request: Request,
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     limit: int = Query(12, ge=1, le=24),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
@@ -7218,7 +7289,7 @@ async def political_parties(
 @app.get("/api/political/politicians", response_model=PoliticalScanResponse)
 async def political_politicians(
     request: Request,
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     party: str | None = Query(None, min_length=2, max_length=12),
     limit: int = Query(18, ge=1, le=36),
     page: int = Query(1, ge=1),
@@ -7299,7 +7370,7 @@ async def political_politicians(
 
 @app.post("/api/monitoring/priority-scan", response_model=PriorityScanResponse)
 async def monitoring_priority_scan(
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
     pages: int = Query(4, ge=1, le=20),
     page_size: int = Query(50, ge=10, le=100),
@@ -7349,9 +7420,9 @@ async def monitoring_priority_scan(
 @app.get("/api/monitoring/map", response_model=MonitoringMapResponse)
 async def monitoring_map(
     page_size: int = Query(50, ge=10, le=500),
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
-    city: str | None = Query(None, min_length=2),
+    city: str | None = Query(None, min_length=2, max_length=100),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     min_lat: float | None = Query(None, ge=-90, le=90),
     max_lat: float | None = Query(None, ge=-90, le=90),
@@ -7431,7 +7502,7 @@ async def monitoring_map(
 @app.get("/api/monitoring/state-map", response_model=StateMapResponse)
 async def monitoring_state_map(
     page_size: int = Query(80, ge=10, le=100),
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> StateMapResponse:
@@ -7602,7 +7673,7 @@ async def analyze_superpricing(
 
 @app.get("/api/analyze-local-superpricing", response_model=LocalSuperpricingResponse)
 async def analyze_local_superpricing(
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
     limit: int = Query(20, ge=1, le=100),
 ) -> LocalSuperpricingResponse:
@@ -7664,7 +7735,7 @@ async def analyze_local_superpricing(
 
 @app.get("/api/analyze-superpricing/index", response_model=LocalSuperpricingResponse)
 async def analyze_indexed_superpricing(
-    q: str | None = Query(None, min_length=2),
+    q: str | None = Query(None, min_length=2, max_length=120),
     uf: str | None = Query(None, min_length=2, max_length=2),
     limit: int = Query(20, ge=1, le=100),
 ) -> LocalSuperpricingResponse:
