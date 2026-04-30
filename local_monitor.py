@@ -7,6 +7,7 @@ import re
 import site
 import subprocess
 import unicodedata
+import warnings
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +23,13 @@ try:
     load_dotenv()
 except Exception:
     pass
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"CUDA path could not be detected.*",
+    category=UserWarning,
+    module=r"cupy\._environment",
+)
 
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
@@ -1085,6 +1093,16 @@ async def collect_snapshot(
         if political_people is not None:
             snapshot["political_people"] = political_people
 
+        latest_feed_page = await collect_connector(
+            client,
+            snapshot,
+            "public_contracts_feed_latest_page",
+            f"/api/monitoring/feed?page=1&page_size={page_size}&source=live",
+            "public_api_feed_latest",
+        )
+        if latest_feed_page is not None:
+            snapshot["feed_pages"].append(latest_feed_page)
+
         priority_queries = priority_feed_queries(search_terms, priority_feed_queries_per_cycle)
         snapshot["priority_feed_queries"] = priority_queries
         for index, query in enumerate(priority_queries):
@@ -2022,11 +2040,19 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     existing_keys = {item_key(item) for item in existing_items}
     feed_items = flatten_feed(snapshot)
     new_feed_items = [item for item in feed_items if item_key(item) not in existing_keys]
+    analysis_feed_items: list[dict[str, Any]] = []
+    analysis_seen_keys: set[str] = set()
+    for item in [*feed_items, *existing_items[:500]]:
+        key = item_key(item)
+        if key in analysis_seen_keys or key.strip(":") == "":
+            continue
+        analysis_seen_keys.add(key)
+        analysis_feed_items.append(item)
     snapshot_public_records = flatten_public_records(snapshot)
     cached_public_records = load_public_records_database(paths, limit=2000)
     connector_records = merge_public_record_rows([*cached_public_records, *snapshot_public_records], limit=5000)
 
-    analysis = analyze_items(snapshot, new_feed_items, connector_records)
+    analysis = analyze_items(snapshot, analysis_feed_items, connector_records)
     for record in analysis["public_records"]:
         if record.get("monitor_status") == "pending_analysis" or record.get("cached_from"):
             record["monitor_status"] = "analyzed"
@@ -2048,9 +2074,11 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     analysis["items_analyzed"] = len(accumulated_items)
     analysis["items_cached"] = len(existing_items)
     analysis["new_items_analyzed"] = len(new_feed_items)
+    analysis["feed_items_analyzed"] = len(analysis_feed_items)
+    analysis["cached_feed_items_reanalyzed"] = max(0, len(analysis_feed_items) - len(feed_items))
     analysis["alerts"] = cached_alerts
     analysis["alerts_count"] = len(cached_alerts)
-    library_records = build_library_records(snapshot, new_feed_items, analysis["public_records"])
+    library_records = build_library_records(snapshot, analysis_feed_items, analysis["public_records"])
     library_status = append_platform_library(paths, library_records)
     feed_items_collected = sum(
         len(page.get("items") or [])
@@ -2097,6 +2125,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "priority_feed_items_collected": priority_feed_items_collected,
         "priority_feed_queries": snapshot.get("priority_feed_queries", []),
         "new_items_analyzed": len(new_feed_items),
+        "feed_items_analyzed": len(analysis_feed_items),
         "items_cached": len(existing_items),
         "feed_pages_failed": feed_pages_failed,
         "reset_reason": reset_reason,
@@ -2125,7 +2154,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         f"{brasilia_now().isoformat()} "
         f"snapshot={raw_path.name} connectors={len(analysis['connectors'])} items={analysis['items_analyzed']} "
         f"db_items={database_count} public_records={public_records_count} "
-        f"feed_items={feed_items_collected} new_items={len(new_feed_items)} cached={len(existing_items)} "
+        f"feed_items={feed_items_collected} analyzed_feed={len(analysis_feed_items)} new_items={len(new_feed_items)} cached={len(existing_items)} "
         f"feed_errors={feed_pages_failed} next_page={next_feed_page} "
         f"library={library_status['library_records_count']} added={library_status['library_records_added']} "
         f"alerts={analysis['alerts_count']}\n"
@@ -2139,6 +2168,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "Ciclo concluido | "
         f"tempo={elapsed:.2f}s | velocidade={records_per_second(scanned_total, elapsed)} reg/s | "
         f"itens_feed={feed_items_collected} | novos={len(new_feed_items)} | "
+        f"analisados_feed={len(analysis_feed_items)} | "
         f"base_total={database_count} | registros_publicos={public_records_count} | alertas={analysis['alerts_count']}"
     )
     monitor_print(log_line.strip())

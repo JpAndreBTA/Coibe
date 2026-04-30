@@ -87,13 +87,13 @@ function politicalTypeLabel(value) {
 }
 
 const SEARCH_TYPE_ORDER = {
-  estado: 10,
-  municipio: 20,
-  politico_relacionado: 30,
-  politico_deputado: 31,
-  politico_senador: 32,
+  politico_relacionado: 10,
+  politico_deputado: 11,
+  politico_senador: 12,
+  partido_politico: 13,
+  estado: 20,
+  municipio: 21,
   cnpj: 40,
-  partido_politico: 50,
   risco_superfaturamento: 55,
   contrato: 60,
   monitoring_item: 61,
@@ -1463,9 +1463,12 @@ function applySearchResult(result) {
         loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
       }
       if (activeTab === 'map') loadMap();
+      if ((activeTab === 'parties' || activeTab === 'politicians') && !loadingPolitical) {
+        loadPoliticalData(activeTab, true, 1, false);
+      }
     }, 20000);
     return () => window.clearInterval(interval);
-  }, [activeTab, page, loadingFeed, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
+  }, [activeTab, page, loadingFeed, loadingPolitical, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter]);
 
   useEffect(() => {
     if (suppressSearchEffectRef.current) {
@@ -1692,13 +1695,14 @@ function applySearchResult(result) {
               {searchResults.map((result, index) => {
                 const previewReview = searchResultReview(result);
                 const previewFlag = previewReview.flags[0];
+                const isPoliticalPriority = index === 0 && String(result.type || '').startsWith('politico');
                 return (
                 <button
                   key={`${result.type}-${result.title}-${index}`}
                   type="button"
                   onClick={() => setSelectedSearchResult(result)}
                   title={result.title}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-4 text-left transition hover:border-red-700"
+                  className={`rounded-lg border p-4 text-left transition hover:border-red-700 ${isPoliticalPriority ? 'border-red-800 bg-red-950/20 md:col-span-2' : 'border-neutral-800 bg-neutral-950/70'}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>

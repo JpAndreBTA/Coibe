@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+import warnings
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
@@ -34,6 +35,13 @@ try:
     load_dotenv()
 except Exception:
     pass
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"CUDA path could not be detected.*",
+    category=UserWarning,
+    module=r"cupy\._environment",
+)
 
 
 BRASIL_API_CNPJ_URL = "https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
@@ -1208,7 +1216,13 @@ async def get_portal_transparencia_json(path: str, params: dict[str, Any] | None
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="Falha ao consultar Portal da Transparência.") from exc
 
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Portal da Transparência retornou resposta não JSON ou vazia.",
+        ) from exc
 
 
 def response_items(data: Any) -> list[dict[str, Any]]:
@@ -2507,13 +2521,13 @@ def split_related_query(value: str | None) -> list[str]:
 
 
 SEARCH_TYPE_ORDER = {
-    "estado": 10,
-    "municipio": 20,
-    "politico_relacionado": 30,
-    "politico_deputado": 31,
-    "politico_senador": 32,
+    "politico_relacionado": 10,
+    "politico_deputado": 11,
+    "politico_senador": 12,
+    "partido_politico": 13,
+    "estado": 20,
+    "municipio": 21,
     "cnpj": 40,
-    "partido_politico": 50,
     "risco_superfaturamento": 55,
     "contrato": 60,
     "monitoring_item": 61,
@@ -5295,6 +5309,54 @@ def schedule_political_people_cache_refresh(q: str | None, party: str | None, li
     loop.create_task(runner())
 
 
+def provisional_political_item(q: str, party: str | None = None) -> PoliticalScanItem:
+    name = str(q or "").strip()
+    safe_name = name if name else "Pessoa pública pesquisada"
+    generated_at = brasilia_now()
+    return apply_political_priority(PoliticalScanItem(
+        id=f"pending:{record_fingerprint(['political_people_pending', safe_name, party])}",
+        type="politico",
+        name=safe_name,
+        subtitle="Busca pública em atualização",
+        party=party,
+        role="Pessoa pública pesquisada",
+        attention_level="indeterminado",
+        summary=(
+            f"A plataforma iniciou a atualização pública para {safe_name}. "
+            "O resultado inicial evita travar a aba enquanto o backend cruza Câmara, Senado, despesas, contratos e fontes oficiais."
+        ),
+        people=[safe_name],
+        analysis_types=["prioridade", "contratos", "despesas", "processos"],
+        analysis_details=[
+            {
+                "type": "prioridade",
+                "title": "Atualização em segundo plano",
+                "description": "Cache não encontrado; o backend está aprofundando a análise pública sem bloquear a plataforma.",
+                "person": safe_name,
+                "party": party,
+                "source": "COIBE.IA",
+            }
+        ],
+        analyzed_at=generated_at,
+        sources=[
+            MonitoringSource(
+                label="COIBE.IA - fila de atualização política",
+                url="/api/political/politicians",
+                kind="Análise local em segundo plano",
+            )
+        ],
+        risks=[
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Análise pendente",
+                message="Registro temporário de atualização; aguarde o cache completo antes de concluir qualquer leitura.",
+                evidence={"query": safe_name, "party": party},
+                source="COIBE.IA",
+            )
+        ],
+    ))
+
+
 async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[PoliticalScanItem]:
     try:
         parties_data = await get_json(CAMARA_PARTIDOS_URL, params={"itens": 40, "ordem": "ASC", "ordenarPor": "sigla"})
@@ -6697,19 +6759,33 @@ async def political_politicians(
             limit=cached_limit,
         )
         if not cached_items and source != "local" and q:
-            live_items = await political_people_quick_scan(limit=min(limit, 12), q=q, party=party, offset=offset)
-            save_political_scan_public_records("political_people", q, live_items)
+            refresh_limit = min(max(limit, 1), 12)
+            schedule_political_people_cache_refresh(q, party, refresh_limit, offset)
+            live_items: list[PoliticalScanItem] = []
+            try:
+                live_items = await asyncio.wait_for(
+                    political_people_quick_scan(limit=refresh_limit, q=q, party=party, offset=offset),
+                    timeout=4.0,
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                live_items = []
             if live_items:
-                schedule_political_people_cache_refresh(q, party, min(max(limit, 1), 12), offset)
-            cached_items, generated_at = cached_political_items(
-                "political_people",
-                q=q,
-                party=party,
-                risk_level=risk_level,
-                analysis_type=analysis_type,
-                size_order=size_order,
-                limit=cached_limit,
-            )
+                save_political_scan_public_records("political_people", q, live_items)
+                cached_items, generated_at = cached_political_items(
+                    "political_people",
+                    q=q,
+                    party=party,
+                    risk_level=risk_level,
+                    analysis_type=analysis_type,
+                    size_order=size_order,
+                    limit=cached_limit,
+                )
+                if not cached_items:
+                    cached_items = live_items
+                    generated_at = brasilia_now()
+            else:
+                cached_items = [provisional_political_item(q, party)]
+                generated_at = brasilia_now()
         start = (page - 1) * page_size
         items = cached_items[start : start + page_size]
         return PoliticalScanResponse(
