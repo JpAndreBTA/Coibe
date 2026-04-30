@@ -297,6 +297,25 @@ function projectPoint([lng, lat]) {
   return [x, y];
 }
 
+function clampMapPan(pan, zoom) {
+  const maxX = zoom <= 1 ? 0 : (mapBounds.width * (zoom - 1)) / 2 + 24;
+  const maxY = zoom <= 1 ? 0 : (mapBounds.height * (zoom - 1)) / 2 + 24;
+  return {
+    x: clampNumber(pan.x, -maxX, maxX),
+    y: clampNumber(pan.y, -maxY, maxY)
+  };
+}
+
+function mapClientPoint(clientX, clientY, node) {
+  if (!node) return { x: mapBounds.width / 2, y: mapBounds.height / 2 };
+  const rect = node.getBoundingClientRect();
+  if (!rect.width || !rect.height) return { x: mapBounds.width / 2, y: mapBounds.height / 2 };
+  return {
+    x: ((clientX - rect.left) / rect.width) * mapBounds.width,
+    y: ((clientY - rect.top) / rect.height) * mapBounds.height
+  };
+}
+
 function ringToPath(ring) {
   return ring.map((coord, index) => {
     const [x, y] = projectPoint(coord);
@@ -1054,6 +1073,7 @@ export default function CoibeApp() {
   const searchRequestIdRef = useRef(0);
   const mapPointerRef = useRef(null);
   const mapViewportRef = useRef(null);
+  const mapSvgRef = useRef(null);
   const mapClickSuppressRef = useRef(false);
   const loadedPoliticalTabsRef = useRef({ parties: false, politicians: false });
   const politicalDataStampRef = useRef({ parties: '', politicians: '' });
@@ -1955,8 +1975,25 @@ function applySearchResult(result) {
     ? searchAnalyticDescription(selectedSearchResult, selectedSearchReview)
     : '';
 
-  function updateMapZoom(nextZoom) {
-    setMapZoom((current) => Number(clampNumber(typeof nextZoom === 'function' ? nextZoom(current) : nextZoom, 1, 3.2).toFixed(2)));
+  function updateMapZoom(nextZoom, anchorPoint = null) {
+    setMapZoom((currentZoom) => {
+      const nextValue = typeof nextZoom === 'function' ? nextZoom(currentZoom) : nextZoom;
+      const nextClampedZoom = Number(clampNumber(nextValue, 1, 3.2).toFixed(2));
+      const anchor = anchorPoint || { x: mapBounds.width / 2, y: mapBounds.height / 2 };
+      if (nextClampedZoom !== currentZoom) {
+        setMapPan((currentPan) => {
+          const centerX = mapBounds.width / 2;
+          const centerY = mapBounds.height / 2;
+          const scaleRatio = nextClampedZoom / currentZoom;
+          const nextPan = {
+            x: anchor.x - centerX - scaleRatio * (anchor.x - centerX - currentPan.x),
+            y: anchor.y - centerY - scaleRatio * (anchor.y - centerY - currentPan.y)
+          };
+          return clampMapPan(nextPan, nextClampedZoom);
+        });
+      }
+      return nextClampedZoom;
+    });
   }
 
   useEffect(() => {
@@ -1967,17 +2004,20 @@ function applySearchResult(result) {
       event.preventDefault();
       event.stopPropagation();
       const delta = event.deltaY > 0 ? -0.18 : 0.18;
-      updateMapZoom((current) => current + delta);
+      updateMapZoom((current) => current + delta, mapClientPoint(event.clientX, event.clientY, mapSvgRef.current));
     };
     node.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => node.removeEventListener('wheel', handleNativeWheel);
   }, [activeTab]);
 
   function handleMapPointerDown(event) {
+    const point = mapClientPoint(event.clientX, event.clientY, event.currentTarget);
     mapPointerRef.current = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
+      svgX: point.x,
+      svgY: point.y,
       pan: mapPan,
       moved: false,
       selection: mapSelectionFromEvent(event)
@@ -1991,12 +2031,11 @@ function applySearchResult(result) {
     if (Math.abs(event.clientX - drag.x) > 4 || Math.abs(event.clientY - drag.y) > 4) {
       drag.moved = true;
     }
-    const nextX = drag.pan.x + ((event.clientX - drag.x) / Math.max(mapZoom, 1));
-    const nextY = drag.pan.y + ((event.clientY - drag.y) / Math.max(mapZoom, 1));
-    setMapPan({
-      x: clampNumber(nextX, -260, 260),
-      y: clampNumber(nextY, -260, 260)
-    });
+    const point = mapClientPoint(event.clientX, event.clientY, event.currentTarget);
+    setMapPan(clampMapPan({
+      x: drag.pan.x + (point.x - drag.svgX),
+      y: drag.pan.y + (point.y - drag.svgY)
+    }, mapZoom));
   }
 
   function handleMapPointerUp(event) {
@@ -2546,6 +2585,7 @@ function applySearchResult(result) {
                   )}
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                     <svg
+                      ref={mapSvgRef}
                       viewBox={`0 0 ${mapBounds.width} ${mapBounds.height}`}
                       role="img"
                       aria-label="Mapa do Brasil por estados"
