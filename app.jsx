@@ -765,6 +765,52 @@ function alertComparisonMetrics(alert) {
   return metrics;
 }
 
+function alertAnalyticDescription(alert, flags = []) {
+  if (!alert) return '';
+  const paidValue = numericValue(alert.value);
+  const variation = numericValue(alert.estimated_variation);
+  const baseline = alertBaselineValue(alert);
+  const objectText = alert.object || alert.title || 'objeto nao informado na base carregada';
+  const entity = alert.entity || alert.report?.entity || 'orgao nao informado';
+  const supplier = alert.supplier_name || alert.supplier || alert.report?.supplier || '';
+  const location = alert.location || [alert.city, alert.uf].filter(Boolean).join(' - ');
+  const readableDate = alert.date ? formatDate(alert.date) : '';
+  const firstFlag = flags[0];
+  const sentences = [
+    `O registro analisado trata de ${compactText(objectText, 260)}.`,
+    `Orgao/unidade responsavel: ${entity}.`
+  ];
+
+  if (supplier) sentences.push(`Empresa, fornecedor ou pessoa relacionada: ${supplier}.`);
+  if (paidValue > 0) sentences.push(`Valor pago ou contratado: ${compactValue(paidValue, 'value')}.`);
+  if (baseline !== null) sentences.push(`Media comparavel encontrada pela plataforma: ${compactValue(baseline, 'baseline')}.`);
+  if (variation > 0) sentences.push(`Possivel valor acima da media: ${compactValue(variation, 'estimated_variation')}.`);
+  if (location) sentences.push(`Localidade ligada ao registro: ${location}.`);
+  if (readableDate) sentences.push(`Data do conteudo: ${readableDate}.`);
+  if (firstFlag?.message) sentences.push(`Motivo da atencao: ${firstFlag.message}`);
+
+  return sentences.join(' ');
+}
+
+function searchAnalyticDescription(result, review) {
+  const payload = result?.payload || {};
+  const value = numericValue(payload.value || payload.valorGlobal || payload.valorInicial || payload.estimated_variation);
+  const supplier = payload.supplier_name || payload.nomeRazaoSocialFornecedor || payload.nomeFornecedor || payload.niFornecedor || payload.cnpj || '';
+  const entity = payload.entity || payload.nomeUnidadeGestora || payload.nomeOrgao || payload.orgao || payload.uf || '';
+  const objectText = payload.objeto || payload.objetoContrato || result?.title || '';
+  const person = payload.nomeCivil || payload.nome || payload.name || '';
+  const pieces = [review?.summary || 'Resultado encontrado para conferencia em fonte publica.'];
+
+  if (objectText) pieces.push(`Conteudo/objeto: ${compactText(objectText, 220)}.`);
+  if (person && person !== result?.title) pieces.push(`Pessoa relacionada: ${person}.`);
+  if (entity) pieces.push(`Orgao/local responsavel: ${entity}.`);
+  if (supplier) pieces.push(`Empresa, fornecedor ou CNPJ: ${supplier}.`);
+  if (value > 0) pieces.push(`Valor identificado: ${compactValue(value, 'value')}.`);
+  if (review?.flags?.[0]?.message) pieces.push(`Motivo da atencao: ${review.flags[0].message}`);
+
+  return pieces.join(' ');
+}
+
 function flagDetails(flag) {
   const evidence = Object.entries(flag.evidence || {});
   return evidence
@@ -1489,20 +1535,24 @@ function applySearchResult(result) {
     ? contextualAttentionFlags(selectedAlert.report?.red_flags || [], selectedAlert)
     : [];
   const selectedAlertMetrics = selectedAlert ? alertComparisonMetrics(selectedAlert) : [];
+  const selectedAlertDescription = selectedAlert ? alertAnalyticDescription(selectedAlert, selectedAlertFlags) : '';
   const selectedSearchReview = selectedSearchResult ? searchResultReview(selectedSearchResult) : null;
+  const selectedSearchDescription = selectedSearchResult && selectedSearchReview
+    ? searchAnalyticDescription(selectedSearchResult, selectedSearchReview)
+    : '';
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100">
+    <div className="min-h-screen overflow-x-hidden bg-neutral-950 text-neutral-100">
       <header className="border-b border-neutral-800 bg-black md:sticky md:top-0 md:z-20">
         <div className="mx-auto flex min-h-16 max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Target className="h-8 w-8 text-red-600" />
             <h1 className="text-2xl font-black tracking-widest">
               Coibe<span className="ml-2 text-base tracking-normal text-red-600">IA</span>
             </h1>
           </div>
 
-          <form onSubmit={handleSearch} className="relative w-full md:max-w-xl">
+          <form onSubmit={handleSearch} className="relative min-w-0 w-full md:max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-neutral-500" />
             <input
               value={searchTerm}
@@ -1573,7 +1623,7 @@ function applySearchResult(result) {
                 {monitorStatus?.message || 'A plataforma atualiza os dados automaticamente pelos conectores configurados.'}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm sm:min-w-96 lg:grid-cols-5">
+            <div className="grid w-full grid-cols-2 gap-3 text-sm md:w-auto md:min-w-[24rem] lg:grid-cols-5">
               <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
                 <span className="text-neutral-500">Itens analisados</span>
                 <strong className="block text-2xl text-white">{analyzedCount}</strong>
@@ -1623,6 +1673,7 @@ function applySearchResult(result) {
                   key={`${result.type}-${result.title}-${index}`}
                   type="button"
                   onClick={() => setSelectedSearchResult(result)}
+                  title={result.title}
                   className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-4 text-left transition hover:border-red-700"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1630,8 +1681,8 @@ function applySearchResult(result) {
                       <span className="rounded border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] font-black uppercase text-red-300">
                         {result.type.replaceAll('_', ' ')}
                       </span>
-                      <strong className="mt-3 block text-white">{result.title}</strong>
-                      {result.subtitle && <p className="mt-1 text-sm text-neutral-400">{result.subtitle}</p>}
+                      <strong title={result.title} className="mt-3 block text-white">{result.title}</strong>
+                      {result.subtitle && <p title={result.subtitle} className="mt-1 text-sm text-neutral-400">{result.subtitle}</p>}
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-red-400" />
                   </div>
@@ -1813,36 +1864,37 @@ function applySearchResult(result) {
                     <button
                       key={`${alert.id}-${alert.date}`}
                       onClick={() => setSelectedAlert(alert)}
-                      className={`w-full rounded-lg border bg-neutral-900 p-5 text-left transition hover:border-red-700 ${selectedAlert?.id === alert.id ? 'border-red-900' : 'border-neutral-800'}`}
+                      title={alert.title}
+                      className={`min-w-0 w-full overflow-hidden rounded-lg border bg-neutral-900 p-3 text-left transition hover:border-red-700 sm:p-5 ${selectedAlert?.id === alert.id ? 'border-red-900' : 'border-neutral-800'}`}
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-center gap-3 text-xs font-semibold text-neutral-400">
-                          <FileText className="h-5 w-5" />
-                          {formatDate(alert.date)}
+                      <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-4">
+                        <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-neutral-400 sm:gap-3 sm:text-xs">
+                          <FileText className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+                          <span className="min-w-0 truncate">{formatDate(alert.date)}</span>
                         </div>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-black ${risk.color}`}>
+                        <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-black sm:px-3 sm:text-xs ${risk.color}`}>
                           {risk.label}
                         </span>
                       </div>
 
-                      <h2 className="mt-4 line-clamp-2 text-lg font-black text-white">{alert.title}</h2>
-                      <div className="mt-3 flex flex-wrap gap-4 text-sm text-neutral-400">
-                        <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" />{alert.location}</span>
-                        <span className="flex items-center gap-1.5"><User className="h-4 w-4" />{alert.entity}</span>
+                      <h2 title={alert.title} className="mt-3 line-clamp-3 break-words text-base font-black leading-snug text-white sm:mt-4 sm:line-clamp-2 sm:text-lg">{alert.title}</h2>
+                      <div className="mt-3 grid min-w-0 gap-2 text-xs text-neutral-400 sm:flex sm:flex-wrap sm:gap-4 sm:text-sm">
+                        <span className="flex min-w-0 items-center gap-1.5"><MapPin className="h-4 w-4 shrink-0" /><span className="min-w-0 truncate sm:whitespace-normal">{alert.location}</span></span>
+                        <span className="flex min-w-0 items-center gap-1.5"><User className="h-4 w-4 shrink-0" /><span className="min-w-0 truncate sm:whitespace-normal">{alert.entity}</span></span>
                       </div>
 
-                      <div className="mt-4 grid items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
-                        <div>
+                      <div className="mt-3 grid min-w-0 items-start gap-2 rounded-lg border border-neutral-800 bg-neutral-950/70 p-2 sm:mt-4 sm:gap-3 sm:p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                        <div className="min-w-0 rounded border border-neutral-800 bg-neutral-900/60 px-2 py-2 md:border-0 md:bg-transparent md:p-0">
                           <p className="text-xs text-neutral-400">Valor médio encontrado</p>
                           <strong className="text-white">{baselineValue !== null ? compactValue(baselineValue, 'baseline') : 'Sem média confiável'}</strong>
                         </div>
-                        <div>
-                          <p className="text-xs text-neutral-400">Valor pago/contratado</p>
-                          <strong className="text-white">{alert.formatted_value}</strong>
+                        <div className="min-w-0 rounded border border-neutral-800 bg-neutral-900/60 px-2 py-2 md:border-0 md:bg-transparent md:p-0">
+                          <p className="text-[11px] text-neutral-400 sm:text-xs">Pago/contratado</p>
+                          <strong className="block break-words text-sm text-white sm:text-base">{alert.formatted_value}</strong>
                         </div>
-                        <div className="text-right">
+                        <div className="min-w-0 rounded border border-red-900/50 bg-red-950/20 px-2 py-2 text-left md:border-0 md:bg-transparent md:p-0 md:text-right">
                           <p className="text-xs font-bold text-red-400">Possível valor acima da média</p>
-                          <strong className="text-red-500">{alert.formatted_variation}</strong>
+                          <strong className="block break-words text-sm text-red-500 sm:text-base">{alert.formatted_variation}</strong>
                         </div>
                         <ChevronRight className="hidden h-5 w-5 text-neutral-500 sm:block" />
                       </div>
@@ -2147,7 +2199,7 @@ function applySearchResult(result) {
                 </aside>
               </div>
             ) : (
-              <div className="mt-5 space-y-4">
+              <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
                 <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
                   <p className="text-xs font-black uppercase text-red-400">
                     {activeTab === 'parties' ? 'Partidos' : 'Políticos'}
@@ -2247,7 +2299,7 @@ function applySearchResult(result) {
                           {item.subtitle && <p className="mt-1 text-sm text-neutral-400">{item.subtitle}</p>}
                           {analyzedDate && <p className="mt-1 text-xs font-bold uppercase text-neutral-500">Analisado em {formatDate(analyzedDate)}</p>}
                         </div>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-black ${risk.color}`}>
+                        <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-black sm:px-3 sm:text-xs ${risk.color}`}>
                           {risk.label}
                         </span>
                       </div>
@@ -2303,27 +2355,27 @@ function applySearchResult(result) {
           </div>
 
           {activeTab !== 'about' && activeTab !== 'donate' && (
-          <aside className="rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto">
+          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-5.5rem)] lg:self-start lg:overflow-hidden">
             {selectedAlert ? (
-              <>
+              <div className="flex h-full min-h-0 flex-col">
                 <div className={`rounded-t-lg px-5 py-4 ${selectedRisk.panel}`}>
                   <h2 className="flex items-center gap-2 text-sm font-black text-red-200">
                     <AlertTriangle className="h-5 w-5" />
                     Parecer Analítico do COIBE
                   </h2>
                 </div>
-                <div className="p-5">
+                <div className="min-h-0 flex-1 overflow-y-auto p-5">
                   <button
                     type="button"
                     onClick={() => setShowFullAlertTitle((current) => !current)}
                     title={selectedAlert.title}
-                    className={`block w-full text-left font-black text-white hover:text-red-100 ${showFullAlertTitle ? '' : 'line-clamp-3'}`}
+                    className="block w-full text-left font-black leading-snug text-white hover:text-red-100"
                     aria-expanded={showFullAlertTitle}
                   >
                     {selectedAlert.title}
                   </button>
                   <p className="mt-1 text-sm text-neutral-400">Id. {selectedAlert.report.id}</p>
-                  <p className="mt-3 text-sm leading-6 text-neutral-300">{compactText(selectedAlert.report.summary, 190)}</p>
+                  <p className="mt-3 text-sm leading-6 text-neutral-300">{selectedAlertDescription}</p>
 
                   {selectedAlertMetrics.length > 0 && (
                     <div className="mt-5 grid gap-2 sm:grid-cols-2">
@@ -2437,7 +2489,7 @@ function applySearchResult(result) {
                     <strong className="text-neutral-300">Nota:</strong> O COIBE aponta sinais em dados abertos. Conclusão oficial cabe aos órgãos de controle.
                   </div>
                 </div>
-              </>
+              </div>
             ) : (
               <div className="p-8 text-center">
                 <Target className="mx-auto h-16 w-16 text-neutral-700" />
@@ -2448,6 +2500,132 @@ function applySearchResult(result) {
           </aside>
           )}
         </section>
+        {selectedAlert && activeTab === 'feed' && (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-2 lg:hidden"
+            onClick={() => setSelectedAlert(null)}
+          >
+            <div
+              className="my-2 max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className={`rounded-t-lg px-4 py-3 ${selectedRisk.panel}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase text-red-200">Parecer Analítico do COIBE</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowFullAlertTitle((current) => !current)}
+                      title={selectedAlert.title}
+                      className="mt-2 block w-full text-left text-base font-black leading-snug text-white hover:text-red-100"
+                      aria-expanded={showFullAlertTitle}
+                    >
+                      {selectedAlert.title}
+                    </button>
+                    <p className="mt-1 text-xs text-neutral-400">Id. {selectedAlert.report.id}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAlert(null)}
+                    className="shrink-0 rounded border border-neutral-700 px-3 py-1 text-sm font-bold text-neutral-300 hover:bg-neutral-800"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 p-4">
+                <p className="text-sm leading-6 text-neutral-300">{selectedAlertDescription}</p>
+
+                {selectedAlertMetrics.length > 0 && (
+                  <div className="grid gap-2">
+                    {selectedAlertMetrics.slice(0, 6).map(([label, value]) => (
+                      <div key={`mobile-${label}-${value}`} className="rounded border border-neutral-800 bg-neutral-900 p-3">
+                        <p className="text-[11px] font-black uppercase text-neutral-500">{label}</p>
+                        <strong className="mt-1 block break-words text-sm text-white">{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedAlertFlags.length > 0 && (
+                  <section>
+                    <h4 className="text-xs font-black uppercase text-neutral-500">Risco e detalhes</h4>
+                    <div className="mt-2 space-y-2">
+                      {selectedAlertFlags.slice(0, 4).map((flag) => {
+                        const comparisons = friendlyComparison(flag);
+                        return (
+                          <div key={`mobile-${flag.code}-${flag.title}`} className="rounded border border-red-900/70 bg-red-950/20 p-3 text-sm text-neutral-200">
+                            <strong className="block text-white">{flag.title}</strong>
+                            <p className="mt-1 leading-6 text-neutral-300">{compactText(flag.message, 150)}</p>
+                            {comparisons.length > 0 && (
+                              <div className="mt-2 grid gap-1 text-xs font-semibold text-red-100">
+                                {comparisons.slice(0, 3).map((comparison) => (
+                                  <span key={`mobile-${flag.code}-${comparison}`} className="rounded border border-red-900/60 bg-red-950/30 px-2 py-1">
+                                    {comparison}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {selectedOfficialSources.length > 0 && (
+                  <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+                    <p className="text-xs font-black uppercase text-neutral-500">Fontes oficiais</p>
+                    <div className="mt-2 grid gap-2">
+                      {selectedOfficialSources.slice(0, 3).map((source) => (
+                        <a
+                          key={`mobile-${source.label}-${source.url}`}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-w-0 items-start justify-between gap-2 rounded border border-neutral-800 bg-neutral-950 p-2 text-sm text-neutral-200 hover:border-red-700"
+                        >
+                          <span className="min-w-0">
+                            <strong className="block break-words">{source.label}</strong>
+                            <small className="text-neutral-500">{source.kind}</small>
+                          </span>
+                          <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-red-400" />
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {selectedPublicEvidence.length > 0 && (
+                  <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+                    <p className="text-xs font-black uppercase text-neutral-500">Evidências cruzadas</p>
+                    <div className="mt-2 grid gap-2">
+                      {selectedPublicEvidence.slice(0, 3).map((evidence, index) => (
+                        <a
+                          key={`mobile-${evidence.record_type}-${index}`}
+                          href={evidence.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded border border-neutral-800 bg-neutral-950 p-2 text-sm text-neutral-200 hover:border-red-700"
+                        >
+                          <strong className="block break-words">{evidence.title || evidence.source}</strong>
+                          <small className="text-neutral-500">
+                            {evidence.source || 'Fonte pública'} - {Number(evidence.matches_count || 0).toLocaleString('pt-BR')} registro(s)
+                          </small>
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-center text-xs leading-5 text-neutral-400">
+                  O COIBE aponta sinais em dados abertos. A conclusão oficial cabe aos órgãos de controle.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {selectedSearchResult && selectedSearchReview && (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-2 sm:items-center sm:p-4"
@@ -2478,8 +2656,8 @@ function applySearchResult(result) {
                     <span className="rounded border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] font-black uppercase text-red-300">
                       {selectedSearchResult.type.replaceAll('_', ' ')}
                     </span>
-                    <h3 className="mt-3 break-words text-xl font-black text-white">{selectedSearchResult.title}</h3>
-                    {selectedSearchResult.subtitle && <p className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchResult.subtitle}</p>}
+                    <h3 title={selectedSearchResult.title} className="mt-3 break-words text-xl font-black text-white">{selectedSearchResult.title}</h3>
+                    {selectedSearchResult.subtitle && <p title={selectedSearchResult.subtitle} className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchResult.subtitle}</p>}
                   </div>
 
                   <div className="rounded-lg border border-red-900/60 bg-red-950/20 p-4">
@@ -2488,7 +2666,7 @@ function applySearchResult(result) {
                       Parecer Analítico do COIBE
                     </h3>
                     <strong className="mt-3 block text-white">{selectedSearchReview.title}</strong>
-                    <p className="mt-2 text-sm leading-6 text-neutral-300">{compactText(selectedSearchReview.summary, 170)}</p>
+                    <p className="mt-2 text-sm leading-6 text-neutral-300">{selectedSearchDescription}</p>
                   </div>
 
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">

@@ -6,15 +6,40 @@ html {
   scroll-behavior: smooth;
   scrollbar-color: #dc2626 #0a0a0a;
   scrollbar-width: thin;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 * {
+  box-sizing: border-box;
+  min-width: 0;
   scrollbar-color: #dc2626 #171717;
   scrollbar-width: thin;
+}
+
+:where(p, strong, span, h1, h2, h3, h4, a, button, small) {
+  overflow-wrap: anywhere;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
 }
 
 *::-webkit-scrollbar {

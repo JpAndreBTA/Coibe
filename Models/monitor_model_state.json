@@ -1,14 +1,14 @@
 {
   "version": "coibe-monitor-v1",
-  "updated_at": "2026-04-29T19:26:18.303535-03:00",
-  "cycles": 13,
+  "updated_at": "2026-04-30T01:54:04.269169-03:00",
+  "cycles": 17,
   "learned_terms": [
     {
       "term": "Luiz Inacio Lula",
-      "hits": 7,
-      "score": 367.0,
+      "hits": 11,
+      "score": 576.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -16,10 +16,10 @@
     },
     {
       "term": "Inacio Lula Silva",
-      "hits": 7,
-      "score": 367.0,
+      "hits": 11,
+      "score": 576.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -27,10 +27,10 @@
     },
     {
       "term": "Luiz Inacio",
-      "hits": 7,
-      "score": 367.0,
+      "hits": 11,
+      "score": 576.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -38,10 +38,10 @@
     },
     {
       "term": "Inacio Lula",
-      "hits": 7,
-      "score": 367.0,
+      "hits": 11,
+      "score": 576.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -49,10 +49,10 @@
     },
     {
       "term": "Lula Silva",
-      "hits": 7,
-      "score": 367.0,
+      "hits": 11,
+      "score": 576.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -60,10 +60,10 @@
     },
     {
       "term": "Geraldo Alckmin",
-      "hits": 7,
-      "score": 364.0,
+      "hits": 11,
+      "score": 573.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -71,10 +71,10 @@
     },
     {
       "term": "Jair Messias Bolsonaro",
-      "hits": 7,
-      "score": 364.0,
+      "hits": 11,
+      "score": 573.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -82,10 +82,10 @@
     },
     {
       "term": "Jair Messias",
-      "hits": 7,
-      "score": 364.0,
+      "hits": 11,
+      "score": 573.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -93,10 +93,10 @@
     },
     {
       "term": "Messias Bolsonaro",
-      "hits": 7,
-      "score": 364.0,
+      "hits": 11,
+      "score": 573.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -104,10 +104,10 @@
     },
     {
       "term": "Clinicas Ribeirao Preto",
-      "hits": 7,
-      "score": 357.0,
+      "hits": 11,
+      "score": 561.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items"
@@ -115,10 +115,10 @@
     },
     {
       "term": "Clinicas Ribeirao",
-      "hits": 5,
-      "score": 255.0,
+      "hits": 9,
+      "score": 459.0,
       "first_seen_at": "2026-04-29T18:49:28.491065-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items"
@@ -126,13 +126,14 @@
     },
     {
       "term": "Ribeirao Preto",
-      "hits": 4,
-      "score": 204.0,
+      "hits": 8,
+      "score": 409.0,
       "first_seen_at": "2026-04-29T18:49:28.491065-03:00",
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
-        "monitoring_items"
+        "monitoring_items",
+        "political_parties"
       ]
     },
     {
@@ -173,8 +174,8 @@
         "partido",
         "politico"
       ],
-      "hits": 4,
-      "score": 8727.0,
+      "hits": 8,
+      "score": 17545.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -262,7 +263,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -284,8 +285,8 @@
         "fornecedor recorrente",
         "pagamento concentrado"
       ],
-      "hits": 4,
-      "score": 8715.0,
+      "hits": 8,
+      "score": 17521.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -373,7 +374,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -397,8 +398,8 @@
         "tcu",
         "tse"
       ],
-      "hits": 4,
-      "score": 7993.0,
+      "hits": 8,
+      "score": 16113.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -462,7 +463,7 @@
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -485,8 +486,8 @@
         "pessoa proxima",
         "vinculos"
       ],
-      "hits": 4,
-      "score": 4474.0,
+      "hits": 8,
+      "score": 9078.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -574,7 +575,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -597,24 +598,24 @@
         "doacao",
         "tse"
       ],
-      "hits": 4,
-      "score": 4271.0,
+      "hits": 8,
+      "score": 8667.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
         {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
         },
         {
-          "title": "REPUBLICANOS - Republicanos",
-          "type": "political_parties"
-        },
-        {
-          "title": "PV - Partido Verde",
-          "type": "political_parties"
-        },
-        {
           "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
         },
         {
@@ -630,27 +631,27 @@
           "type": "political_parties"
         },
         {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
+        {
           "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         },
         {
           "title": "PSD - Partido Social Democrático",
           "type": "political_parties"
-        },
-        {
-          "title": "UNIÃO - União Brasil",
-          "type": "political_parties"
-        },
-        {
-          "title": "PV - Partido Verde",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSOL - Partido Socialismo e Liberdade",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -672,8 +673,8 @@
         "passagem",
         "viagem"
       ],
-      "hits": 4,
-      "score": 4191.0,
+      "hits": 8,
+      "score": 8358.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -681,15 +682,15 @@
           "type": "political_parties"
         },
         {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
         },
         {
-          "title": "REPUBLICANOS - Republicanos",
-          "type": "political_parties"
-        },
-        {
-          "title": "PV - Partido Verde",
+          "title": "PSD - Partido Social Democrático",
           "type": "political_parties"
         },
         {
@@ -712,23 +713,23 @@
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
-        },
-        {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
         },
         {
-          "title": "PV - Partido Verde",
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -750,8 +751,8 @@
         "superfaturamento",
         "valor acima da referencia"
       ],
-      "hits": 4,
-      "score": 3676.0,
+      "hits": 8,
+      "score": 6826.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -839,7 +840,7 @@
           "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -862,20 +863,20 @@
         "fonte incompleta",
         "sem documento"
       ],
-      "hits": 4,
-      "score": 2689.0,
+      "hits": 8,
+      "score": 5582.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "type": "political_parties"
+        },
+        {
           "title": "UNIÃO - União Brasil",
-          "type": "political_parties"
-        },
-        {
-          "title": "REPUBLICANOS - Republicanos",
-          "type": "political_parties"
-        },
-        {
-          "title": "PV - Partido Verde",
           "type": "political_parties"
         },
         {
@@ -899,23 +900,23 @@
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
-        },
-        {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
         },
         {
-          "title": "PV - Partido Verde",
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-29T19:26:18.303535-03:00",
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -924,12 +925,816 @@
       ]
     }
   ],
+  "learned_targets": [
+    {
+      "id": "partido:PSB",
+      "type": "partido",
+      "query": "PSB",
+      "term": "PSB",
+      "hits": 2,
+      "score": 250.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1422533.16",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ABELARDO CAMARINHA",
+          "person": "ABELARDO CAMARINHA",
+          "party": "PSB",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1811538.58",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ABELARDO CAMARINHA",
+          "person": "ABELARDO CAMARINHA",
+          "party": "PSB",
+          "value": "0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties",
+        "political_people"
+      ]
+    },
+    {
+      "id": "partido:PSDB",
+      "type": "partido",
+      "query": "PSDB",
+      "term": "PSDB",
+      "hits": 2,
+      "score": 150.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "1000533.46",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Adolfo Viana",
+          "person": "Adolfo Viana",
+          "party": "PSDB",
+          "value": "300157.16",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Aécio Neves",
+          "person": "Aécio Neves",
+          "party": "PSDB",
+          "value": "200833.88",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "1210142.70",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Adolfo Viana",
+          "person": "Adolfo Viana",
+          "party": "PSDB",
+          "value": "357813.48",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Aécio Neves",
+          "person": "Aécio Neves",
+          "party": "PSDB",
+          "value": "197828.60",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties",
+        "political_people"
+      ]
+    },
+    {
+      "id": "politico:PT PARTIDO DOS TRABALHADORES",
+      "type": "politico",
+      "query": "PT - Partido dos Trabalhadores",
+      "term": "PT - Partido dos Trabalhadores",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "person": "PT - Partido dos Trabalhadores",
+          "party": "PT",
+          "value": "1013656.86",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "person": "PT - Partido dos Trabalhadores",
+          "party": "PT",
+          "value": "1002510.93",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PSB PARTIDO SOCIALISTA BRASILEIRO",
+      "type": "politico",
+      "query": "PSB - Partido Socialista Brasileiro",
+      "term": "PSB - Partido Socialista Brasileiro",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1422533.16",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1811538.58",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:UNIAO",
+      "type": "partido",
+      "query": "UNIÃO",
+      "term": "UNIÃO",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "845798.31",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Abou Anni",
+          "person": "Abou Anni",
+          "party": "UNIÃO",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "1265266.65",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Abou Anni",
+          "person": "Abou Anni",
+          "party": "UNIÃO",
+          "value": "0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties",
+        "political_people"
+      ]
+    },
+    {
+      "id": "politico:LUIZ INACIO LULA DA SILVA",
+      "type": "politico",
+      "query": "Luiz Inacio Lula da Silva",
+      "term": "Luiz Inacio Lula da Silva",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "Luiz Inacio Lula da Silva",
+          "person": "Luiz Inacio Lula da Silva",
+          "party": "PT",
+          "value": "8539346.02",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Luiz Inacio Lula da Silva",
+          "person": "Luiz Inacio Lula da Silva",
+          "party": "PT",
+          "value": "8539346.02",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_people"
+      ]
+    },
+    {
+      "id": "politico:GERALDO ALCKMIN",
+      "type": "politico",
+      "query": "Geraldo Alckmin",
+      "term": "Geraldo Alckmin",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_people"
+      ]
+    },
+    {
+      "id": "politico:JAIR MESSIAS BOLSONARO",
+      "type": "politico",
+      "query": "Jair Messias Bolsonaro",
+      "term": "Jair Messias Bolsonaro",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "Jair Messias Bolsonaro",
+          "person": "Jair Messias Bolsonaro",
+          "party": "PL",
+          "value": "402198381.59",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Jair Messias Bolsonaro",
+          "person": "Jair Messias Bolsonaro",
+          "party": "PL",
+          "value": "402198381.59",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_people"
+      ]
+    },
+    {
+      "id": "partido:MDB",
+      "type": "partido",
+      "query": "MDB",
+      "term": "MDB",
+      "hits": 2,
+      "score": 100.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "Adail Filho",
+          "person": "Adail Filho",
+          "party": "MDB",
+          "value": "378297.86",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Acácio Favacho",
+          "person": "Acácio Favacho",
+          "party": "MDB",
+          "value": "280892.75",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Adail Filho",
+          "person": "Adail Filho",
+          "party": "MDB",
+          "value": "401666.29",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Acácio Favacho",
+          "person": "Acácio Favacho",
+          "party": "MDB",
+          "value": "291404.01",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_people"
+      ]
+    },
+    {
+      "id": "politico:PL PARTIDO LIBERAL",
+      "type": "politico",
+      "query": "PL - Partido Liberal",
+      "term": "PL - Partido Liberal",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PL - Partido Liberal",
+          "person": "PL - Partido Liberal",
+          "party": "PL",
+          "value": "1264083.88",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "person": "PL - Partido Liberal",
+          "party": "PL",
+          "value": "1806381.28",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PSDB PARTIDO DA SOCIAL DEMOCRACIA BRASILEIRA",
+      "type": "politico",
+      "query": "PSDB - Partido da Social Democracia Brasileira",
+      "term": "PSDB - Partido da Social Democracia Brasileira",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "1000533.46",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "1210142.70",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:SOLIDARIEDADE SOLIDARIEDADE",
+      "type": "politico",
+      "query": "SOLIDARIEDADE - Solidariedade",
+      "term": "SOLIDARIEDADE - Solidariedade",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "952527.02",
+          "risk_level": "alto"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "1077912.82",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:SOLIDARIEDADE",
+      "type": "partido",
+      "query": "SOLIDARIEDADE",
+      "term": "SOLIDARIEDADE",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "952527.02",
+          "risk_level": "alto"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "1077912.82",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:UNIAO UNIAO BRASIL",
+      "type": "politico",
+      "query": "UNIÃO - União Brasil",
+      "term": "UNIÃO - União Brasil",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "845798.31",
+          "risk_level": "alto"
+        },
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "1265266.65",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PSD PARTIDO SOCIAL DEMOCRATICO",
+      "type": "politico",
+      "query": "PSD - Partido Social Democrático",
+      "term": "PSD - Partido Social Democrático",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "798159.89",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "993220.07",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:PSD",
+      "type": "partido",
+      "query": "PSD",
+      "term": "PSD",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "798159.89",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "993220.07",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:REPUBLICANOS REPUBLICANOS",
+      "type": "politico",
+      "query": "REPUBLICANOS - Republicanos",
+      "term": "REPUBLICANOS - Republicanos",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "749866.68",
+          "risk_level": "alto"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "1109277.58",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:REPUBLICANOS",
+      "type": "partido",
+      "query": "REPUBLICANOS",
+      "term": "REPUBLICANOS",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "749866.68",
+          "risk_level": "alto"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "1109277.58",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PSOL PARTIDO SOCIALISMO E LIBERDADE",
+      "type": "politico",
+      "query": "PSOL - Partido Socialismo e Liberdade",
+      "term": "PSOL - Partido Socialismo e Liberdade",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "647167.90",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "649708.56",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:PSOL",
+      "type": "partido",
+      "query": "PSOL",
+      "term": "PSOL",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "647167.90",
+          "risk_level": "alto"
+        },
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "649708.56",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:REDE REDE SUSTENTABILIDADE",
+      "type": "politico",
+      "query": "REDE - Rede Sustentabilidade",
+      "term": "REDE - Rede Sustentabilidade",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "446703.96",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "partido:REDE",
+      "type": "partido",
+      "query": "REDE",
+      "term": "REDE",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "446703.96",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PV PARTIDO VERDE",
+      "type": "politico",
+      "query": "PV - Partido Verde",
+      "term": "PV - Partido Verde",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PV - Partido Verde",
+          "person": "PV - Partido Verde",
+          "party": "PV",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PV - Partido Verde",
+          "person": "PV - Partido Verde",
+          "party": "PV",
+          "value": "779248.50",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    },
+    {
+      "id": "politico:PRD PARTIDO RENOVACAO DEMOCRATICA",
+      "type": "politico",
+      "query": "PRD - Partido Renovação Democrática",
+      "term": "PRD - Partido Renovação Democrática",
+      "hits": 2,
+      "score": 50.0,
+      "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
+      "examples": [
+        {
+          "title": "PRD - Partido Renovação Democrática",
+          "person": "PRD - Partido Renovação Democrática",
+          "party": "PRD",
+          "value": "0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PRD - Partido Renovação Democrática",
+          "person": "PRD - Partido Renovação Democrática",
+          "party": "PRD",
+          "value": "0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "sources": [
+        "political_parties"
+      ]
+    }
+  ],
+  "cache_profile": {
+    "date_window": {
+      "start": "2025-01-15",
+      "end": "2026-04-30",
+      "dates_found": 1343
+    },
+    "public_record_types": {
+      "connector_source": 9,
+      "connector_status": 1,
+      "architecture_status": 1,
+      "political_parties": 12,
+      "political_people": 24,
+      "universal_search_result": 50
+    },
+    "public_records_seen": 97,
+    "alerts_seen": 578,
+    "items_seen": 0
+  },
   "last_training": {
-    "generated_at": "2026-04-29T19:26:15.792019-03:00",
+    "generated_at": "2026-04-30T01:54:01.978383-03:00",
     "items_analyzed": 7390,
     "alerts_count": 578,
     "learned_terms_added": 12,
     "learned_checks_added": 8,
+    "learned_targets_added": 24,
     "search_terms_used": [
       "contrato",
       "computador",
@@ -954,6 +1759,20 @@
       "Ribeirao Preto",
       "Presidente Republica",
       "Generos Alimenticios",
+      "PSB",
+      "PSDB",
+      "PT - Partido dos Trabalhadores",
+      "PSB - Partido Socialista Brasileiro",
+      "UNIÃO",
+      "Luiz Inacio Lula da Silva",
+      "MDB",
+      "PL - Partido Liberal",
+      "PSDB - Partido da Social Democracia Brasileira",
+      "SOLIDARIEDADE - Solidariedade",
+      "SOLIDARIEDADE",
+      "UNIÃO - União Brasil",
+      "PSD - Partido Social Democrático",
+      "PSD",
       "politico contratos compras publicas",
       "partido fornecedor contrato",
       "fornecedor concentrado pagamentos",
@@ -991,6 +1810,20 @@
       "Ribeirao Preto",
       "Presidente Republica",
       "Generos Alimenticios",
+      "PSB",
+      "PSDB",
+      "PT - Partido dos Trabalhadores",
+      "PSB - Partido Socialista Brasileiro",
+      "UNIÃO",
+      "Luiz Inacio Lula da Silva",
+      "MDB",
+      "PL - Partido Liberal",
+      "PSDB - Partido da Social Democracia Brasileira",
+      "SOLIDARIEDADE - Solidariedade",
+      "SOLIDARIEDADE",
+      "UNIÃO - União Brasil",
+      "PSD - Partido Social Democrático",
+      "PSD",
       "politico contratos compras publicas",
       "partido fornecedor contrato",
       "fornecedor concentrado pagamentos",
@@ -1004,6 +1837,19 @@
       "passagens hospedagem locomoção",
       "viagens deslocamento parlamentar"
     ],
+    "date_window": {
+      "start": "2025-01-15",
+      "end": "2026-04-30",
+      "dates_found": 1343
+    },
+    "public_record_types": {
+      "connector_source": 9,
+      "connector_status": 1,
+      "architecture_status": 1,
+      "political_parties": 12,
+      "political_people": 24,
+      "universal_search_result": 50
+    },
     "gpu": {
       "enabled_by_env": true,
       "enabled_by_config": true,
@@ -1029,7 +1875,8 @@
       "political_people_scan_limit": 24,
       "learned_terms_per_cycle": 12,
       "search_terms_per_cycle": 8,
-      "search_delay_seconds": 2.0
+      "search_delay_seconds": 2.0,
+      "priority_feed_queries_per_cycle": 4
     },
     "model_storage": "Models",
     "legal_safety": "Aprendizado usado para priorizar busca, estrategias de verificacao e triagem; nao conclui crime, culpa ou vinculo familiar."
