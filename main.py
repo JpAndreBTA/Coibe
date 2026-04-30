@@ -2116,6 +2116,16 @@ def paginate_monitoring_items(items: list[MonitoringItem], page: int, page_size:
     return items[start:end], end < len(items)
 
 
+def monitoring_item_recent_order(item: MonitoringItem) -> tuple[bool, str, str, str]:
+    # Future validity dates are real contract metadata, but they should not outrank already published recent feed content.
+    return (
+        item.date <= brasilia_today(),
+        item.date.isoformat(),
+        item.report.generated_at.isoformat(),
+        item.id,
+    )
+
+
 def filter_and_order_monitoring_items(
     items: list[MonitoringItem],
     risk_level: str | None = None,
@@ -2137,8 +2147,10 @@ def filter_and_order_monitoring_items(
         filtered.sort(key=lambda item: (item.value, item.date, item.id), reverse=True)
     elif size_order == "asc":
         filtered.sort(key=lambda item: (item.value, item.date, item.id))
+    elif size_order == "data_asc":
+        filtered.sort(key=lambda item: (item.date.isoformat(), item.report.generated_at.isoformat(), item.id))
     else:
-        filtered.sort(key=lambda item: (item.date.isoformat(), item.report.generated_at.isoformat(), item.id), reverse=True)
+        filtered.sort(key=monitoring_item_recent_order, reverse=True)
 
     return filtered
 
@@ -6571,7 +6583,7 @@ async def monitoring_feed(
     q: str | None = Query(None, min_length=2),
     uf: str | None = Query(None, min_length=2, max_length=2),
     risk_level: str | None = Query(None),
-    size_order: str | None = Query(None, pattern="^(data|asc|desc)$"),
+    size_order: str | None = Query(None, pattern="^(data|data_asc|asc|desc)$"),
     date_from: date | None = Query(None, description="Data inicial do conteúdo/contrato, não da análise."),
     date_to: date | None = Query(None, description="Data final do conteúdo/contrato, não da análise."),
     source: str = Query("auto", pattern="^(auto|local|live)$"),

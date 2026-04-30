@@ -1826,13 +1826,14 @@ function applySearchResult(result) {
                 <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
                   <ArrowDownWideNarrow className="h-4 w-4 shrink-0 text-red-400" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[11px] font-black uppercase text-neutral-500">Tamanho</span>
+                    <span className="block text-[11px] font-black uppercase text-neutral-500">Ordenar</span>
                     <select
                       value={feedSizeOrder}
                       onChange={(event) => setFeedSizeOrder(event.target.value)}
                       className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
                     >
                       <option className="bg-neutral-950" value="data">Mais recentes</option>
+                      <option className="bg-neutral-950" value="data_asc">Mais antigos</option>
                       <option className="bg-neutral-950" value="desc">Maior valor primeiro</option>
                       <option className="bg-neutral-950" value="asc">Menor valor primeiro</option>
                     </select>
@@ -1847,14 +1848,22 @@ function applySearchResult(result) {
                       <input
                         type="date"
                         value={feedDateFrom}
-                        onChange={(event) => setFeedDateFrom(event.target.value)}
+                        onChange={(event) => {
+                          const nextDateFrom = event.target.value;
+                          setFeedDateFrom(nextDateFrom);
+                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, nextDateFrom, feedDateTo);
+                        }}
                         className="min-w-0 bg-transparent text-sm font-bold text-white outline-none [color-scheme:dark]"
                         aria-label="Data inicial do conteúdo"
                       />
                       <input
                         type="date"
                         value={feedDateTo}
-                        onChange={(event) => setFeedDateTo(event.target.value)}
+                        onChange={(event) => {
+                          const nextDateTo = event.target.value;
+                          setFeedDateTo(nextDateTo);
+                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, nextDateTo);
+                        }}
                         className="min-w-0 bg-transparent text-sm font-bold text-white outline-none [color-scheme:dark]"
                         aria-label="Data final do conteúdo"
                       />
@@ -1868,6 +1877,7 @@ function applySearchResult(result) {
                     setFeedSizeOrder('data');
                     setFeedDateFrom('');
                     setFeedDateTo('');
+                    loadFeed(1, false, feedQuery, selectedUf, 'todos', 'data', '', '');
                   }}
                   className="rounded-lg border border-neutral-700 px-4 py-2 text-sm font-bold text-neutral-200 transition hover:bg-neutral-800 sm:col-span-2 lg:col-span-1"
                 >
