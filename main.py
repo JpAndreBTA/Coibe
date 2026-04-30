@@ -4830,8 +4830,9 @@ def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, 
     ))
 
 
-async def fetch_current_deputies(limit: int = 24, party: str | None = None, legislature: int | None = None) -> list[dict[str, Any]]:
+async def fetch_current_deputies(limit: int = 24, party: str | None = None, legislature: int | None = None, page: int = 1) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"itens": min(max(limit, 1), 100), "ordem": "ASC", "ordenarPor": "nome"}
+    params["pagina"] = max(int(page or 1), 1)
     if party:
         params["siglaPartido"] = party
     if legislature:
@@ -4869,12 +4870,13 @@ async def fetch_deputies_by_name(
     return response_items(data)
 
 
-async def fetch_former_deputies(limit: int = 12, party: str | None = None) -> list[dict[str, Any]]:
+async def fetch_former_deputies(limit: int = 12, party: str | None = None, page_offset: int = 0) -> list[dict[str, Any]]:
     current_year = brasilia_today().year
     legislature_hints = [56, 55, 54, 53] if current_year >= 2023 else [55, 54, 53]
     collected: dict[str, dict[str, Any]] = {}
+    page = max(int(page_offset or 0), 0) + 1
     for legislature in legislature_hints:
-        for deputy in await fetch_current_deputies(limit=max(limit, 20), party=party, legislature=legislature):
+        for deputy in await fetch_current_deputies(limit=max(limit, 20), party=party, legislature=legislature, page=page):
             key = str(deputy.get("id") or deputy.get("uri") or deputy.get("nome"))
             if key:
                 collected[key] = deputy
@@ -4885,14 +4887,16 @@ async def fetch_former_deputies(limit: int = 12, party: str | None = None) -> li
     return list(collected.values())[:limit]
 
 
-async def political_people_scan(limit: int = 18, q: str | None = None, party: str | None = None) -> list[PoliticalScanItem]:
+async def political_people_scan(limit: int = 18, q: str | None = None, party: str | None = None, offset: int = 0) -> list[PoliticalScanItem]:
     current_target = max(4, int(limit * 0.6))
     former_target = max(3, limit - current_target)
     normalized_query = normalize_text(q)
     if normalized_query:
         deputies = await fetch_deputies_by_name(str(q), limit=max(current_target * 3, 20), party=party)
     else:
-        deputies = await fetch_current_deputies(limit=max(current_target * 2, 12), party=party)
+        page_size = max(current_target * 2, 20)
+        page = max(int(offset or 0), 0) // page_size + 1
+        deputies = await fetch_current_deputies(limit=page_size, party=party, page=page)
     if normalized_query:
         deputies = [
             deputy for deputy in deputies
@@ -4911,7 +4915,11 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
                 break
         former_deputies = list(former_by_key.values())
     else:
-        former_deputies = await fetch_former_deputies(limit=former_target * 2, party=party)
+        former_deputies = await fetch_former_deputies(
+            limit=former_target * 2,
+            party=party,
+            page_offset=max(int(offset or 0), 0) // max(former_target * 2, 20),
+        )
     if normalized_query:
         former_deputies = [
             deputy for deputy in former_deputies
@@ -5018,7 +5026,8 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
         )
 
     if not party:
-        for person in POLITICAL_RELATED_PEOPLE:
+        related_people = POLITICAL_RELATED_PEOPLE if normalized_query or max(int(offset or 0), 0) == 0 else []
+        for person in related_people:
             if normalized_query and normalized_query not in normalize_text(f"{person.get('title')} {' '.join(person.get('aliases', []))}"):
                 continue
             items.append(public_related_political_item(person))
@@ -6414,6 +6423,7 @@ async def political_politicians(
     analysis_type: str | None = Query(None),
     size_order: str | None = Query(None, pattern="^(prioridade|valor|viagens|registros|risco)$"),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
+    offset: int = Query(0, ge=0, le=1000),
     x_coibe_admin_token: str | None = Header(default=None),
 ) -> PoliticalScanResponse:
     if source != "live":
@@ -6428,7 +6438,7 @@ async def political_politicians(
             limit=cached_limit,
         )
         if not cached_items and source != "local" and q:
-            live_items = await political_people_scan(limit=limit, q=q, party=party)
+            live_items = await political_people_scan(limit=limit, q=q, party=party, offset=offset)
             save_political_scan_public_records("political_people", q, live_items)
             cached_items, generated_at = cached_political_items(
                 "political_people",
@@ -6453,7 +6463,7 @@ async def political_politicians(
         )
 
     allow_local_or_admin_live_scan(request, x_coibe_admin_token)
-    live_items = await political_people_scan(limit=limit, q=q, party=party)
+    live_items = await political_people_scan(limit=limit, q=q, party=party, offset=offset)
     save_political_scan_public_records("political_people", q, live_items)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),

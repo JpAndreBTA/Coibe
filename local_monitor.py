@@ -34,7 +34,6 @@ DEFAULT_SEARCH_TERMS = [
     "pavimentação",
     "merenda",
     "medicamento",
-    "Tiririca",
     "São Paulo",
     "00000000000191",
 ]
@@ -54,6 +53,7 @@ MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_PRIORITY_
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
 CUDA_DLL_HANDLES: list[Any] = []
+LOW_PRIORITY_REPEATED_TERMS = {"TIRIRICA"}
 
 HIGH_RISK_FEED_QUERIES = [
     "superfaturamento",
@@ -66,6 +66,13 @@ HIGH_RISK_FEED_QUERIES = [
     "combustivel",
     "pavimentacao",
 ]
+
+
+def rotate_list(values: list[str], offset: int) -> list[str]:
+    if not values:
+        return []
+    start = max(int(offset or 0), 0) % len(values)
+    return [*values[start:], *values[:start]]
 
 
 def now_slug() -> str:
@@ -317,6 +324,8 @@ def merged_search_terms(default_terms: list[str], model_state: dict[str, Any]) -
     seen: set[str] = set()
     for term in [*default_terms, *learned_terms[:20], *learned_target_terms[:16], *learned_check_terms[:12]]:
         normalized = normalize_text(term)
+        if normalized in LOW_PRIORITY_REPEATED_TERMS:
+            continue
         if normalized and normalized not in seen:
             seen.add(normalized)
             output.append(term)
@@ -865,7 +874,9 @@ async def collect_snapshot(
     timeout_seconds: int = 90,
     political_party_limit: int = POLITICAL_PARTY_SCAN_LIMIT,
     political_people_limit: int = POLITICAL_PEOPLE_SCAN_LIMIT,
+    political_people_offset: int = 0,
     search_terms_per_cycle: int = MONITOR_SEARCH_TERMS_PER_CYCLE,
+    search_term_offset: int = 0,
     search_delay_seconds: float = MONITOR_SEARCH_DELAY_SECONDS,
     priority_feed_queries_per_cycle: int = MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
 ) -> dict[str, Any]:
@@ -883,7 +894,9 @@ async def collect_snapshot(
             "state_map": {},
             "political_parties": {},
             "political_people": {},
+            "political_people_offset": max(int(political_people_offset or 0), 0),
             "priority_feed_queries": [],
+            "search_term_offset": max(int(search_term_offset or 0), 0),
             "searches": {},
             "errors": [],
         }
@@ -936,7 +949,7 @@ async def collect_snapshot(
             client,
             snapshot,
             "political_people_scan",
-            f"/api/political/politicians?limit={political_people_limit}&source=live",
+            f"/api/political/politicians?limit={political_people_limit}&source=live&offset={max(int(political_people_offset or 0), 0)}",
             "public_political_risk_scan",
         )
         if political_people is not None:
@@ -987,11 +1000,12 @@ async def collect_snapshot(
 
         search_limit = max(0, int(search_terms_per_cycle))
         search_delay = max(0.0, float(search_delay_seconds))
-        limited_search_terms = search_terms[:search_limit] if search_limit else []
+        rotated_search_terms = rotate_list(search_terms, search_term_offset)
+        limited_search_terms = rotated_search_terms[:search_limit] if search_limit else []
         if len(search_terms) > len(limited_search_terms):
             monitor_print(
                 f"Busca universal limitada neste ciclo | termos_usados={len(limited_search_terms)} "
-                f"de {len(search_terms)} | ajuste COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE se precisar"
+                f"de {len(search_terms)} | offset={search_term_offset} | ajuste COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE se precisar"
             )
         for index, term in enumerate(limited_search_terms):
             if search_delay and index > 0:
@@ -1820,10 +1834,12 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     search_delay_seconds = float(monitor_config.get("search_delay_seconds") or MONITOR_SEARCH_DELAY_SECONDS)
     priority_feed_queries_per_cycle = int(monitor_config.get("priority_feed_queries_per_cycle") or MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
+    political_people_offset = max(int(collection_state.get("political_people_offset") or 0), 0)
+    search_term_offset = max(int(collection_state.get("search_term_offset") or 0), 0)
     monitor_print(
         "Iniciando ciclo de monitoramento | "
         f"paginas={pages} | itens_por_pagina={page_size} | pagina_inicial={start_page} | "
-        f"partidos={political_party_limit} | politicos={political_people_limit} | "
+        f"partidos={political_party_limit} | politicos={political_people_limit} | offset_politicos={political_people_offset} | "
         f"gpu={'ativa' if gpu.get('enabled') else 'desativada'} | "
         f"memoria_compartilhada={'ativa' if gpu.get('shared_memory_enabled') else 'desativada'}"
     )
@@ -1836,7 +1852,9 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         timeout_seconds=timeout_seconds,
         political_party_limit=political_party_limit,
         political_people_limit=political_people_limit,
+        political_people_offset=political_people_offset,
         search_terms_per_cycle=search_terms_per_cycle,
+        search_term_offset=search_term_offset,
         search_delay_seconds=search_delay_seconds,
         priority_feed_queries_per_cycle=priority_feed_queries_per_cycle,
     )
@@ -1896,6 +1914,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         else:
             next_feed_page = start_page + pages
             reset_reason = "feed publico sem itens neste ciclo; avancando janela para nao ficar preso na pagina 1"
+    next_political_people_offset = (political_people_offset + max(political_people_limit, 1)) % 240
+    next_search_term_offset = (search_term_offset + max(search_terms_per_cycle, 1)) % max(len(search_terms), 1)
     analysis["database_items_count"] = database_count
     analysis["database_path"] = str(paths["processed"] / "monitoring_items.json")
     analysis["public_records_count"] = public_records_count
@@ -1917,13 +1937,22 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "items_cached": len(existing_items),
         "feed_pages_failed": feed_pages_failed,
         "reset_reason": reset_reason,
+        "political_people_offset": political_people_offset,
+        "next_political_people_offset": next_political_people_offset,
+        "search_term_offset": search_term_offset,
+        "next_search_term_offset": next_search_term_offset,
     }
     model_training_analysis = {**analysis, "model_training_items": accumulated_items[:500]}
     analysis["model"] = update_monitor_model_state(model_training_analysis, snapshot, search_terms, gpu, monitor_config)
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
     write_json(processed_path, analysis)
     write_json(latest_path, analysis)
-    save_collection_state(paths, {"next_feed_page": next_feed_page, "updated_at": analysis["generated_at"]})
+    save_collection_state(paths, {
+        "next_feed_page": next_feed_page,
+        "political_people_offset": next_political_people_offset,
+        "search_term_offset": next_search_term_offset,
+        "updated_at": analysis["generated_at"],
+    })
 
     for alert in new_alerts:
         alert_path = paths["alerts"] / f"{stamp}-{safe_filename_part(alert.get('id'))}.json"
