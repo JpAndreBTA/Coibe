@@ -1,14 +1,14 @@
 {
   "version": "coibe-monitor-v1",
-  "updated_at": "2026-04-30T02:15:46.208558-03:00",
-  "cycles": 18,
+  "updated_at": "2026-04-30T02:17:10.752956-03:00",
+  "cycles": 19,
   "learned_terms": [
     {
       "term": "Luiz Inacio Lula",
-      "hits": 11,
-      "score": 576.0,
+      "hits": 12,
+      "score": 629.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -16,10 +16,10 @@
     },
     {
       "term": "Inacio Lula Silva",
-      "hits": 11,
-      "score": 576.0,
+      "hits": 12,
+      "score": 629.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -27,10 +27,10 @@
     },
     {
       "term": "Luiz Inacio",
-      "hits": 11,
-      "score": 576.0,
+      "hits": 12,
+      "score": 629.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -38,10 +38,10 @@
     },
     {
       "term": "Inacio Lula",
-      "hits": 11,
-      "score": 576.0,
+      "hits": 12,
+      "score": 629.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -49,10 +49,10 @@
     },
     {
       "term": "Lula Silva",
-      "hits": 11,
-      "score": 576.0,
+      "hits": 12,
+      "score": 629.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -60,10 +60,10 @@
     },
     {
       "term": "Geraldo Alckmin",
-      "hits": 11,
-      "score": 573.0,
+      "hits": 12,
+      "score": 626.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -71,10 +71,10 @@
     },
     {
       "term": "Jair Messias Bolsonaro",
-      "hits": 11,
-      "score": 573.0,
+      "hits": 12,
+      "score": 626.0,
       "first_seen_at": "2026-04-29T18:48:48.175634-03:00",
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people",
         "public_records"
@@ -144,6 +144,56 @@
       "latest_seen_at": "2026-04-29T18:48:00.271059-03:00",
       "sources": [
         "political_people"
+      ]
+    },
+    {
+      "term": "Fundo Municipal Saude",
+      "hits": 1,
+      "score": 96.0,
+      "first_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "sources": [
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Municipal Saude Baliza",
+      "hits": 1,
+      "score": 96.0,
+      "first_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "sources": [
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Fundo Municipal",
+      "hits": 1,
+      "score": 94.0,
+      "first_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "sources": [
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Municipal Saude",
+      "hits": 1,
+      "score": 94.0,
+      "first_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "sources": [
+        "monitoring_items"
+      ]
+    },
+    {
+      "term": "Saude Baliza",
+      "hits": 1,
+      "score": 90.0,
+      "first_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
+      "sources": [
+        "monitoring_items"
       ]
     },
     {
@@ -416,10 +466,17 @@
         "partido",
         "politico"
       ],
-      "hits": 9,
-      "score": 17723.0,
+      "hits": 10,
+      "score": 19932.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
         {
           "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
           "entity": "CENTRO LOGISTICO DA AERONAUTICA",
@@ -440,17 +497,6 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
-        },
-        {
-          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
-          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
-          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
-          "value": "6788154.34",
-          "risk_level": "médio"
-        },
-        {
-          "title": "Cruzar politico, partido e contratos locais",
-          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -500,9 +546,16 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -525,10 +578,17 @@
         "fornecedor recorrente",
         "pagamento concentrado"
       ],
-      "hits": 9,
-      "score": 17696.0,
+      "hits": 10,
+      "score": 19902.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
         {
           "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
           "entity": "CENTRO LOGISTICO DA AERONAUTICA",
@@ -549,17 +609,6 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
-        },
-        {
-          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
-          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
-          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
-          "value": "6788154.34",
-          "risk_level": "médio"
-        },
-        {
-          "title": "Checar concentracao por fornecedor",
-          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -609,9 +658,16 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
+        },
+        {
+          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
+          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
+          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
+          "value": "6788154.34",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -636,10 +692,17 @@
         "tcu",
         "tse"
       ],
-      "hits": 9,
-      "score": 16161.0,
+      "hits": 10,
+      "score": 18196.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "EXECUÇÃO DE OBRAS DE ADEQUAÇÃO DO SERVIÇO DE INTERCORRÊNCIAS CLÍNICAS E CIRÚRGICAS (SICC)/EMERGÊNCIA, INCLUINDO A ELABORAÇÃO DOS PROJETOS EX",
+          "entity": "COMPLEXO HOSPITALAR DA UNIVERSIDADE FEDERAL",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "6682740.39",
+          "risk_level": "médio"
+        },
         {
           "title": "STF Consulta Pública",
           "type": "connector_source"
@@ -651,14 +714,6 @@
         {
           "title": "PSB - Partido Socialista Brasileiro",
           "type": "political_parties"
-        },
-        {
-          "title": "PL - Partido Liberal",
-          "type": "political_parties"
-        },
-        {
-          "title": "Conferir processos e controle externo em fontes oficiais",
-          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
@@ -699,9 +754,13 @@
         {
           "title": "PSB - Partido Socialista Brasileiro",
           "type": "political_parties"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -725,10 +784,17 @@
         "pessoa proxima",
         "vinculos"
       ],
-      "hits": 9,
-      "score": 9143.0,
+      "hits": 10,
+      "score": 10294.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇO CONTÍNUO DE GESTÃO DO SISTEMA DE AFERIÇÃO DE CONHECIMENTOS TEÓRICOS, INCLUINDO INSCRIÇÃO, AGENDAMENTO, APLICAÇÃO DE P",
+          "entity": "AGENCIA NACIONAL DE AVIACAO CIVIL",
+          "supplier": "FUNDACAO GETULIO VARGAS",
+          "value": "7790513.5",
+          "risk_level": "médio"
+        },
         {
           "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
           "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
@@ -749,17 +815,6 @@
           "supplier": "POSITIVO TECNOLOGIA S.A.",
           "value": "3265119.0",
           "risk_level": "médio"
-        },
-        {
-          "title": "AQUISIÇÃO DE OBRAS DIDÁTICAS NO ÂMBITO DO PROGRAMA NACIONAL DO LIVRO E DO MATERIAL DIDÁTICO - PNLD 2023, OBJETO 01, NO FORMATO ACESSÍVEL BRA",
-          "entity": "FUNDO NACIONAL DE DESENVOLVIMENTO DA EDUCACAO",
-          "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
-          "value": "1893204.9",
-          "risk_level": "médio"
-        },
-        {
-          "title": "Mapear alto valor em pessoas ou fornecedores proximos",
-          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -809,9 +864,16 @@
           "supplier": "POSITIVO TECNOLOGIA S.A.",
           "value": "3265119.0",
           "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE OBRAS DIDÁTICAS NO ÂMBITO DO PROGRAMA NACIONAL DO LIVRO E DO MATERIAL DIDÁTICO - PNLD 2023, OBJETO 01, NO FORMATO ACESSÍVEL BRA",
+          "entity": "FUNDO NACIONAL DE DESENVOLVIMENTO DA EDUCACAO",
+          "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
+          "value": "1893204.9",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -835,10 +897,14 @@
         "doacao",
         "tse"
       ],
-      "hits": 9,
-      "score": 8706.0,
+      "hits": 10,
+      "score": 9803.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
         {
           "title": "PSDB - Partido da Social Democracia Brasileira",
           "type": "political_parties"
@@ -850,14 +916,6 @@
         {
           "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
-        },
-        {
-          "title": "Verificar doacoes e contas eleitorais",
-          "type": "metodologia_publica"
         },
         {
           "title": "PT - Partido dos Trabalhadores",
@@ -876,7 +934,11 @@
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         },
         {
@@ -884,11 +946,11 @@
           "type": "political_parties"
         },
         {
-          "title": "SOLIDARIEDADE - Solidariedade",
+          "title": "PSDB - Partido da Social Democracia Brasileira",
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -911,10 +973,14 @@
         "passagem",
         "viagem"
       ],
-      "hits": 9,
-      "score": 8401.0,
+      "hits": 10,
+      "score": 9328.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
         {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
@@ -926,14 +992,6 @@
         {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
-        },
-        {
-          "title": "SOLIDARIEDADE - Solidariedade",
-          "type": "political_parties"
-        },
-        {
-          "title": "Revisar padrao de viagem e deslocamento",
-          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
@@ -959,7 +1017,11 @@
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         },
         {
@@ -967,7 +1029,7 @@
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -990,11 +1052,18 @@
         "superfaturamento",
         "valor acima da referencia"
       ],
-      "hits": 9,
-      "score": 7040.0,
+      "hits": 10,
+      "score": 7836.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE TRABALHADOR BRASAL,  A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, A SEREM EXECU",
+          "entity": "INST.FED.DE EDUC.,CIENC.E TEC.DO PIAUI",
+          "supplier": "B2 SOLUCOES LTDA",
+          "value": "90720.0",
+          "risk_level": "médio"
+        },
+        {
           "title": "CONTRATAÇÃO DE HORAS DE TREINAMENTO EM SIMULADOR DE VOO, COM DISPONIBILIDADE EXCLUSIVA PARA PILOTOS DO COMANDO DA AERONÁUTICA NA AERONAVE EM",
           "entity": "CENTRO LOGISTICO DA AERONAUTICA",
           "supplier": "CAE SOUTH AMERICA FLIGHT TRAINING DO BRASIL LTDA",
@@ -1014,17 +1083,6 @@
           "supplier": "ALPER ENERGIA LTDA.",
           "value": "2477068.68",
           "risk_level": "médio"
-        },
-        {
-          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
-          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
-          "supplier": "ALPER ENERGIA LTDA.",
-          "value": "2477068.68",
-          "risk_level": "médio"
-        },
-        {
-          "title": "Comparar preco unitario com referencia de mercado",
-          "type": "metodologia_publica"
         },
         {
           "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
@@ -1074,9 +1132,16 @@
           "supplier": "ALPER ENERGIA LTDA.",
           "value": "2477068.68",
           "risk_level": "médio"
+        },
+        {
+          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
+          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
+          "supplier": "ALPER ENERGIA LTDA.",
+          "value": "2477068.68",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
@@ -1100,10 +1165,14 @@
         "fonte incompleta",
         "sem documento"
       ],
-      "hits": 9,
-      "score": 5618.0,
+      "hits": 10,
+      "score": 6670.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
+        {
+          "title": "PL - Partido Liberal",
+          "type": "political_parties"
+        },
         {
           "title": "UNIÃO - União Brasil",
           "type": "political_parties"
@@ -1115,14 +1184,6 @@
         {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
-        },
-        {
-          "title": "SOLIDARIEDADE - Solidariedade",
-          "type": "political_parties"
-        },
-        {
-          "title": "Conferir documento fiscal ausente ou incompleto",
-          "type": "metodologia_publica"
         },
         {
           "title": "PNCP API Consulta",
@@ -1145,7 +1206,11 @@
           "type": "political_parties"
         },
         {
-          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "title": "PSD - Partido Social Democrático",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         },
         {
@@ -1153,7 +1218,7 @@
           "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
@@ -1288,8 +1353,8 @@
       "type": "partido",
       "query": "PSB",
       "term": "PSB",
-      "hits": 2,
-      "score": 250.0,
+      "hits": 3,
+      "score": 375.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1333,9 +1398,30 @@
           "party": "PSB",
           "value": "0",
           "risk_level": "médio"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1629895.14",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "ABELARDO CAMARINHA",
+          "person": "ABELARDO CAMARINHA",
+          "party": "PSB",
+          "value": "0",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties",
         "political_people"
@@ -1346,8 +1432,8 @@
       "type": "partido",
       "query": "PSDB",
       "term": "PSDB",
-      "hits": 2,
-      "score": 150.0,
+      "hits": 3,
+      "score": 225.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1391,9 +1477,30 @@
           "party": "PSDB",
           "value": "197828.60",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "959266.99",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Adolfo Viana",
+          "person": "Adolfo Viana",
+          "party": "PSDB",
+          "value": "357813.48",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Aécio Neves",
+          "person": "Aécio Neves",
+          "party": "PSDB",
+          "value": "197828.60",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties",
         "political_people"
@@ -1404,8 +1511,8 @@
       "type": "politico",
       "query": "PT - Partido dos Trabalhadores",
       "term": "PT - Partido dos Trabalhadores",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1421,9 +1528,16 @@
           "party": "PT",
           "value": "1002510.93",
           "risk_level": "alto"
+        },
+        {
+          "title": "PT - Partido dos Trabalhadores",
+          "person": "PT - Partido dos Trabalhadores",
+          "party": "PT",
+          "value": "993759.54",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1433,8 +1547,8 @@
       "type": "politico",
       "query": "PSB - Partido Socialista Brasileiro",
       "term": "PSB - Partido Socialista Brasileiro",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1450,9 +1564,16 @@
           "party": "PSB",
           "value": "1811538.58",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSB - Partido Socialista Brasileiro",
+          "person": "PSB - Partido Socialista Brasileiro",
+          "party": "PSB",
+          "value": "1629895.14",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1462,8 +1583,8 @@
       "type": "partido",
       "query": "UNIÃO",
       "term": "UNIÃO",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1493,9 +1614,23 @@
           "party": "UNIÃO",
           "value": "0",
           "risk_level": "médio"
+        },
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "1261532.52",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Abou Anni",
+          "person": "Abou Anni",
+          "party": "UNIÃO",
+          "value": "0",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties",
         "political_people"
@@ -1506,8 +1641,8 @@
       "type": "politico",
       "query": "Luiz Inacio Lula da Silva",
       "term": "Luiz Inacio Lula da Silva",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1523,9 +1658,16 @@
           "party": "PT",
           "value": "8539346.02",
           "risk_level": "alto"
+        },
+        {
+          "title": "Luiz Inacio Lula da Silva",
+          "person": "Luiz Inacio Lula da Silva",
+          "party": "PT",
+          "value": "8539346.02",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people"
       ]
@@ -1535,8 +1677,8 @@
       "type": "politico",
       "query": "Geraldo Alckmin",
       "term": "Geraldo Alckmin",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1552,9 +1694,16 @@
           "party": "PSB",
           "value": "4890.0",
           "risk_level": "médio"
+        },
+        {
+          "title": "Geraldo Alckmin",
+          "person": "Geraldo Alckmin",
+          "party": "PSB",
+          "value": "4890.0",
+          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people"
       ]
@@ -1564,8 +1713,8 @@
       "type": "politico",
       "query": "Jair Messias Bolsonaro",
       "term": "Jair Messias Bolsonaro",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1581,9 +1730,16 @@
           "party": "PL",
           "value": "402198381.59",
           "risk_level": "alto"
+        },
+        {
+          "title": "Jair Messias Bolsonaro",
+          "person": "Jair Messias Bolsonaro",
+          "party": "PL",
+          "value": "402198381.59",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people"
       ]
@@ -1593,8 +1749,8 @@
       "type": "partido",
       "query": "MDB",
       "term": "MDB",
-      "hits": 2,
-      "score": 100.0,
+      "hits": 3,
+      "score": 150.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1624,9 +1780,23 @@
           "party": "MDB",
           "value": "291404.01",
           "risk_level": "alto"
+        },
+        {
+          "title": "Adail Filho",
+          "person": "Adail Filho",
+          "party": "MDB",
+          "value": "373770.33",
+          "risk_level": "alto"
+        },
+        {
+          "title": "Acácio Favacho",
+          "person": "Acácio Favacho",
+          "party": "MDB",
+          "value": "291404.01",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_people"
       ]
@@ -1636,8 +1806,8 @@
       "type": "politico",
       "query": "PL - Partido Liberal",
       "term": "PL - Partido Liberal",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1653,9 +1823,16 @@
           "party": "PL",
           "value": "1806381.28",
           "risk_level": "alto"
+        },
+        {
+          "title": "PL - Partido Liberal",
+          "person": "PL - Partido Liberal",
+          "party": "PL",
+          "value": "1581967.98",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1665,8 +1842,8 @@
       "type": "politico",
       "query": "PSDB - Partido da Social Democracia Brasileira",
       "term": "PSDB - Partido da Social Democracia Brasileira",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1682,9 +1859,16 @@
           "party": "PSDB",
           "value": "1210142.70",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSDB - Partido da Social Democracia Brasileira",
+          "person": "PSDB - Partido da Social Democracia Brasileira",
+          "party": "PSDB",
+          "value": "959266.99",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1694,8 +1878,8 @@
       "type": "politico",
       "query": "SOLIDARIEDADE - Solidariedade",
       "term": "SOLIDARIEDADE - Solidariedade",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1711,9 +1895,16 @@
           "party": "SOLIDARIEDADE",
           "value": "1077912.82",
           "risk_level": "alto"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "1083442.83",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1723,8 +1914,8 @@
       "type": "partido",
       "query": "SOLIDARIEDADE",
       "term": "SOLIDARIEDADE",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1740,9 +1931,16 @@
           "party": "SOLIDARIEDADE",
           "value": "1077912.82",
           "risk_level": "alto"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
+          "person": "SOLIDARIEDADE - Solidariedade",
+          "party": "SOLIDARIEDADE",
+          "value": "1083442.83",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1752,8 +1950,8 @@
       "type": "politico",
       "query": "UNIÃO - União Brasil",
       "term": "UNIÃO - União Brasil",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1769,9 +1967,16 @@
           "party": "UNIÃO",
           "value": "1265266.65",
           "risk_level": "alto"
+        },
+        {
+          "title": "UNIÃO - União Brasil",
+          "person": "UNIÃO - União Brasil",
+          "party": "UNIÃO",
+          "value": "1261532.52",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1781,8 +1986,8 @@
       "type": "politico",
       "query": "PSD - Partido Social Democrático",
       "term": "PSD - Partido Social Democrático",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1798,9 +2003,16 @@
           "party": "PSD",
           "value": "993220.07",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "1118337.08",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1810,8 +2022,8 @@
       "type": "partido",
       "query": "PSD",
       "term": "PSD",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1827,9 +2039,16 @@
           "party": "PSD",
           "value": "993220.07",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSD - Partido Social Democrático",
+          "person": "PSD - Partido Social Democrático",
+          "party": "PSD",
+          "value": "1118337.08",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1839,8 +2058,8 @@
       "type": "politico",
       "query": "REPUBLICANOS - Republicanos",
       "term": "REPUBLICANOS - Republicanos",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1856,9 +2075,16 @@
           "party": "REPUBLICANOS",
           "value": "1109277.58",
           "risk_level": "alto"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "1032132.50",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1868,8 +2094,8 @@
       "type": "partido",
       "query": "REPUBLICANOS",
       "term": "REPUBLICANOS",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1885,9 +2111,16 @@
           "party": "REPUBLICANOS",
           "value": "1109277.58",
           "risk_level": "alto"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
+          "person": "REPUBLICANOS - Republicanos",
+          "party": "REPUBLICANOS",
+          "value": "1032132.50",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1897,8 +2130,8 @@
       "type": "politico",
       "query": "PSOL - Partido Socialismo e Liberdade",
       "term": "PSOL - Partido Socialismo e Liberdade",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1914,9 +2147,16 @@
           "party": "PSOL",
           "value": "649708.56",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "639144.82",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1926,8 +2166,8 @@
       "type": "partido",
       "query": "PSOL",
       "term": "PSOL",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1943,9 +2183,16 @@
           "party": "PSOL",
           "value": "649708.56",
           "risk_level": "alto"
+        },
+        {
+          "title": "PSOL - Partido Socialismo e Liberdade",
+          "person": "PSOL - Partido Socialismo e Liberdade",
+          "party": "PSOL",
+          "value": "639144.82",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1955,8 +2202,8 @@
       "type": "politico",
       "query": "REDE - Rede Sustentabilidade",
       "term": "REDE - Rede Sustentabilidade",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -1972,9 +2219,16 @@
           "party": "REDE",
           "value": "446703.96",
           "risk_level": "alto"
+        },
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "446703.96",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -1984,8 +2238,8 @@
       "type": "partido",
       "query": "REDE",
       "term": "REDE",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -2001,9 +2255,16 @@
           "party": "REDE",
           "value": "446703.96",
           "risk_level": "alto"
+        },
+        {
+          "title": "REDE - Rede Sustentabilidade",
+          "person": "REDE - Rede Sustentabilidade",
+          "party": "REDE",
+          "value": "446703.96",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -2013,8 +2274,8 @@
       "type": "politico",
       "query": "PV - Partido Verde",
       "term": "PV - Partido Verde",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -2030,9 +2291,16 @@
           "party": "PV",
           "value": "779248.50",
           "risk_level": "alto"
+        },
+        {
+          "title": "PV - Partido Verde",
+          "person": "PV - Partido Verde",
+          "party": "PV",
+          "value": "658286.89",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -2042,8 +2310,8 @@
       "type": "politico",
       "query": "PRD - Partido Renovação Democrática",
       "term": "PRD - Partido Renovação Democrática",
-      "hits": 2,
-      "score": 50.0,
+      "hits": 3,
+      "score": 75.0,
       "first_seen_at": "2026-04-29T20:48:07.525111-03:00",
       "examples": [
         {
@@ -2059,9 +2327,16 @@
           "party": "PRD",
           "value": "0",
           "risk_level": "médio"
+        },
+        {
+          "title": "PRD - Partido Renovação Democrática",
+          "person": "PRD - Partido Renovação Democrática",
+          "party": "PRD",
+          "value": "375087.72",
+          "risk_level": "alto"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:17:10.752956-03:00",
       "sources": [
         "political_parties"
       ]
@@ -2764,7 +3039,7 @@
     "date_window": {
       "start": "2025-01-15",
       "end": "2026-04-30",
-      "dates_found": 992
+      "dates_found": 1470
     },
     "public_record_types": {
       "connector_source": 9,
@@ -2772,34 +3047,21 @@
       "architecture_status": 1,
       "political_parties": 12,
       "political_people": 24,
+      "portal_transparencia_contratos_fornecedor": 2,
+      "portal_transparencia_notas_fiscais_emitente": 1,
       "universal_search_result": 50
     },
-    "public_records_seen": 97,
-    "alerts_seen": 578,
-    "items_seen": 0,
-    "method_research_sources": [
-      "Open Contracting Partnership - Red Flags in Public Procurement / OCDS",
-      "World Bank - procurement fraud and corruption warning signs",
-      "Portal Nacional de Contratacoes Publicas - dados abertos",
-      "Tribunal de Contas da Uniao - dados abertos",
-      "Controladoria-Geral da Uniao - dados abertos e integridade publica"
-    ]
+    "public_records_seen": 100,
+    "alerts_seen": 585,
+    "items_seen": 50
   },
   "last_training": {
-    "generated_at": "2026-04-30T01:54:01.978383-03:00",
-    "items_analyzed": 7390,
-    "alerts_count": 578,
-    "learned_terms_added": 24,
-    "learned_checks_added": 12,
+    "generated_at": "2026-04-30T02:17:08.546500-03:00",
+    "items_analyzed": 7440,
+    "alerts_count": 585,
+    "learned_terms_added": 12,
+    "learned_checks_added": 8,
     "learned_targets_added": 24,
-    "method_research_applied": true,
-    "method_research_sources": [
-      "Open Contracting Partnership",
-      "World Bank",
-      "PNCP",
-      "TCU",
-      "CGU"
-    ],
     "search_terms_used": [
       "contrato",
       "computador",
@@ -2807,6 +3069,7 @@
       "pavimentação",
       "merenda",
       "medicamento",
+      "Tiririca",
       "São Paulo",
       "00000000000191",
       "Luiz Inacio Lula",
@@ -2857,6 +3120,7 @@
       "pavimentação",
       "merenda",
       "medicamento",
+      "Tiririca",
       "São Paulo",
       "00000000000191",
       "Luiz Inacio Lula",
@@ -2899,17 +3163,17 @@
       "contas eleitorais partido candidato",
       "passagens hospedagem locomoção",
       "viagens deslocamento parlamentar",
-      "Inviabilidade Logistica",
-      "Fator Emergente Recorrencia",
-      "Emergente Recorrencia Atipica",
-      "Recorrencia Atipica Janela",
-      "Atipica Janela Curta",
-      "Fator Emergente"
+      "Fundo Municipal Saude",
+      "Municipal Saude Baliza",
+      "Fundo Municipal",
+      "Municipal Saude",
+      "Saude Baliza",
+      "Inviabilidade Logistica"
     ],
     "date_window": {
       "start": "2025-01-15",
       "end": "2026-04-30",
-      "dates_found": 992
+      "dates_found": 1470
     },
     "public_record_types": {
       "connector_source": 9,
@@ -2917,6 +3181,8 @@
       "architecture_status": 1,
       "political_parties": 12,
       "political_people": 24,
+      "portal_transparencia_contratos_fornecedor": 2,
+      "portal_transparencia_notas_fiscais_emitente": 1,
       "universal_search_result": 50
     },
     "gpu": {
