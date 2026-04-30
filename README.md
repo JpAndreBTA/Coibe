@@ -53,9 +53,13 @@ Coibe IA é um projeto de código aberto. Contribuições, auditorias, issues e 
 
 ## Licenca e creditos
 
-Uso publico permitido com atribuicao obrigatoria ao autor original. Ao usar,
-copiar, modificar, hospedar, redistribuir, apresentar ou criar trabalho derivado
-do COIBE.IA, mantenha credito visivel e razoavel:
+Uso publico permitido com atribuicao obrigatoria ao autor original. Nao e
+permitida a venda do software, de derivados, hospedagens, acessos, APIs,
+integracoes, paineis, servicos ou qualquer oferta comercial relacionada ao
+aplicativo COIBE.IA sem autorizacao previa e expressa de Jp Andre.
+
+Ao usar, copiar, modificar, hospedar, redistribuir, apresentar ou criar trabalho
+derivado do COIBE.IA, mantenha credito visivel e razoavel:
 
 `COIBE.IA por Jp Andre`
 

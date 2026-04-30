@@ -5,9 +5,10 @@ Copyright (c) 2026 Jp Andre
 Permissao e concedida, gratuitamente, a qualquer pessoa que obtenha uma copia
 deste software e dos arquivos de documentacao associados (o "Software"), para
 usar, copiar, modificar, mesclar, publicar, distribuir e criar trabalhos
-derivados do Software, inclusive para fins publicos, educacionais, jornalisticos,
-academicos, institucionais ou comerciais, desde que sejam cumpridas as seguintes
-condicoes:
+derivados do Software, exclusivamente para fins publicos, educacionais,
+jornalisticos, academicos, institucionais, civicos, comunitarios, de auditoria,
+pesquisa, transparencia ou uso interno nao comercial, desde que sejam cumpridas
+as seguintes condicoes:
 
 1. Credito obrigatorio
 
@@ -27,7 +28,22 @@ condicoes:
    Este aviso de copyright e esta licenca devem ser incluidos em todas as copias
    ou partes substanciais do Software.
 
-3. Uso de dados e resultados
+3. Proibicao de venda e exploracao comercial
+
+   Nao e permitido vender, alugar, licenciar comercialmente, sublicenciar,
+   cobrar acesso, cobrar assinatura, cobrar hospedagem, cobrar consultoria
+   vinculada diretamente ao uso do Software, comercializar versoes modificadas,
+   incorporar o Software em produto pago, oferecer o Software como servico pago
+   ou realizar qualquer venda de software, produto, servico, pacote, painel,
+   relatorio automatizado, API, integracao, treinamento comercial ou oferta
+   relacionada ao aplicativo COIBE.IA ou a trabalhos derivados dele, sem
+   autorizacao previa e expressa de Jp Andre.
+
+   A proibicao tambem se aplica a nomes, marcas, telas, codigo, modelo,
+   derivados, forks, distribuicoes, hospedagens, integrações e materiais que
+   usem o Software como base principal de uma oferta comercial.
+
+4. Uso de dados e resultados
 
    O Software foi criado para monitoramento preventivo, cruzamento de dados
    publicos, transparencia e apoio a analise humana. O uso do Software nao deve
@@ -35,7 +51,7 @@ condicoes:
    irregularidade, parentesco, vinculo indevido ou responsabilidade legal sem a
    devida verificacao por fontes oficiais e autoridades competentes.
 
-4. Sem garantia
+5. Sem garantia
 
    O SOFTWARE E FORNECIDO "COMO ESTA", SEM GARANTIA DE QUALQUER TIPO, EXPRESSA
    OU IMPLICITA, INCLUINDO, MAS NAO SE LIMITANDO A GARANTIAS DE COMERCIALIZACAO,
