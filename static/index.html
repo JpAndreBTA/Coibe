@@ -3,24 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>COIBE.IA - Análise de CNPJ</title>
+    <title>COIBE.IA - API Pública</title>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #070707;
+        --bg: #080808;
         --panel: #171717;
-        --panel-2: #101010;
-        --line: #2a2a2a;
-        --text: #f5f5f5;
+        --panel-soft: #101010;
+        --panel-deep: #050505;
+        --line: #262626;
+        --line-strong: #3f3f46;
+        --text: #fafafa;
         --muted: #a3a3a3;
-        --red: #ef3333;
-        --red-dark: #b91c1c;
+        --muted-2: #737373;
+        --red: #dc2626;
+        --red-soft: rgba(220, 38, 38, 0.16);
+        --red-line: rgba(220, 38, 38, 0.55);
         --amber: #f59e0b;
         --green: #22c55e;
       }
 
       * {
         box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
       }
 
       body {
@@ -31,116 +39,198 @@
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
-      header {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        border-bottom: 1px solid var(--line);
-        background: #000;
+      a {
+        color: inherit;
       }
 
       .wrap {
-        width: min(1120px, calc(100% - 32px));
+        width: min(1180px, calc(100% - 28px));
         margin: 0 auto;
       }
 
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--line);
+        background: rgba(8, 8, 8, 0.94);
+        backdrop-filter: blur(14px);
+      }
+
       .topbar {
-        min-height: 64px;
         display: flex;
+        min-height: 64px;
         align-items: center;
         justify-content: space-between;
-        gap: 24px;
+        gap: 18px;
       }
 
       .brand {
         display: flex;
+        min-width: 0;
         align-items: center;
         gap: 10px;
-        font-weight: 800;
-        letter-spacing: 4px;
-        font-size: 24px;
+        font-size: 22px;
+        font-weight: 950;
+        letter-spacing: 0;
       }
 
       .brand-mark {
-        width: 30px;
-        height: 30px;
-        border: 3px solid var(--red);
-        border-radius: 999px;
-        position: relative;
-      }
-
-      .brand-mark::before,
-      .brand-mark::after {
-        content: "";
-        position: absolute;
-        inset: 5px;
-        border: 3px solid var(--red);
-        border-radius: inherit;
-      }
-
-      .brand-mark::after {
-        inset: 12px;
-        background: var(--red);
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 2px solid var(--red);
+        border-radius: 8px;
+        color: var(--red);
+        font-size: 16px;
+        font-weight: 950;
       }
 
       .brand small {
         color: var(--red);
-        letter-spacing: 0;
         font-size: 13px;
-        margin-left: -6px;
+        font-weight: 900;
+      }
+
+      .nav-note {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: right;
       }
 
       main {
-        padding: 28px 0 56px;
+        padding: 30px 0 56px;
       }
 
-      .hero {
+      .shell {
         display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
-        gap: 28px;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) 380px;
         align-items: start;
       }
 
-      h1 {
+      .intro {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 22px;
+      }
+
+      .eyebrow {
         margin: 0 0 10px;
-        max-width: 760px;
-        font-size: clamp(32px, 5vw, 56px);
-        line-height: 1;
+        color: #fca5a5;
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 820px;
+        font-size: clamp(28px, 4.5vw, 48px);
+        line-height: 1.04;
         letter-spacing: 0;
       }
 
       .lead {
-        margin: 0 0 24px;
-        max-width: 690px;
+        margin: 14px 0 0;
+        max-width: 800px;
+        color: #d4d4d4;
+        font-size: 16px;
+        line-height: 1.65;
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .quick-card,
+      .metric,
+      .source-card,
+      .kv div,
+      .qsa li,
+      .flag {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .quick-card {
+        min-height: 96px;
+        padding: 14px;
+      }
+
+      .quick-card span,
+      .metric span,
+      .kv span {
+        display: block;
+        color: var(--muted-2);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .quick-card strong,
+      .metric strong,
+      .kv strong {
+        display: block;
+        margin-top: 6px;
+        overflow-wrap: anywhere;
+        color: var(--text);
+      }
+
+      .quick-card p {
+        margin: 8px 0 0;
         color: var(--muted);
-        font-size: 18px;
-        line-height: 1.55;
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       .panel {
-        background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 8px;
+        background: var(--panel);
       }
 
       form.panel {
-        padding: 20px;
+        padding: 18px;
+      }
+
+      form h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .form-help {
+        margin: 8px 0 18px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .field {
+        margin-bottom: 14px;
       }
 
       label {
         display: block;
-        margin-bottom: 8px;
+        margin-bottom: 7px;
         color: #d4d4d4;
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
       }
 
       input {
         width: 100%;
-        min-height: 44px;
+        min-height: 46px;
         border: 1px solid #333;
         border-radius: 8px;
-        background: #0d0d0d;
+        background: var(--panel-deep);
         color: var(--text);
         padding: 10px 12px;
         font-size: 15px;
@@ -149,69 +239,80 @@
 
       input:focus {
         border-color: var(--red);
-        box-shadow: 0 0 0 3px rgba(239, 51, 51, 0.18);
-      }
-
-      .field {
-        margin-bottom: 16px;
+        box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
       }
 
       .grid-2 {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 14px;
+        gap: 12px;
       }
 
       button {
         width: 100%;
         min-height: 46px;
-        border: 0;
+        border: 1px solid var(--red);
         border-radius: 8px;
         background: var(--red);
         color: white;
-        font-weight: 800;
-        font-size: 15px;
         cursor: pointer;
+        font-size: 14px;
+        font-weight: 950;
+        transition: 0.18s ease;
       }
 
       button:hover {
-        background: var(--red-dark);
+        background: #b91c1c;
+        border-color: #b91c1c;
       }
 
       button:disabled {
         cursor: wait;
-        opacity: 0.7;
+        opacity: 0.72;
       }
 
-      .stats {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 14px;
-        margin-top: 22px;
-      }
-
-      .stat {
-        padding: 18px;
-        background: var(--panel);
-        border: 1px solid var(--line);
+      .error {
+        display: none;
+        margin-top: 14px;
+        border: 1px solid var(--red-line);
         border-radius: 8px;
-      }
-
-      .stat span {
-        display: block;
-        color: var(--muted);
+        background: var(--red-soft);
+        color: #fecaca;
+        padding: 12px;
         font-size: 13px;
-        margin-bottom: 8px;
+        line-height: 1.5;
       }
 
-      .stat strong {
+      .error.visible {
         display: block;
-        font-size: 24px;
+      }
+
+      .sources {
+        margin-top: 24px;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .source-card {
+        padding: 14px;
+      }
+
+      .source-card strong {
+        display: block;
+        color: var(--text);
+      }
+
+      .source-card p {
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       .result {
-        margin-top: 28px;
         display: none;
+        margin-top: 24px;
       }
 
       .result.visible {
@@ -219,21 +320,23 @@
       }
 
       .result-head {
-        padding: 20px;
         display: flex;
         justify-content: space-between;
         gap: 16px;
+        padding: 18px;
         border-bottom: 1px solid var(--line);
       }
 
       .result-head h2 {
-        margin: 0 0 6px;
+        margin: 0 0 7px;
         font-size: 22px;
+        line-height: 1.2;
       }
 
       .result-head p {
         margin: 0;
         color: var(--muted);
+        font-size: 14px;
       }
 
       .badge {
@@ -241,116 +344,139 @@
         white-space: nowrap;
         border: 1px solid currentColor;
         border-radius: 999px;
+        background: rgba(34, 197, 94, 0.1);
+        color: var(--green);
         padding: 6px 10px;
         font-size: 12px;
-        font-weight: 800;
-        color: var(--green);
+        font-weight: 950;
       }
 
       .badge.high {
-        color: var(--red);
+        background: var(--red-soft);
+        color: #fca5a5;
       }
 
       .badge.medium {
-        color: var(--amber);
+        background: rgba(245, 158, 11, 0.12);
+        color: #fcd34d;
       }
 
       .result-body {
-        padding: 20px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.75fr);
-        gap: 20px;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 0.72fr);
+        gap: 18px;
+        padding: 18px;
+      }
+
+      h3 {
+        margin: 0 0 12px;
+        color: #d4d4d4;
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       .kv {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        gap: 10px;
       }
 
-      .kv div,
-      .qsa li,
+      .kv div {
+        padding: 13px;
+      }
+
       .flag {
-        background: var(--panel-2);
-        border: 1px solid var(--line);
-        border-radius: 8px;
+        border-color: var(--red-line);
+        background: var(--red-soft);
         padding: 14px;
       }
 
-      .kv span {
+      .flag strong {
         display: block;
-        color: var(--muted);
-        font-size: 12px;
-        margin-bottom: 6px;
-      }
-
-      .kv strong {
-        overflow-wrap: anywhere;
-      }
-
-      h3 {
-        margin: 0 0 12px;
-        font-size: 15px;
-        text-transform: uppercase;
-        letter-spacing: 0;
-        color: #d4d4d4;
-      }
-
-      .flag {
-        border-color: rgba(239, 51, 51, 0.45);
+        color: white;
       }
 
       .flag p {
         margin: 8px 0 0;
-        color: #e5e5e5;
-        line-height: 1.45;
+        color: #fee2e2;
+        font-size: 13px;
+        line-height: 1.55;
       }
 
       .qsa {
-        list-style: none;
-        padding: 0;
-        margin: 0;
         display: grid;
         gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .qsa li {
+        padding: 13px;
       }
 
       .qsa small {
         display: block;
-        color: var(--muted);
         margin-top: 4px;
+        color: var(--muted);
       }
 
-      .error {
-        display: none;
+      .note {
         margin-top: 14px;
-        color: #fecaca;
-        background: rgba(239, 51, 51, 0.12);
-        border: 1px solid rgba(239, 51, 51, 0.45);
+        border: 1px solid var(--line);
         border-radius: 8px;
+        background: var(--panel-soft);
         padding: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
       }
 
-      .error.visible {
-        display: block;
-      }
-
-      @media (max-width: 860px) {
-        .hero,
+      @media (max-width: 980px) {
+        .shell,
         .result-body {
           grid-template-columns: 1fr;
         }
+      }
 
-        .stats,
+      @media (max-width: 720px) {
+        .wrap {
+          width: min(100% - 20px, 1180px);
+        }
+
+        main {
+          padding-top: 18px;
+        }
+
+        .topbar {
+          min-height: auto;
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 12px 0;
+        }
+
+        .nav-note {
+          text-align: left;
+        }
+
+        .intro,
+        form.panel,
+        .result-head,
+        .result-body {
+          padding: 14px;
+        }
+
+        .quick-grid,
+        .sources,
         .grid-2,
         .kv {
           grid-template-columns: 1fr;
         }
 
-        .topbar {
-          align-items: flex-start;
+        .result-head {
           flex-direction: column;
-          padding: 14px 0;
-          gap: 8px;
         }
       }
     </style>
@@ -358,27 +484,63 @@
   <body>
     <header>
       <div class="wrap topbar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true"></span>COIBE<small>.IA</small></div>
-        <div style="color: var(--muted); font-size: 14px">Dados públicos, análise clara, controle social.</div>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span>COIBE<small>.IA</small></span>
+        </div>
+        <div class="nav-note">API pública para consulta rápida de CNPJ e sinais de atenção.</div>
       </div>
     </header>
 
     <main class="wrap">
-      <section class="hero">
+      <section class="shell">
         <div>
-          <h1>Análise pública de risco em CNPJs contratados pelo poder público</h1>
-          <p class="lead">
-            Consulte a Brasil API, veja a data de abertura, o quadro de sócios e receba um parecer automático da Red Flag 01 para contratos de alto valor.
-          </p>
+          <section class="intro">
+            <p class="eyebrow">COIBE API</p>
+            <h1>Análise pública de CNPJ em contratos do poder público</h1>
+            <p class="lead">
+              Consulte um CNPJ, informe o valor e a data do contrato. O COIBE busca dados públicos e entrega um parecer direto sobre abertura recente, sócios e risco inicial.
+            </p>
 
-          <div class="stats">
-            <div class="stat"><span>Fonte</span><strong>Brasil API</strong></div>
-            <div class="stat"><span>Red Flag 01</span><strong>180 dias</strong></div>
-            <div class="stat"><span>Contrato grande</span><strong>R$ 500 mil</strong></div>
-          </div>
+            <div class="quick-grid">
+              <div class="quick-card">
+                <span>Fonte principal</span>
+                <strong>Brasil API</strong>
+                <p>Dados cadastrais, abertura, município, UF e quadro de sócios.</p>
+              </div>
+              <div class="quick-card">
+                <span>Red Flag 01</span>
+                <strong>180 dias</strong>
+                <p>Empresa muito recente em contrato relevante recebe atenção.</p>
+              </div>
+              <div class="quick-card">
+                <span>Contrato grande</span>
+                <strong>R$ 500 mil</strong>
+                <p>Valor de referência para priorizar conferência humana.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="sources" aria-label="Fontes e cruzamentos">
+            <div class="source-card">
+              <strong>Consulta em uma resposta</strong>
+              <p>Reúne CNPJ, contrato informado, idade da empresa e parecer em um só retorno.</p>
+            </div>
+            <div class="source-card">
+              <strong>Dados verificáveis</strong>
+              <p>A análise usa fonte pública e mostra os critérios usados no alerta.</p>
+            </div>
+            <div class="source-card">
+              <strong>Uso responsável</strong>
+              <p>O alerta indica prioridade de checagem. Não é acusação nem conclusão oficial.</p>
+            </div>
+          </section>
         </div>
 
         <form class="panel" id="analysisForm">
+          <h2>Analisar CNPJ</h2>
+          <p class="form-help">Preencha os dados do contrato para consultar a empresa e gerar o parecer.</p>
+
           <div class="field">
             <label for="cnpj">CNPJ</label>
             <input id="cnpj" name="cnpj" inputmode="numeric" placeholder="00.000.000/0001-00" required />
@@ -397,12 +559,17 @@
 
           <button id="submitButton" type="submit">Analisar CNPJ</button>
           <div class="error" id="errorBox"></div>
+
+          <div class="note">
+            O COIBE cruza dados públicos para orientar conferência. Confirme sempre a informação na fonte oficial.
+          </div>
         </form>
       </section>
 
       <section class="result panel" id="result">
         <div class="result-head">
           <div>
+            <p class="eyebrow">Parecer Analítico do COIBE</p>
             <h2 id="companyName"></h2>
             <p id="companySubtitle"></p>
           </div>
