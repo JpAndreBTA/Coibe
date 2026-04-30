@@ -56,6 +56,7 @@ PORTAL_TRANSPARENCIA_BASE_URL = os.getenv(
 PORTAL_TRANSPARENCIA_API_KEY = os.getenv("PORTAL_TRANSPARENCIA_API_KEY", "")
 PORTAL_TRANSPARENCIA_EMAIL = os.getenv("PORTAL_TRANSPARENCIA_EMAIL", "")
 IBGE_CITY_SEARCH_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
+IBGE_MUNICIPALITY_GEOJSON_URL = "https://servicodados.ibge.gov.br/api/v3/malhas/municipios/{city_id}"
 COMPRAS_CONTRATOS_URL = "https://dadosabertos.compras.gov.br/modulo-contratos/1_consultarContratos"
 COMPRAS_UASG_URL = "https://dadosabertos.compras.gov.br/modulo-uasg/1_consultarUasg"
 QUERIDO_DIARIO_GAZETTES_URL = "https://api.queridodiario.ok.org.br/gazettes"
@@ -166,6 +167,9 @@ SEARCH_CACHE_TTL_HOURS = float(os.getenv("COIBE_SEARCH_CACHE_TTL_HOURS", "24"))
 IBGE_STATES_GEOJSON_CACHE_PATH = Path(os.getenv("COIBE_IBGE_STATES_GEOJSON_CACHE_PATH", "data/cache/ibge-states-geojson.json"))
 MONITORING_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_MAP_CACHE_PATH", "data/cache/monitoring-map.json"))
 MONITORING_STATE_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_STATE_MAP_CACHE_PATH", "data/cache/monitoring-state-map.json"))
+CITY_COORDINATES_CACHE_PATH = Path(os.getenv("COIBE_CITY_COORDINATES_CACHE_PATH", "data/cache/city-coordinates.json"))
+MAP_POINTS_CACHE_VERSION = 2
+CITY_COORDINATES_LOOKUP_LIMIT = int(os.getenv("COIBE_CITY_COORDINATES_LOOKUP_LIMIT", "140"))
 API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
 API_RESPONSE_CACHE_MAX_ENTRIES = int(os.getenv("COIBE_API_RESPONSE_CACHE_MAX_ENTRIES", "512"))
 RATE_LIMIT_BUCKET_MAX_KEYS = int(os.getenv("COIBE_RATE_LIMIT_BUCKET_MAX_KEYS", "5000"))
@@ -1505,11 +1509,16 @@ async def fetch_ibge_cities_cached() -> list[dict[str, Any]]:
     return IBGE_CITIES_CACHE["items"]
 
 
-async def fetch_city_from_ibge(city_name: str) -> dict[str, Any] | None:
+async def fetch_city_from_ibge(city_name: str, uf: str | None = None) -> dict[str, Any] | None:
     cities = await fetch_ibge_cities_cached()
     normalized = normalize_text(city_name)
+    normalized_uf = (uf or "").strip().upper()
     for city in cities:
-        if normalize_text(city.get("nome", "")) == normalized:
+        microrregiao = city.get("microrregiao") or {}
+        mesorregiao = microrregiao.get("mesorregiao") if isinstance(microrregiao, dict) else {}
+        uf_data = (mesorregiao or {}).get("UF") if isinstance(mesorregiao, dict) else {}
+        city_uf = (uf_data or {}).get("sigla") if isinstance(uf_data, dict) else None
+        if normalize_text(city.get("nome", "")) == normalized and (not normalized_uf or str(city_uf or "").upper() == normalized_uf):
             return city
     return None
 
@@ -3653,6 +3662,127 @@ def coords_for(city: str | None, uf: str | None) -> tuple[float, float]:
     return (-14.235, -51.9253)
 
 
+def city_coordinate_cache_key(city: str | None, uf: str | None) -> str:
+    return f"{normalize_text(city)}|{str(uf or '').strip().upper()}"
+
+
+def read_city_coordinates_cache() -> dict[str, Any]:
+    cached = read_data_json(CITY_COORDINATES_CACHE_PATH, {})
+    return cached if isinstance(cached, dict) else {}
+
+
+def write_city_coordinates_cache(cache: dict[str, Any]) -> None:
+    write_json(CITY_COORDINATES_CACHE_PATH, cache)
+
+
+def lonlat_ring_area_centroid(ring: list[Any]) -> tuple[float, float, float] | None:
+    area = 0.0
+    cx = 0.0
+    cy = 0.0
+    for index in range(len(ring)):
+        try:
+            x1, y1 = float(ring[index][0]), float(ring[index][1])
+            x2, y2 = float(ring[(index + 1) % len(ring)][0]), float(ring[(index + 1) % len(ring)][1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        cross = x1 * y2 - x2 * y1
+        area += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    area /= 2.0
+    if not area:
+        return None
+    return area, cx / (6.0 * area), cy / (6.0 * area)
+
+
+def lonlat_geometry_centroid(geometry: dict[str, Any] | None) -> tuple[float, float] | None:
+    if not isinstance(geometry, dict):
+        return None
+    coordinates = geometry.get("coordinates")
+    if geometry.get("type") == "Polygon":
+        rings = coordinates if isinstance(coordinates, list) else []
+    elif geometry.get("type") == "MultiPolygon":
+        rings = [ring for polygon in coordinates or [] for ring in polygon]
+    else:
+        rings = []
+
+    best: tuple[float, float, float] | None = None
+    for ring in rings:
+        if not isinstance(ring, list):
+            continue
+        centroid = lonlat_ring_area_centroid(ring)
+        if centroid and (best is None or abs(centroid[0]) > abs(best[0])):
+            best = centroid
+    if best is None:
+        return None
+    _, lng, lat = best
+    if not (-180 <= lng <= 180 and -90 <= lat <= 90):
+        return None
+    return lat, lng
+
+
+async def fetch_ibge_city_centroid(city: str | None, uf: str | None) -> tuple[float, float] | None:
+    if not city:
+        return None
+    ibge_city = await fetch_city_from_ibge(city, uf)
+    city_id = ibge_city.get("id") if isinstance(ibge_city, dict) else None
+    if not city_id:
+        return None
+    data = await get_json(
+        IBGE_MUNICIPALITY_GEOJSON_URL.format(city_id=city_id),
+        params={"formato": "application/vnd.geo+json", "qualidade": "minima"},
+    )
+    features = data.get("features") if isinstance(data, dict) else None
+    if not features:
+        return None
+    return lonlat_geometry_centroid(features[0].get("geometry") if isinstance(features[0], dict) else None)
+
+
+async def coords_for_map_point(
+    city: str | None,
+    uf: str | None,
+    cache: dict[str, Any],
+    lookup_counter: dict[str, int],
+) -> tuple[float, float, str, bool]:
+    key = city_coordinate_cache_key(city, uf)
+    cached = cache.get(key)
+    if isinstance(cached, dict):
+        lat = cached.get("lat")
+        lng = cached.get("lng")
+        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+            return float(lat), float(lng), str(cached.get("source") or "ibge_municipality_centroid_cache"), False
+
+    if city and city.lower() != "brasil" and lookup_counter["count"] < CITY_COORDINATES_LOOKUP_LIMIT:
+        lookup_counter["count"] += 1
+        try:
+            centroid = await fetch_ibge_city_centroid(city, uf)
+        except HTTPException:
+            centroid = None
+        if centroid:
+            lat, lng = centroid
+            cache[key] = {
+                "city": city,
+                "uf": uf,
+                "lat": lat,
+                "lng": lng,
+                "source": "ibge_municipality_centroid",
+                "updated_at": brasilia_now().isoformat(),
+            }
+            return lat, lng, "ibge_municipality_centroid", True
+
+    lat, lng = coords_for(city, uf)
+    source = "city_reference" if city and city.strip().upper() in CITY_COORDS else "uf_capital_fallback"
+    cache[key] = {
+        "city": city,
+        "uf": uf,
+        "lat": lat,
+        "lng": lng,
+        "source": source,
+        "updated_at": brasilia_now().isoformat(),
+    }
+    return lat, lng, source, True
+
+
 def filter_map_points(
     points: list[MonitoringMapPoint],
     q: str | None = None,
@@ -3689,26 +3819,44 @@ def filter_map_points(
     return filtered
 
 
-def build_monitoring_map_points_from_items(items: list[MonitoringItem]) -> list[MonitoringMapPoint]:
+async def build_monitoring_map_points_from_items(items: list[MonitoringItem]) -> list[MonitoringMapPoint]:
     grouped: dict[str, dict[str, Any]] = {}
     for item in items:
         key = f"{item.city or 'Brasil'}-{item.uf or 'BR'}"
-        lat, lng = coords_for(item.city, item.uf)
         bucket = grouped.setdefault(
             key,
             {
                 "city": item.city or "Brasil",
                 "uf": item.uf or "BR",
-                "lat": lat,
-                "lng": lng,
+                "lat": 0.0,
+                "lng": 0.0,
                 "risk_score": 0,
                 "total_value": Decimal("0"),
                 "alerts_count": 0,
+                "spatial_source": "pending",
             },
         )
         bucket["risk_score"] = max(bucket["risk_score"], item.risk_score)
         bucket["total_value"] += item.value
         bucket["alerts_count"] += 1
+
+    coordinate_cache = read_city_coordinates_cache()
+    lookup_counter = {"count": 0}
+    cache_changed = False
+    for bucket in grouped.values():
+        lat, lng, source, changed = await coords_for_map_point(
+            str(bucket.get("city") or ""),
+            str(bucket.get("uf") or ""),
+            coordinate_cache,
+            lookup_counter,
+        )
+        bucket["lat"] = lat
+        bucket["lng"] = lng
+        bucket["spatial_source"] = source
+        cache_changed = cache_changed or changed
+    if cache_changed:
+        write_city_coordinates_cache(coordinate_cache)
+
     points = [MonitoringMapPoint(**bucket) for bucket in grouped.values()]
     points.sort(key=lambda point: (point.risk_score, point.total_value, point.alerts_count), reverse=True)
     return points
@@ -3718,6 +3866,7 @@ def write_map_points_cache(points: list[MonitoringMapPoint]) -> None:
     write_ttl_json(
         MONITORING_MAP_CACHE_PATH,
         {
+            "version": MAP_POINTS_CACHE_VERSION,
             "generated_at": brasilia_now().isoformat(),
             "points": [point.model_dump(mode="json") for point in points],
         },
@@ -3726,7 +3875,9 @@ def write_map_points_cache(points: list[MonitoringMapPoint]) -> None:
 
 def read_map_points_cache() -> list[MonitoringMapPoint]:
     cached = read_ttl_json(MONITORING_MAP_CACHE_PATH, MAP_CACHE_TTL_SECONDS, {})
-    rows = cached.get("points") if isinstance(cached, dict) else None
+    if not isinstance(cached, dict) or cached.get("version") != MAP_POINTS_CACHE_VERSION:
+        return []
+    rows = cached.get("points")
     if not isinstance(rows, list):
         return []
     points: list[MonitoringMapPoint] = []
@@ -7470,18 +7621,7 @@ async def monitoring_map(
 
     async def build_response() -> MonitoringMapResponse:
         cache_status = "live"
-        has_map_filter = bool(q or uf or city) or None not in (min_lng, min_lat, max_lng, max_lat)
         if source != "live":
-            postgis_points = await asyncio.to_thread(postgis_read_map_points, q, uf, city, min_lat, max_lat, min_lng, max_lng)
-            if postgis_points and (has_map_filter or len(postgis_points) >= min(page_size, 25)):
-                return MonitoringMapResponse(
-                    sources=["PostGIS cache", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
-                    points=postgis_points[:page_size],
-                    generated_at=brasilia_now(),
-                    cache_status="postgis-hit",
-                    postgis_enabled=POSTGIS_ENABLED,
-                    total_returned=min(len(postgis_points), page_size),
-                )
             file_points = read_map_points_cache()
             if file_points:
                 filtered = filter_map_points(file_points, q=q, uf=uf, city=city, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
@@ -7499,7 +7639,7 @@ async def monitoring_map(
 
         local_items = load_local_monitoring_items() if source != "live" else []
         if local_items:
-            points = build_monitoring_map_points_from_items(local_items)
+            points = await build_monitoring_map_points_from_items(local_items)
             cache_status = "local-refresh"
         else:
             contracts = await fetch_public_contracts(page=1, page_size=min(max(page_size, 10), 100), query=q or city)
@@ -7517,7 +7657,7 @@ async def monitoring_map(
             if city:
                 city_filter = normalize_text(city)
                 items = [item for item in items if city_filter in normalize_text(item.city or item.location)]
-            points = build_monitoring_map_points_from_items(items)
+            points = await build_monitoring_map_points_from_items(items)
             cache_status = "live-refresh"
 
         all_points = points

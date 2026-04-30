@@ -366,72 +366,18 @@ function geometryLabelPoint(geometry) {
   return best ? { x: best.x, y: best.y } : null;
 }
 
-function geometryProjectedBounds(geometry) {
-  if (!geometry) return null;
-  const rings = geometry.type === 'Polygon'
-    ? geometry.coordinates
-    : geometry.type === 'MultiPolygon'
-      ? geometry.coordinates.flat()
-      : [];
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const ring of rings) {
-    for (const coord of ring) {
-      const [x, y] = projectPoint(coord);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
-  return { minX, minY, maxX, maxY };
-}
-
-function offsetOverlappingMapPoints(points, boundsByUf) {
-  const prepared = points.map((point, index) => {
+function positionedMapPointsFromCoordinates(points) {
+  return points.map((point, index) => {
     const lng = Number(point.lng);
     const lat = Number(point.lat);
     const [baseX, baseY] = projectPoint([lng, lat]);
     return {
       ...point,
-      displayKey: `${point.uf || 'BR'}:${baseX.toFixed(1)}:${baseY.toFixed(1)}`,
       originalIndex: index,
       displayX: baseX,
       displayY: baseY
     };
   });
-
-  const groups = new Map();
-  for (const point of prepared) {
-    const group = groups.get(point.displayKey) || [];
-    group.push(point);
-    groups.set(point.displayKey, group);
-  }
-
-  for (const group of groups.values()) {
-    if (group.length <= 1) continue;
-    const total = group.length;
-    group.forEach((point, index) => {
-      const bounds = boundsByUf[point.uf] || {
-        minX: 0,
-        minY: 0,
-        maxX: mapBounds.width,
-        maxY: mapBounds.height
-      };
-      const safeWidth = Math.max(bounds.maxX - bounds.minX, 1);
-      const safeHeight = Math.max(bounds.maxY - bounds.minY, 1);
-      const maxRadius = Math.max(10, Math.min(95, safeWidth * 0.42, safeHeight * 0.42));
-      const radius = Math.min(maxRadius, 7 + Math.sqrt(index + 1) * (total > 18 ? 8 : 6));
-      const angle = index * 2.399963229728653;
-      point.displayX = clampNumber(point.displayX + Math.cos(angle) * radius, bounds.minX + 5, bounds.maxX - 5);
-      point.displayY = clampNumber(point.displayY + Math.sin(angle) * radius, bounds.minY + 5, bounds.maxY - 5);
-    });
-  }
-
-  return prepared.sort((left, right) => left.originalIndex - right.originalIndex);
 }
 
 function stateFill(score, selected) {
@@ -2064,20 +2010,10 @@ function applySearchResult(result) {
     ].join(' ')).includes(mapSearchText));
   }, [mapPoints, mapSearchText, stateRisks]);
   const mapPointLimit = mapZoom >= 1.6 ? 240 : 140;
-  const mapCityLabelLimit = mapZoom >= 2.25 ? 140 : mapZoom >= 1.7 ? 90 : mapZoom >= 1.3 ? 45 : 0;
-  const mapStateBounds = useMemo(() => {
-    const bounds = {};
-    for (const feature of geoJson?.features || []) {
-      const props = feature.properties || {};
-      const uf = props.sigla || props.UF || props.uf || props.SIGLA_UF || IBGE_CODE_TO_UF[props.codarea];
-      const projectedBounds = geometryProjectedBounds(feature.geometry);
-      if (uf && projectedBounds) bounds[uf] = projectedBounds;
-    }
-    return bounds;
-  }, [geoJson]);
+  const mapCityLabelLimit = mapZoom >= 2.6 ? 80 : mapZoom >= 2 ? 45 : mapZoom >= 1.55 ? 20 : 0;
   const positionedMapPoints = useMemo(
-    () => offsetOverlappingMapPoints(visibleMapPoints.slice(0, mapPointLimit), mapStateBounds),
-    [visibleMapPoints, mapPointLimit, mapStateBounds]
+    () => positionedMapPointsFromCoordinates(visibleMapPoints.slice(0, mapPointLimit)),
+    [visibleMapPoints, mapPointLimit]
   );
 
   return (
@@ -2640,11 +2576,12 @@ function applySearchResult(result) {
                             y={point.y}
                             textAnchor="middle"
                             dominantBaseline="central"
-                            className="pointer-events-none select-none text-[18px] font-black"
+                            className="pointer-events-none select-none font-black"
                             fill={selected || (risk.risk_score || 0) >= 20 ? '#fff7ed' : '#d4d4d4'}
                             stroke="rgba(0,0,0,0.78)"
-                            strokeWidth="3"
+                            strokeWidth={Math.max(0.8, 3 / Math.max(mapZoom, 1))}
                             paintOrder="stroke"
+                            fontSize={Math.max(6, 18 / Math.max(mapZoom, 1))}
                           >
                             {uf}
                             <title>{name}</title>
@@ -2677,10 +2614,10 @@ function applySearchResult(result) {
                             <circle
                               cx={point.displayX}
                               cy={point.displayY}
-                              r={selected ? 5 : 3.4}
+                              r={selected ? Math.max(2.2, 5 / Math.max(mapZoom, 1)) : Math.max(1.6, 3.4 / Math.max(mapZoom, 1))}
                               fill={selected ? '#ffffff' : '#f87171'}
                               stroke="#7f1d1d"
-                              strokeWidth="1.2"
+                              strokeWidth={Math.max(0.5, 1.2 / Math.max(mapZoom, 1))}
                               opacity="0.92"
                             >
                               <title>{point.city} - {point.uf}: {point.alerts_count || 0} alertas</title>
@@ -2694,16 +2631,16 @@ function applySearchResult(result) {
                         return (
                           <text
                             key={`${point.city}-${point.uf}-city-label-${index}`}
-                            x={point.displayX + 6}
-                            y={point.displayY - 5}
+                            x={point.displayX + (6 / Math.max(mapZoom, 1))}
+                            y={point.displayY - (5 / Math.max(mapZoom, 1))}
                             textAnchor="start"
                             dominantBaseline="central"
                             pointerEvents="none"
                             fill={selected ? '#ffffff' : '#fecaca'}
                             stroke="rgba(0,0,0,0.8)"
-                            strokeWidth={2.6 / mapZoom}
+                            strokeWidth={Math.max(0.65, 2.2 / Math.max(mapZoom, 1))}
                             paintOrder="stroke"
-                            fontSize={Math.max(7, 11 / mapZoom)}
+                            fontSize={Math.max(2.6, (selected ? 10 : 8) / Math.max(mapZoom, 1))}
                             fontWeight="800"
                           >
                             {compactText(point.city, mapZoom >= 2 ? 18 : 12)}
