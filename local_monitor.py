@@ -577,6 +577,18 @@ VERIFICATION_CHECK_LIBRARY: dict[str, dict[str, Any]] = {
         "query_hints": ["TCU dados abertos controle externo", "CGU dados abertos integridade publica", "PNCP dados abertos contratos"],
         "signals": ["pncp", "tcu", "cgu", "portal da transparencia", "ceis", "cnep", "tse", "stf"],
     },
+    "backend_tunnel_cache_health": {
+        "title": "Verificar estabilidade do backend, tunel e cache de API",
+        "description": "Prioriza checagens quando o recorte depende de muitas consultas GET, cache local, status do backend ou tunnel publico.",
+        "query_hints": ["backend health cache api", "cloudflare tunnel api latency"],
+        "signals": ["backend", "api", "cache", "latencia", "tunnel", "tunel", "timeout"],
+    },
+    "postgis_map_spatial_cache": {
+        "title": "Validar cache geografico e consulta espacial PostGIS",
+        "description": "Checa se municipio, UF, coordenadas, bbox/zoom e agregacoes geograficas batem com os contratos cacheados.",
+        "query_hints": ["postgis spatial cache mapa contratos", "geographic risk query bbox"],
+        "signals": ["postgis", "mapa", "municipio", "uf", "coordenada", "bbox", "zoom", "geografico"],
+    },
 }
 
 
@@ -639,6 +651,10 @@ def infer_verification_checks_from_text(
         add_verification_check(candidates, "proximity_money_flow", weight, source, evidence)
     if any(term in text for term in ("PROCESSO", "CONTROLE", "STF", "TCU", "TSE", "JURISPRUDENCIA")):
         add_verification_check(candidates, "official_process_control_check", weight, source, evidence)
+    if any(term in text for term in ("BACKEND", "API", "CACHE", "LATENCIA", "TIMEOUT", "TUNEL", "TUNNEL")):
+        add_verification_check(candidates, "backend_tunnel_cache_health", weight, source, evidence)
+    if any(term in text for term in ("POSTGIS", "MAPA", "MUNICIPIO", "COORDENADA", "BBOX", "ZOOM", "GEOGRAF")):
+        add_verification_check(candidates, "postgis_map_spatial_cache", weight, source, evidence)
 
 
 def add_investigation_target(
@@ -2037,6 +2053,34 @@ def adaptive_ml_attention_flags(items: list[dict[str, Any]]) -> dict[str, list[d
     return output
 
 
+def deep_verification_checks_for_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: dict[str, dict[str, Any]] = {}
+    evidence = {
+        "title": item.get("title"),
+        "entity": item.get("entity"),
+        "supplier": item.get("supplier_name"),
+        "value": item.get("value"),
+        "risk_level": item.get("risk_level"),
+    }
+    infer_verification_checks_from_text(
+        candidates,
+        json.dumps(item, ensure_ascii=False, default=json_default),
+        1.0,
+        "deep_learning_context",
+        evidence,
+    )
+    selected = sorted(candidates.values(), key=lambda row: row.get("score", 0), reverse=True)[:5]
+    return [
+        {
+            "id": check.get("id"),
+            "title": check.get("title"),
+            "description": check.get("description"),
+            "query_hints": check.get("query_hints", [])[:3],
+        }
+        for check in selected
+    ]
+
+
 def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     output: dict[str, list[dict[str, Any]]] = {item_key(item): [] for item in items}
     if str(config.get("selected_model_id") or "coibe-adaptive-default") != "coibe-deep-mlp":
@@ -2081,6 +2125,7 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
                             "predicted_label": label,
                             "selected_model_id": config.get("selected_model_id"),
                             "serializer": "joblib",
+                            "verification_checks": deep_verification_checks_for_item(item),
                         },
                         "criteria": {"rule": "modelo selecionado coibe-deep-mlp + confianca minima por classe"},
                     }
@@ -2135,6 +2180,7 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
                             "predicted_label": prediction,
                             "selected_model_id": config.get("selected_model_id"),
                             "serializer": "json",
+                            "verification_checks": deep_verification_checks_for_item(item),
                         },
                         "criteria": {"rule": "modelo selecionado coibe-deep-mlp + margem minima por classe"},
                     }

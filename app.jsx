@@ -16,10 +16,16 @@ import {
   Search,
   ShieldCheck,
   Target,
-  User
+  User,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 
-const configuredApiBases = (import.meta.env.VITE_API_BASE_URL || '')
+const configuredApiBases = [
+  import.meta.env.VITE_API_BASE_URL || '',
+  import.meta.env.VITE_API_BASES || '',
+  typeof window !== 'undefined' ? window.localStorage?.getItem('coibeApiBaseUrl') || '' : ''
+].join(',')
   .split(',')
   .map((base) => base.trim().replace(/\/$/, ''))
   .filter(Boolean);
@@ -27,7 +33,12 @@ const configuredApiBases = (import.meta.env.VITE_API_BASE_URL || '')
 const API_BASES = configuredApiBases.length
   ? configuredApiBases
   : ['', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'];
-const API_REQUEST_TIMEOUT_MS = 12000;
+const API_REQUEST_TIMEOUT_MS = 10000;
+const API_CACHE_PREFIX = 'coibe-api-cache:';
+const preferredApiBaseKey = 'coibePreferredApiBase';
+const apiMemoryCache = new Map();
+const apiPendingGets = new Map();
+let preferredApiBase = typeof window !== 'undefined' ? window.sessionStorage?.getItem(preferredApiBaseKey) || '' : '';
 const COMPRAS_CONTRATOS_URL = 'https://dadosabertos.compras.gov.br/modulo-contratos/1_consultarContratos';
 const COMPRAS_PUBLIC_PORTAL_URL = 'https://www.gov.br/compras/pt-br';
 const BRASILIA_TIME_ZONE = 'America/Sao_Paulo';
@@ -130,32 +141,115 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
-async function apiGet(path) {
-  let lastError;
-  for (const base of API_BASES) {
-    try {
-      const response = await fetchWithTimeout(`${base}${path}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    } catch (error) {
-      lastError = error;
-    }
+function orderedApiBases() {
+  const bases = preferredApiBase
+    ? [preferredApiBase, ...API_BASES.filter((base) => base !== preferredApiBase)]
+    : API_BASES;
+  return [...new Set(bases)];
+}
+
+function rememberApiBase(base) {
+  preferredApiBase = base;
+  try {
+    window.sessionStorage?.setItem(preferredApiBaseKey, base);
+  } catch {
+    // Session storage can be blocked; the active tab still keeps the base in memory.
   }
-  throw lastError || new Error('Backend indisponível');
+}
+
+function apiCacheTtl(path) {
+  if (path.startsWith('/api/public-data/ibge/states-geojson')) return 24 * 60 * 60 * 1000;
+  if (path.startsWith('/api/monitoring/state-map') || path.startsWith('/api/monitoring/map')) return 60 * 1000;
+  if (path.startsWith('/api/monitoring/status')) return 10 * 1000;
+  if (path.startsWith('/api/monitoring/feed')) return 12 * 1000;
+  if (path.startsWith('/api/political/')) return 45 * 1000;
+  if (path.startsWith('/api/search/index') || path.startsWith('/api/search/autocomplete')) return 90 * 1000;
+  if (path.startsWith('/api/search')) return 5 * 60 * 1000;
+  return 15 * 1000;
+}
+
+function readCachedApi(path, allowStale = false) {
+  const now = Date.now();
+  const memoryEntry = apiMemoryCache.get(path);
+  if (memoryEntry && (allowStale || memoryEntry.expiresAt > now)) return memoryEntry.data;
+
+  try {
+    const raw = window.sessionStorage?.getItem(`${API_CACHE_PREFIX}${path}`);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (entry && (allowStale || Number(entry.expiresAt || 0) > now)) {
+      apiMemoryCache.set(path, entry);
+      return entry.data;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function writeCachedApi(path, data, ttlMs) {
+  const entry = {
+    data,
+    expiresAt: Date.now() + ttlMs,
+    cachedAt: Date.now()
+  };
+  apiMemoryCache.set(path, entry);
+  try {
+    window.sessionStorage?.setItem(`${API_CACHE_PREFIX}${path}`, JSON.stringify(entry));
+  } catch {
+    // Large responses can exceed storage quota; memory cache still helps this session.
+  }
+}
+
+async function apiGet(path, options = {}) {
+  const ttlMs = options.cacheTtlMs ?? apiCacheTtl(path);
+  if (!options.force) {
+    const cached = readCachedApi(path);
+    if (cached) return cached;
+    const pending = apiPendingGets.get(path);
+    if (pending) return pending;
+  }
+
+  const request = (async () => {
+    let lastError;
+    for (const base of orderedApiBases()) {
+      try {
+        const response = await fetchWithTimeout(`${base}${path}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        rememberApiBase(base);
+        writeCachedApi(path, data, ttlMs);
+        return data;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    const stale = readCachedApi(path, true);
+    if (stale) return { ...stale, coibe_stale_cache: true };
+    throw lastError || new Error('Backend indisponivel');
+  })();
+
+  apiPendingGets.set(path, request);
+  try {
+    return await request;
+  } finally {
+    apiPendingGets.delete(path);
+  }
 }
 
 async function apiPost(path) {
-  let lastError;
-  for (const base of API_BASES) {
+  let requestError;
+  for (const base of orderedApiBases()) {
     try {
       const response = await fetchWithTimeout(`${base}${path}`, { method: 'POST' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      rememberApiBase(base);
       return response.json();
     } catch (error) {
-      lastError = error;
+      requestError = error;
     }
   }
-  throw lastError || new Error('Backend indisponível');
+  throw requestError || new Error('Backend indisponivel');
 }
 
 function normalizeSearchText(value) {
@@ -839,6 +933,9 @@ export default function CoibeApp() {
   const [activeSearchFilter, setActiveSearchFilter] = useState(null);
   const [items, setItems] = useState([]);
   const [mapPoints, setMapPoints] = useState([]);
+  const [mapQuery, setMapQuery] = useState('');
+  const [mapZoom, setMapZoom] = useState(1);
+  const [mapCacheStatus, setMapCacheStatus] = useState('');
   const [stateRisks, setStateRisks] = useState({});
   const [politicalParties, setPoliticalParties] = useState([]);
   const [politicalPeople, setPoliticalPeople] = useState([]);
@@ -854,6 +951,8 @@ export default function CoibeApp() {
   const [selectedPoliticalItem, setSelectedPoliticalItem] = useState(null);
   const [politicalDetailPage, setPoliticalDetailPage] = useState(1);
   const [selectedPoliticalDetailIndex, setSelectedPoliticalDetailIndex] = useState(0);
+  const [politicalDetailRiskFilter, setPoliticalDetailRiskFilter] = useState('todos');
+  const [politicalDetailSearch, setPoliticalDetailSearch] = useState('');
   const [geoJson, setGeoJson] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const [selectedUf, setSelectedUf] = useState('');
@@ -933,11 +1032,11 @@ export default function CoibeApp() {
     const feedVariation = items.reduce((sum, item) => sum + Number(item.estimated_variation || 0), 0);
     const feedHigh = items.filter((item) => item.risk_level === 'alto').length;
     const feedEntities = new Set(items.map((item) => item.entity).filter(Boolean)).size;
-    const total = Number(monitorStatus?.total_value ?? feedTotal);
-    const variation = Number(monitorStatus?.estimated_variation_total ?? feedVariation);
-    const high = Number(monitorStatus?.high_alerts_count ?? feedHigh);
-    const entities = Number(monitorStatus?.monitored_entities_count ?? feedEntities);
-    const alerts = Number(monitorStatus?.alerts_count ?? items.length);
+    const total = Math.max(Number(monitorStatus?.total_value || 0), feedTotal);
+    const variation = Math.max(Number(monitorStatus?.estimated_variation_total || 0), feedVariation);
+    const high = Math.max(Number(monitorStatus?.high_alerts_count || 0), feedHigh);
+    const entities = Math.max(Number(monitorStatus?.monitored_entities_count || 0), feedEntities);
+    const alerts = Math.max(Number(monitorStatus?.alerts_count || 0), items.length);
 
     return [
       {
@@ -973,13 +1072,34 @@ export default function CoibeApp() {
   }, [items, monitorStatus]);
 
   const selectedPoliticalDetails = selectedPoliticalItem?.analysis_details || [];
-  const selectedPoliticalDetailPages = Math.max(1, Math.ceil(selectedPoliticalDetails.length / POLITICAL_DETAIL_PAGE_SIZE));
+  const filteredSelectedPoliticalDetails = useMemo(() => {
+    const query = normalizeSearchText(politicalDetailSearch);
+    return selectedPoliticalDetails.filter((detail) => {
+      const risk = normalizeSearchText(politicalSuperpricingRisk(detail).label);
+      if (politicalDetailRiskFilter !== 'todos' && risk !== normalizeSearchText(politicalDetailRiskFilter)) return false;
+      if (!query) return true;
+      const text = normalizeSearchText([
+        detail.title,
+        detail.description,
+        detail.type,
+        detail.person,
+        detail.party,
+        detail.supplier,
+        detail.supplier_document,
+        detail.entity,
+        detail.source,
+        detail.value
+      ].join(' '));
+      return text.includes(query);
+    });
+  }, [selectedPoliticalDetails, politicalDetailRiskFilter, politicalDetailSearch]);
+  const selectedPoliticalDetailPages = Math.max(1, Math.ceil(filteredSelectedPoliticalDetails.length / POLITICAL_DETAIL_PAGE_SIZE));
   const selectedPoliticalDetailPage = Math.min(politicalDetailPage, selectedPoliticalDetailPages);
-  const pagedPoliticalDetails = selectedPoliticalDetails.slice(
+  const pagedPoliticalDetails = filteredSelectedPoliticalDetails.slice(
     (selectedPoliticalDetailPage - 1) * POLITICAL_DETAIL_PAGE_SIZE,
     selectedPoliticalDetailPage * POLITICAL_DETAIL_PAGE_SIZE
   );
-  const selectedPoliticalDetail = selectedPoliticalDetails[selectedPoliticalDetailIndex] || selectedPoliticalDetails[0] || null;
+  const selectedPoliticalDetail = filteredSelectedPoliticalDetails[selectedPoliticalDetailIndex] || filteredSelectedPoliticalDetails[0] || null;
   const selectedPoliticalDetailRisk = selectedPoliticalDetail ? politicalSuperpricingRisk(selectedPoliticalDetail) : null;
   const selectedPoliticalDetailReview = selectedPoliticalDetail ? politicalDetailReview(selectedPoliticalDetail) : null;
   const selectedPoliticalMetrics = useMemo(() => {
@@ -1062,20 +1182,25 @@ export default function CoibeApp() {
     }
   }
 
-  async function loadMap() {
+  async function loadMap(query = mapQuery) {
     setLoadingMap(true);
     try {
+      const params = new URLSearchParams({ page_size: '80', source: 'auto' });
+      if (query.trim()) params.set('q', query.trim());
+      if (selectedUf) params.set('uf', selectedUf);
       const [riskData, geoData] = await Promise.all([
-        apiGet('/api/monitoring/state-map?page_size=80'),
+        apiGet(`/api/monitoring/state-map?${params}`),
         apiGet('/api/public-data/ibge/states-geojson')
       ]);
+      const cityData = await apiGet(`/api/monitoring/map?${params}`).catch(() => ({ points: [] }));
       const risksByUf = {};
       for (const state of riskData.states || []) {
         risksByUf[state.uf] = state;
       }
       setStateRisks(risksByUf);
       setGeoJson(geoData);
-      setMapPoints(riskData.states || []);
+      setMapPoints(cityData.points || []);
+      setMapCacheStatus(cityData.cache_status || riskData.cache_status || '');
     } catch {
       setError('Não foi possível carregar o mapa real agora.');
     } finally {
@@ -1089,7 +1214,7 @@ export default function CoibeApp() {
     setError('');
     try {
       if (kind === 'parties') {
-        const params = new URLSearchParams({ limit: '24', source: 'auto', page: String(nextPage), page_size: '10' });
+        const params = new URLSearchParams({ limit: '24', source: 'local', page: String(nextPage), page_size: '10' });
         if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
         if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
         if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
@@ -1105,7 +1230,7 @@ export default function CoibeApp() {
         }));
       }
       if (kind === 'politicians') {
-        const params = new URLSearchParams({ limit: '36', source: 'auto', page: String(nextPage), page_size: '10' });
+        const params = new URLSearchParams({ limit: '36', source: 'local', page: String(nextPage), page_size: '10' });
         if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
         if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
         if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
@@ -1234,10 +1359,11 @@ export default function CoibeApp() {
 
   function openStateInFeed(state) {
     const uf = state.uf || '';
-    const label = state.state_name || state.name || uf;
+    const label = state.city || state.state_name || state.name || uf;
+    const query = state.city || '';
     setSelectedState(state);
     setSelectedUf(uf);
-    setFeedQuery('');
+    setFeedQuery(query);
     setFeedRiskFilter('todos');
     setFeedSizeOrder('data');
     setFeedDateFrom('');
@@ -1246,8 +1372,8 @@ export default function CoibeApp() {
     setActiveTab('feed');
     suppressSearchEffectRef.current = true;
     setSearchTerm('');
-    loadFeed(1, false, '', uf, 'todos', 'data', '', '');
-    scanPriority(uf, '', { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '' });
+    loadFeed(1, false, query, uf, 'todos', 'data', '', '');
+    scanPriority(uf, query, { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '' });
   }
 
 function queryFromResult(result) {
@@ -1363,6 +1489,103 @@ function queryFromResult(result) {
     };
   }
 
+  function politicalQueryFromResult(result) {
+    const payload = result.payload || {};
+    if (result.type === 'partido_politico') {
+      return payload.sigla || payload.nome || result.title || searchTerm;
+    }
+    return queryFromResult(result);
+  }
+
+  function politicalMatchCandidates(result) {
+    const payload = result.payload || {};
+    return [
+      politicalQueryFromResult(result),
+      result.title,
+      result.subtitle,
+      payload.nomeCivil,
+      payload.nome,
+      payload.name,
+      payload.sigla,
+      payload.party,
+      payload.partido
+    ]
+      .map(normalizeSearchText)
+      .filter((value) => value.length >= 2);
+  }
+
+  function findPoliticalItemMatch(result, itemsToSearch = []) {
+    const candidates = politicalMatchCandidates(result);
+    return itemsToSearch.find((item) => {
+      const itemText = normalizeSearchText([
+        item.id,
+        item.name,
+        item.subtitle,
+        item.party,
+        item.role,
+        item.summary,
+        ...(item.people || [])
+      ].join(' '));
+      return candidates.some((candidate) => itemText.includes(candidate) || candidate.includes(normalizeSearchText(item.name)));
+    }) || null;
+  }
+
+  async function openPoliticalResultFromSearch(result) {
+    const isParty = result.type === 'partido_politico';
+    const kind = isParty ? 'parties' : 'politicians';
+    const endpoint = isParty ? '/api/political/parties' : '/api/political/politicians';
+    const nextQuery = politicalQueryFromResult(result);
+    const currentItems = isParty ? politicalParties : politicalPeople;
+    const localMatch = findPoliticalItemMatch(result, currentItems);
+
+    setSelectedSearchResult(null);
+    setActiveTab(kind);
+    setPoliticalSearch(nextQuery);
+    setPoliticalRiskFilter('todos');
+    setPoliticalSizeOrder('prioridade');
+    setPoliticalTypeFilter('todos');
+    setActiveSearchFilter({ type: result.type, label: result.title, detail: 'Cache politico da plataforma' });
+    setSearchResults([]);
+
+    if (localMatch) {
+      setSelectedPoliticalItem(localMatch);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        source: 'local',
+        q: nextQuery,
+        page: '1',
+        page_size: '10',
+        limit: isParty ? '24' : '36',
+        size_order: 'prioridade'
+      });
+      const data = await apiGet(`${endpoint}?${params}`, { force: true, cacheTtlMs: 15 * 1000 });
+      const nextItems = data.items || [];
+      if (isParty) setPoliticalParties(nextItems);
+      else setPoliticalPeople(nextItems);
+      loadedPoliticalTabsRef.current[kind] = true;
+      politicalDataStampRef.current[kind] = data.generated_at || politicalDataStampRef.current[kind];
+      setPoliticalPagination((current) => ({
+        ...current,
+        [kind]: { page: 1, hasMore: Boolean(data.has_more) }
+      }));
+      const cachedMatch = findPoliticalItemMatch(result, nextItems) || nextItems[0] || null;
+      if (cachedMatch) setSelectedPoliticalItem(cachedMatch);
+    } catch {
+      setError('Nao foi possivel abrir a analise politica cacheada agora.');
+    }
+  }
+
+  function handleSearchResultClick(result) {
+    if (result.type === 'partido_politico' || result.type?.startsWith('politico')) {
+      openPoliticalResultFromSearch(result);
+      return;
+    }
+    setSelectedSearchResult(result);
+  }
+
 function applySearchResult(result) {
     setSelectedSearchResult(null);
     if (result.type === 'stf_processo' || result.type === 'stf_jurisprudencia') {
@@ -1426,7 +1649,14 @@ function applySearchResult(result) {
   useEffect(() => {
     setPoliticalDetailPage(1);
     setSelectedPoliticalDetailIndex(0);
+    setPoliticalDetailRiskFilter('todos');
+    setPoliticalDetailSearch('');
   }, [selectedPoliticalItem?.id, selectedPoliticalItem?.type]);
+
+  useEffect(() => {
+    setPoliticalDetailPage(1);
+    setSelectedPoliticalDetailIndex(0);
+  }, [politicalDetailRiskFilter, politicalDetailSearch]);
 
   useEffect(() => {
     setShowFullAlertTitle(false);
@@ -1458,17 +1688,18 @@ function applySearchResult(result) {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
+      if (document.hidden) return;
       loadMonitorStatus();
       if (activeTab === 'feed' && page === 1 && !loadingFeed) {
         loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
       }
-      if (activeTab === 'map') loadMap();
+      if (activeTab === 'map') loadMap(mapQuery);
       if ((activeTab === 'parties' || activeTab === 'politicians') && !loadingPolitical) {
         loadPoliticalData(activeTab, true, 1, false);
       }
-    }, 20000);
+    }, 45000);
     return () => window.clearInterval(interval);
-  }, [activeTab, page, loadingFeed, loadingPolitical, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter]);
+  }, [activeTab, page, loadingFeed, loadingPolitical, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter, mapQuery]);
 
   useEffect(() => {
     if (suppressSearchEffectRef.current) {
@@ -1567,6 +1798,16 @@ function applySearchResult(result) {
   const selectedSearchDescription = selectedSearchResult && selectedSearchReview
     ? searchAnalyticDescription(selectedSearchResult, selectedSearchReview)
     : '';
+  const mapTransform = `translate(${mapBounds.width / 2} ${mapBounds.height / 2}) scale(${mapZoom}) translate(${-mapBounds.width / 2} ${-mapBounds.height / 2})`;
+  const mapSearchText = normalizeSearchText(mapQuery);
+  const visibleMapPoints = useMemo(() => {
+    if (!mapSearchText) return mapPoints;
+    return mapPoints.filter((point) => normalizeSearchText([
+      point.city,
+      point.uf,
+      stateRisks[point.uf]?.state_name
+    ].join(' ')).includes(mapSearchText));
+  }, [mapPoints, mapSearchText, stateRisks]);
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-neutral-950 text-neutral-100">
@@ -1700,7 +1941,7 @@ function applySearchResult(result) {
                 <button
                   key={`${result.type}-${result.title}-${index}`}
                   type="button"
-                  onClick={() => setSelectedSearchResult(result)}
+                  onClick={() => handleSearchResultClick(result)}
                   title={result.title}
                   className={`rounded-lg border p-4 text-left transition hover:border-red-700 ${isPoliticalPriority ? 'border-red-800 bg-red-950/20 md:col-span-2' : 'border-neutral-800 bg-neutral-950/70'}`}
                 >
@@ -1964,6 +2205,65 @@ function applySearchResult(result) {
               <div className="mt-5 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900">
                 <div className="border-b border-neutral-800 px-5 py-4">
                   <h2 className="font-black text-white">Mapa de Alertas por Estado</h2>
+                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        loadMap(mapQuery);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2"
+                    >
+                      <Search className="h-4 w-4 shrink-0 text-red-400" />
+                      <input
+                        value={mapQuery}
+                        onChange={(event) => setMapQuery(event.target.value)}
+                        placeholder="Buscar UF, estado ou municipio"
+                        className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-neutral-600"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded border border-neutral-700 px-3 py-1 text-xs font-black text-neutral-200 hover:bg-neutral-800"
+                        title="Buscar no mapa"
+                      >
+                        Buscar
+                      </button>
+                    </form>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMapZoom((current) => Math.max(1, Number((current - 0.25).toFixed(2))))}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-red-700"
+                        title="Reduzir zoom"
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </button>
+                      <span className="min-w-14 text-center text-xs font-black text-neutral-400">{Math.round(mapZoom * 100)}%</span>
+                      <button
+                        type="button"
+                        onClick={() => setMapZoom((current) => Math.min(2.5, Number((current + 0.25).toFixed(2))))}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-red-700"
+                        title="Aumentar zoom"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMapQuery('');
+                          setSelectedState(null);
+                          setMapZoom(1);
+                          loadMap('');
+                        }}
+                        className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs font-black text-neutral-200 hover:border-red-700"
+                        title="Limpar mapa"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                  {mapCacheStatus && (
+                    <p className="mt-2 text-xs text-neutral-500">Cache do mapa: {mapCacheStatus}</p>
+                  )}
                   <p className="mt-1 text-sm text-neutral-400">Agregado por município da UASG a partir de contratos oficiais.</p>
                 </div>
                 <div className="relative min-h-[520px] bg-[radial-gradient(circle_at_center,#262626_0,#111_55%,#080808_100%)] p-4">
@@ -1981,6 +2281,7 @@ function applySearchResult(result) {
                       className="h-auto w-full max-h-[620px]"
                     >
                       <rect width={mapBounds.width} height={mapBounds.height} fill="transparent" />
+                      <g transform={mapTransform}>
                       {(geoJson?.features || []).map((feature) => {
                         const props = feature.properties || {};
                         const uf = props.sigla || props.UF || props.uf || props.SIGLA_UF || IBGE_CODE_TO_UF[props.codarea];
@@ -2028,6 +2329,31 @@ function applySearchResult(result) {
                           </text>
                         );
                       })}
+                      {visibleMapPoints.slice(0, 140).map((point, index) => {
+                        if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
+                        const [x, y] = projectPoint([Number(point.lng), Number(point.lat)]);
+                        const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
+                        return (
+                          <g
+                            key={`${point.city}-${point.uf}-${index}`}
+                            className="cursor-pointer"
+                            onClick={() => setSelectedState({ ...point, state_name: stateRisks[point.uf]?.state_name || point.uf })}
+                          >
+                            <circle
+                              cx={x}
+                              cy={y}
+                              r={selected ? 5 : 3.4}
+                              fill={selected ? '#ffffff' : '#f87171'}
+                              stroke="#7f1d1d"
+                              strokeWidth="1.2"
+                              opacity="0.92"
+                            >
+                              <title>{point.city} - {point.uf}: {point.alerts_count || 0} alertas</title>
+                            </circle>
+                          </g>
+                        );
+                      })}
+                      </g>
                     </svg>
                     <aside className="rounded-lg border border-neutral-800 bg-black/60 p-4 text-sm">
                       <p className="text-xs font-black uppercase text-red-400">Estado selecionado</p>
@@ -2871,6 +3197,36 @@ function applySearchResult(result) {
 
                 {selectedPoliticalItem.analysis_details?.length > 0 && (
                   <section>
+                    <div className="mb-3 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                      <label className="flex min-w-0 items-center gap-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+                        <Filter className="h-4 w-4 shrink-0 text-red-400" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-black uppercase text-neutral-500">Risco</span>
+                          <select
+                            value={politicalDetailRiskFilter}
+                            onChange={(event) => setPoliticalDetailRiskFilter(event.target.value)}
+                            className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none"
+                          >
+                            <option className="bg-neutral-950" value="todos">Todos</option>
+                            <option className="bg-neutral-950" value="alto">Alto</option>
+                            <option className="bg-neutral-950" value="medio">Medio</option>
+                            <option className="bg-neutral-950" value="baixo">Baixo</option>
+                          </select>
+                        </span>
+                      </label>
+                      <label className="flex min-w-0 items-center gap-3 rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+                        <Search className="h-4 w-4 shrink-0 text-red-400" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-black uppercase text-neutral-500">Analises cacheadas</span>
+                          <input
+                            value={politicalDetailSearch}
+                            onChange={(event) => setPoliticalDetailSearch(event.target.value)}
+                            placeholder="Buscar descricao, fornecedor, pessoa ou orgao"
+                            className="mt-1 w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-neutral-600"
+                          />
+                        </span>
+                      </label>
+                    </div>
                     <h3 className="text-xs font-black uppercase text-neutral-500">Descrições da análise</h3>
                     <div className="mt-3 space-y-3">
                       {pagedPoliticalDetails.map((detail, index) => {
@@ -2948,10 +3304,15 @@ function applySearchResult(result) {
                         </div>
                         );
                       })}
+                      {filteredSelectedPoliticalDetails.length === 0 && (
+                        <div className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-400">
+                          Nenhuma analise cacheada encontrada para estes filtros.
+                        </div>
+                      )}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-400">
                       <span>
-                        Pagina {selectedPoliticalDetailPage} de {selectedPoliticalDetailPages} - {selectedPoliticalDetails.length.toLocaleString('pt-BR')} registro(s)
+                        Pagina {selectedPoliticalDetailPage} de {selectedPoliticalDetailPages} - {filteredSelectedPoliticalDetails.length.toLocaleString('pt-BR')} registro(s)
                       </span>
                       <span className="flex gap-2">
                         <button

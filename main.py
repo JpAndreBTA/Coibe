@@ -161,6 +161,13 @@ PLATFORM_PUBLIC_CODES_PATH = Path(os.getenv("COIBE_PUBLIC_CODES_PATH", "data/lib
 SEARCH_CACHE_DIR = Path(os.getenv("COIBE_SEARCH_CACHE_DIR", "data/cache/search"))
 SEARCH_CACHE_TTL_HOURS = float(os.getenv("COIBE_SEARCH_CACHE_TTL_HOURS", "24"))
 IBGE_STATES_GEOJSON_CACHE_PATH = Path(os.getenv("COIBE_IBGE_STATES_GEOJSON_CACHE_PATH", "data/cache/ibge-states-geojson.json"))
+MONITORING_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_MAP_CACHE_PATH", "data/cache/monitoring-map.json"))
+MONITORING_STATE_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_STATE_MAP_CACHE_PATH", "data/cache/monitoring-state-map.json"))
+API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
+MAP_CACHE_TTL_SECONDS = int(os.getenv("COIBE_MAP_CACHE_TTL_SECONDS", "120"))
+POSTGIS_DATABASE_URL = os.getenv("COIBE_POSTGIS_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+POSTGIS_ENABLED = bool(POSTGIS_DATABASE_URL) and os.getenv("COIBE_POSTGIS_ENABLED", "true").lower() not in {"0", "false", "no"}
+POSTGIS_SCHEMA_READY = False
 AUTO_MONITOR_ENABLED = os.getenv("COIBE_AUTO_MONITOR", "true").lower() not in {"0", "false", "no"}
 AUTO_MONITOR_INTERVAL_MINUTES = float(os.getenv("COIBE_AUTO_MONITOR_INTERVAL_MINUTES", "15"))
 AUTO_MONITOR_PAGES = int(os.getenv("COIBE_AUTO_MONITOR_PAGES", "10"))
@@ -194,6 +201,10 @@ CORS_ORIGINS = [
     for origin in os.getenv("COIBE_CORS_ORIGINS", "https://coibe.com.br,https://www.coibe.com.br").split(",")
     if origin.strip()
 ]
+CORS_ORIGIN_REGEX = os.getenv(
+    "COIBE_CORS_ORIGIN_REGEX",
+    r"https://.*\.trycloudflare\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?",
+).strip() or None
 if IS_PRODUCTION and "*" in CORS_ORIGINS:
     CORS_ORIGINS = ["https://coibe.com.br", "https://www.coibe.com.br"]
 DATA_S3_SYNC_ENABLED = os.getenv("COIBE_DATA_S3_SYNC", "false").lower() in {"1", "true", "yes"}
@@ -465,6 +476,9 @@ class MonitoringMapPoint(BaseModel):
 class MonitoringMapResponse(BaseModel):
     sources: list[str]
     points: list[MonitoringMapPoint]
+    generated_at: datetime | None = None
+    cache_status: str = "live"
+    postgis_enabled: bool = False
 
 
 class StateRiskPoint(BaseModel):
@@ -478,6 +492,8 @@ class StateRiskPoint(BaseModel):
 class StateMapResponse(BaseModel):
     sources: list[str]
     states: list[StateRiskPoint]
+    generated_at: datetime | None = None
+    cache_status: str = "live"
 
 
 class PublicDataSourceStatus(BaseModel):
@@ -678,6 +694,8 @@ class PoliticalScanResponse(BaseModel):
 
 
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
+API_RESPONSE_CACHE: dict[str, tuple[float, Any]] = {}
+API_RESPONSE_LOCKS: dict[str, asyncio.Lock] = {}
 POLITICAL_LOCAL_ITEMS_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
 POLITICAL_BACKGROUND_REFRESHES: set[str] = set()
 SENATORS_PUBLIC_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
@@ -728,6 +746,37 @@ def check_rate_limit(request: Request) -> None:
         )
     timestamps.append(now)
     RATE_LIMIT_BUCKETS[key] = timestamps
+
+
+async def cached_api_value(key: str, ttl_seconds: int, builder):
+    now = time.monotonic()
+    cached = API_RESPONSE_CACHE.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    lock = API_RESPONSE_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = API_RESPONSE_CACHE.get(key)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        value = await builder()
+        API_RESPONSE_CACHE[key] = (time.monotonic() + max(1, ttl_seconds), value)
+        return value
+
+
+def read_ttl_json(path: Path, ttl_seconds: int, default: Any = None) -> Any:
+    if not data_path_exists(path):
+        return default
+    try:
+        if not DATA_S3_SYNC_ENABLED and time.time() - path.stat().st_mtime > ttl_seconds:
+            return default
+    except Exception:
+        return default
+    return read_data_json(path, default)
+
+
+def write_ttl_json(path: Path, payload: Any) -> None:
+    write_json(path, payload)
 
 
 def require_admin_token(x_coibe_admin_token: str | None = Header(default=None)) -> None:
@@ -869,6 +918,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS or ["*"],
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -2188,6 +2238,49 @@ def platform_monitoring_metrics(items: list[MonitoringItem]) -> dict[str, Any]:
     }
 
 
+def raw_analysis_metrics(data: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return platform_monitoring_metrics([])
+    raw_items = data.get("alerts") if isinstance(data.get("alerts"), list) else data.get("items")
+    if not isinstance(raw_items, list):
+        return platform_monitoring_metrics([])
+    total_value = Decimal("0")
+    estimated_variation_total = Decimal("0")
+    high_alerts = 0
+    entities: set[str] = set()
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        value = parse_decimal(raw.get("value")) or Decimal("0")
+        variation = parse_decimal(raw.get("estimated_variation")) or Decimal("0")
+        total_value += value
+        estimated_variation_total += variation
+        level = normalize_text(raw.get("risk_level")).lower()
+        if level == "alto":
+            high_alerts += 1
+        entity = normalize_text(raw.get("entity"))
+        if entity:
+            entities.add(entity)
+    return {
+        "total_value": total_value,
+        "estimated_variation_total": estimated_variation_total,
+        "high_alerts_count": high_alerts,
+        "monitored_entities_count": len(entities),
+    }
+
+
+def merge_metric_max(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(primary)
+    for key in ("total_value", "estimated_variation_total", "high_alerts_count", "monitored_entities_count"):
+        left = primary.get(key, Decimal("0"))
+        right = secondary.get(key, Decimal("0"))
+        try:
+            merged[key] = max(left, right)
+        except TypeError:
+            merged[key] = right or left
+    return merged
+
+
 def read_library_status(latest_analysis: dict[str, Any] | None = None) -> LibraryStatusResponse:
     records_count = 0
     updated_at = None
@@ -3445,6 +3538,217 @@ def coords_for(city: str | None, uf: str | None) -> tuple[float, float]:
     if uf and uf.upper() in UF_CAPITAL_COORDS:
         return UF_CAPITAL_COORDS[uf.upper()]
     return (-14.235, -51.9253)
+
+
+def filter_map_points(
+    points: list[MonitoringMapPoint],
+    q: str | None = None,
+    uf: str | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lng: float | None = None,
+) -> list[MonitoringMapPoint]:
+    normalized_query = normalize_text(q if isinstance(q, str) else None)
+    uf_filter = (uf if isinstance(uf, str) else "").strip().upper()
+    filtered: list[MonitoringMapPoint] = []
+    for point in points:
+        if uf_filter and point.uf.upper() != uf_filter:
+            continue
+        if normalized_query:
+            text = normalize_text(f"{point.city} {point.uf}")
+            if normalized_query not in text:
+                continue
+        if min_lat is not None and point.lat < min_lat:
+            continue
+        if max_lat is not None and point.lat > max_lat:
+            continue
+        if min_lng is not None and point.lng < min_lng:
+            continue
+        if max_lng is not None and point.lng > max_lng:
+            continue
+        filtered.append(point)
+    filtered.sort(key=lambda point: (point.risk_score, point.total_value, point.alerts_count), reverse=True)
+    return filtered
+
+
+def build_monitoring_map_points_from_items(items: list[MonitoringItem]) -> list[MonitoringMapPoint]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = f"{item.city or 'Brasil'}-{item.uf or 'BR'}"
+        lat, lng = coords_for(item.city, item.uf)
+        bucket = grouped.setdefault(
+            key,
+            {
+                "city": item.city or "Brasil",
+                "uf": item.uf or "BR",
+                "lat": lat,
+                "lng": lng,
+                "risk_score": 0,
+                "total_value": Decimal("0"),
+                "alerts_count": 0,
+            },
+        )
+        bucket["risk_score"] = max(bucket["risk_score"], item.risk_score)
+        bucket["total_value"] += item.value
+        bucket["alerts_count"] += 1
+    points = [MonitoringMapPoint(**bucket) for bucket in grouped.values()]
+    points.sort(key=lambda point: (point.risk_score, point.total_value, point.alerts_count), reverse=True)
+    return points
+
+
+def write_map_points_cache(points: list[MonitoringMapPoint]) -> None:
+    write_ttl_json(
+        MONITORING_MAP_CACHE_PATH,
+        {
+            "generated_at": brasilia_now().isoformat(),
+            "points": [point.model_dump(mode="json") for point in points],
+        },
+    )
+
+
+def read_map_points_cache() -> list[MonitoringMapPoint]:
+    cached = read_ttl_json(MONITORING_MAP_CACHE_PATH, MAP_CACHE_TTL_SECONDS, {})
+    rows = cached.get("points") if isinstance(cached, dict) else None
+    if not isinstance(rows, list):
+        return []
+    points: list[MonitoringMapPoint] = []
+    for row in rows:
+        try:
+            points.append(MonitoringMapPoint.model_validate(row))
+        except Exception:
+            continue
+    return points
+
+
+def ensure_postgis_schema() -> bool:
+    global POSTGIS_SCHEMA_READY
+    if POSTGIS_SCHEMA_READY:
+        return True
+    if not POSTGIS_ENABLED:
+        return False
+    try:
+        import psycopg
+
+        with psycopg.connect(POSTGIS_DATABASE_URL, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS coibe_monitoring_map_cache (
+                        city text NOT NULL,
+                        uf text NOT NULL,
+                        geom geometry(Point, 4326) NOT NULL,
+                        risk_score integer NOT NULL DEFAULT 0,
+                        total_value numeric NOT NULL DEFAULT 0,
+                        alerts_count integer NOT NULL DEFAULT 0,
+                        updated_at timestamptz NOT NULL DEFAULT now(),
+                        PRIMARY KEY (city, uf)
+                    )
+                    """
+                )
+                cur.execute("CREATE INDEX IF NOT EXISTS coibe_monitoring_map_cache_geom_idx ON coibe_monitoring_map_cache USING gist (geom)")
+                cur.execute("CREATE INDEX IF NOT EXISTS coibe_monitoring_map_cache_updated_idx ON coibe_monitoring_map_cache (updated_at DESC)")
+        POSTGIS_SCHEMA_READY = True
+        return True
+    except Exception as exc:
+        print(f"PostGIS indisponivel para cache do mapa: {exc}")
+        return False
+
+
+def postgis_upsert_map_points(points: list[MonitoringMapPoint]) -> bool:
+    if not points or not ensure_postgis_schema():
+        return False
+    try:
+        import psycopg
+
+        rows = [
+            (
+                point.city,
+                point.uf,
+                float(point.lng),
+                float(point.lat),
+                int(point.risk_score),
+                str(point.total_value),
+                int(point.alerts_count),
+            )
+            for point in points
+        ]
+        with psycopg.connect(POSTGIS_DATABASE_URL, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO coibe_monitoring_map_cache
+                        (city, uf, geom, risk_score, total_value, alerts_count, updated_at)
+                    VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, now())
+                    ON CONFLICT (city, uf) DO UPDATE SET
+                        geom = EXCLUDED.geom,
+                        risk_score = EXCLUDED.risk_score,
+                        total_value = EXCLUDED.total_value,
+                        alerts_count = EXCLUDED.alerts_count,
+                        updated_at = now()
+                    """,
+                    rows,
+                )
+        return True
+    except Exception as exc:
+        print(f"Falha ao gravar cache PostGIS do mapa: {exc}")
+        return False
+
+
+def postgis_read_map_points(
+    q: str | None = None,
+    uf: str | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lng: float | None = None,
+) -> list[MonitoringMapPoint]:
+    if not ensure_postgis_schema():
+        return []
+    try:
+        import psycopg
+
+        conditions = ["updated_at >= now() - (%s * interval '1 second')"]
+        params: list[Any] = [MAP_CACHE_TTL_SECONDS]
+        normalized_query = normalize_text(q if isinstance(q, str) else None).lower()
+        if uf:
+            conditions.append("upper(uf) = %s")
+            params.append(uf.upper())
+        if normalized_query:
+            conditions.append("(lower(city) LIKE %s OR lower(uf) LIKE %s)")
+            like = f"%{normalized_query}%"
+            params.extend([like, like])
+        if None not in (min_lng, min_lat, max_lng, max_lat):
+            conditions.append("geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
+            params.extend([min_lng, min_lat, max_lng, max_lat])
+        sql = f"""
+            SELECT city, uf, ST_Y(geom), ST_X(geom), risk_score, total_value::text, alerts_count
+            FROM coibe_monitoring_map_cache
+            WHERE {' AND '.join(conditions)}
+            ORDER BY risk_score DESC, total_value DESC, alerts_count DESC
+            LIMIT 500
+        """
+        points: list[MonitoringMapPoint] = []
+        with psycopg.connect(POSTGIS_DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                for city, point_uf, lat, lng, risk_score, total_value, alerts_count in cur.fetchall():
+                    points.append(
+                        MonitoringMapPoint(
+                            city=city,
+                            uf=point_uf,
+                            lat=float(lat),
+                            lng=float(lng),
+                            risk_score=int(risk_score or 0),
+                            total_value=parse_decimal(total_value) or Decimal("0"),
+                            alerts_count=int(alerts_count or 0),
+                        )
+                    )
+        return points
+    except Exception as exc:
+        print(f"Falha ao ler cache PostGIS do mapa: {exc}")
+        return []
 
 
 def parse_company_opening_date(company: dict[str, Any] | None) -> date | None:
@@ -6042,6 +6346,22 @@ async def build_state_risks(page_size: int = 80) -> list[StateRiskPoint]:
     return await build_state_risks_from_source(page_size=page_size, use_local=True)
 
 
+def filter_state_risks(states: list[StateRiskPoint], q: str | None = None, uf: str | None = None) -> list[StateRiskPoint]:
+    normalized_query = normalize_text(q if isinstance(q, str) else None)
+    uf_filter = (uf if isinstance(uf, str) else "").strip().upper()
+    filtered: list[StateRiskPoint] = []
+    for state in states:
+        if uf_filter and state.uf.upper() != uf_filter:
+            continue
+        if normalized_query:
+            text = normalize_text(f"{state.uf} {state.state_name or ''}")
+            if normalized_query not in text:
+                continue
+        filtered.append(state)
+    filtered.sort(key=lambda point: (point.risk_score, point.total_value, point.alerts_count), reverse=True)
+    return filtered
+
+
 async def build_state_risks_from_source(page_size: int = 80, use_local: bool = True) -> list[StateRiskPoint]:
     local_items = load_local_monitoring_items() if use_local else []
     if local_items:
@@ -6502,6 +6822,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
 
     library_status = read_library_status(latest_data)
     model_status = public_monitor_model_summary()
+    platform_metrics = merge_metric_max(platform_metrics, raw_analysis_metrics(latest_data))
     collector_state = data.get("collector_state") if isinstance(data.get("collector_state"), dict) else {}
     knowledge_items_count = max(
         int(data.get("items_analyzed") or 0),
@@ -6536,7 +6857,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
 
 @app.get("/api/monitoring/status", response_model=LocalMonitorStatus)
 async def monitoring_status() -> LocalMonitorStatus:
-    return await local_monitor_status()
+    return await cached_api_value("monitoring-status", 8, local_monitor_status)
 
 
 @app.get("/api/library/status", response_model=LibraryStatusResponse)
@@ -7011,53 +7332,128 @@ async def monitoring_priority_scan(
 
 @app.get("/api/monitoring/map", response_model=MonitoringMapResponse)
 async def monitoring_map(
-    page_size: int = Query(50, ge=10, le=100),
+    page_size: int = Query(50, ge=10, le=500),
+    q: str | None = Query(None, min_length=2),
+    uf: str | None = Query(None, min_length=2, max_length=2),
+    source: str = Query("auto", pattern="^(auto|local|live)$"),
+    min_lat: float | None = Query(None, ge=-90, le=90),
+    max_lat: float | None = Query(None, ge=-90, le=90),
+    min_lng: float | None = Query(None, ge=-180, le=180),
+    max_lng: float | None = Query(None, ge=-180, le=180),
 ) -> MonitoringMapResponse:
-    contracts = await fetch_public_contracts(page=1, page_size=page_size)
-    grouped: dict[str, dict[str, Any]] = {}
+    cache_key = f"monitoring-map:{page_size}:{q}:{uf}:{source}:{min_lat}:{max_lat}:{min_lng}:{max_lng}"
 
-    for contract in contracts:
-        item = await contract_to_monitoring_item(contract, include_diario=False)
-        key = f"{item.city or 'Brasil'}-{item.uf or 'BR'}"
-        lat, lng = coords_for(item.city, item.uf)
-        bucket = grouped.setdefault(
-            key,
-            {
-                "city": item.city or "Brasil",
-                "uf": item.uf or "BR",
-                "lat": lat,
-                "lng": lng,
-                "risk_score": 0,
-                "total_value": Decimal("0"),
-                "alerts_count": 0,
-            },
+    async def build_response() -> MonitoringMapResponse:
+        cache_status = "live"
+        if source != "live":
+            postgis_points = await asyncio.to_thread(postgis_read_map_points, q, uf, min_lat, max_lat, min_lng, max_lng)
+            if postgis_points:
+                return MonitoringMapResponse(
+                    sources=["PostGIS cache", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
+                    points=postgis_points[:page_size],
+                    generated_at=brasilia_now(),
+                    cache_status="postgis-hit",
+                    postgis_enabled=POSTGIS_ENABLED,
+                )
+            file_points = read_map_points_cache()
+            if file_points:
+                filtered = filter_map_points(file_points, q=q, uf=uf, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
+                if filtered:
+                    return MonitoringMapResponse(
+                        sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
+                        points=filtered[:page_size],
+                        generated_at=brasilia_now(),
+                        cache_status="file-hit",
+                        postgis_enabled=POSTGIS_ENABLED,
+                    )
+
+        local_items = load_local_monitoring_items() if source != "live" else []
+        if local_items:
+            points = build_monitoring_map_points_from_items(local_items)
+            cache_status = "local-refresh"
+        else:
+            contracts = await fetch_public_contracts(page=1, page_size=min(max(page_size, 10), 100), query=q)
+            estimates = estimate_variations_with_ml(contracts)
+            items = await asyncio.gather(*[
+                contract_to_monitoring_item(
+                    contract,
+                    include_diario=False,
+                    ml_estimate=estimates.get(contract_stable_key(contract)),
+                )
+                for contract in contracts
+            ])
+            if uf:
+                items = [item for item in items if (item.uf or "").upper() == uf.upper()]
+            points = build_monitoring_map_points_from_items(items)
+            cache_status = "live-refresh"
+
+        all_points = points
+        points = filter_map_points(all_points, q=q, uf=uf, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
+        write_map_points_cache(all_points)
+        await asyncio.to_thread(postgis_upsert_map_points, all_points)
+        return MonitoringMapResponse(
+            sources=["Base COIBE.IA autoatualizavel", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "PostGIS opcional"],
+            points=points[:page_size],
+            generated_at=brasilia_now(),
+            cache_status=cache_status,
+            postgis_enabled=POSTGIS_ENABLED,
         )
-        bucket["risk_score"] = max(bucket["risk_score"], item.risk_score)
-        bucket["total_value"] += item.value
-        bucket["alerts_count"] += 1
 
-    points = [MonitoringMapPoint(**bucket) for bucket in grouped.values()]
-    points.sort(key=lambda point: (point.risk_score, point.total_value), reverse=True)
-
-    return MonitoringMapResponse(
-        sources=["Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios"],
-        points=points,
-    )
+    return await cached_api_value(cache_key, MAP_CACHE_TTL_SECONDS, build_response)
 
 
 @app.get("/api/monitoring/state-map", response_model=StateMapResponse)
 async def monitoring_state_map(
     page_size: int = Query(80, ge=10, le=100),
+    q: str | None = Query(None, min_length=2),
+    uf: str | None = Query(None, min_length=2, max_length=2),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> StateMapResponse:
-    return StateMapResponse(
-        sources=["Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "IBGE Malhas Territoriais"],
-        states=await build_state_risks_from_source(page_size, use_local=source != "live"),
-    )
+    cache_key = f"monitoring-state-map:{page_size}:{q}:{uf}:{source}"
+
+    async def build_response() -> StateMapResponse:
+        cached = read_ttl_json(MONITORING_STATE_MAP_CACHE_PATH, MAP_CACHE_TTL_SECONDS, None) if source != "live" else None
+        if isinstance(cached, dict) and isinstance(cached.get("states"), list):
+            states = []
+            for row in cached.get("states") or []:
+                try:
+                    states.append(StateRiskPoint.model_validate(row))
+                except Exception:
+                    continue
+            states = filter_state_risks(states, q=q, uf=uf)
+            if states:
+                return StateMapResponse(
+                    sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE Malhas Territoriais"],
+                    states=states[:page_size],
+                    generated_at=brasilia_now(),
+                    cache_status="file-hit",
+                )
+
+        all_states = await build_state_risks_from_source(page_size, use_local=source != "live")
+        write_ttl_json(
+            MONITORING_STATE_MAP_CACHE_PATH,
+            {
+                "generated_at": brasilia_now().isoformat(),
+                "states": [state.model_dump(mode="json") for state in all_states],
+            },
+        )
+        states = filter_state_risks(all_states, q=q, uf=uf)
+        return StateMapResponse(
+            sources=["Base COIBE.IA autoatualizavel", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "IBGE Malhas Territoriais"],
+            states=states[:page_size],
+            generated_at=brasilia_now(),
+            cache_status="local-refresh" if source != "live" else "live-refresh",
+        )
+
+    return await cached_api_value(cache_key, MAP_CACHE_TTL_SECONDS, build_response)
 
 
 @app.get("/api/public-data/ibge/states-geojson")
 async def ibge_states_geojson() -> dict[str, Any]:
+    cached = read_ttl_json(IBGE_STATES_GEOJSON_CACHE_PATH, 7 * 24 * 60 * 60, None)
+    if isinstance(cached, dict):
+        cached["coibe_cache_status"] = "hit"
+        return cached
     try:
         data = await get_json(
             IBGE_STATES_GEOJSON_URL,

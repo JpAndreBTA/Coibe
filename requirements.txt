@@ -7,3 +7,4 @@ scikit-learn==1.8.0
 beautifulsoup4==4.12.3
 python-dotenv==1.2.2
 boto3==1.35.90
+psycopg[binary]==3.2.3
