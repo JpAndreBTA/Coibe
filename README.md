@@ -4,6 +4,10 @@ Coibe IA é uma plataforma aberta para acompanhar contratações públicas, cruz
 
 O objetivo é tornar dados públicos mais acessíveis, pesquisáveis e compreensíveis para cidadãos, jornalistas, pesquisadores, desenvolvedores, organizações civis e equipes de controle. A plataforma organiza informações de fontes oficiais e apresenta indícios estatísticos, históricos e contextuais sem fazer acusações definitivas.
 
+O COIBE organiza dados públicos, compara valores, cruza nomes e mostra sinais que merecem conferência. Ele consulta múltiplas fontes públicas em uma resposta única, para reduzir tempo de pesquisa e facilitar a checagem.
+
+O monitor também evolui estratégias de verificação: aprende termos, alvos e métodos inspirados em red flags de contratação pública, OCDS/Open Contracting, PNCP, TCU, CGU, Portal da Transparência, CEIS/CNEP, STF e TSE. A leitura busca sinais como fornecedor único, aditivos, sobrecusto, fracionamento, sanções, relações em grafo e movimentação de alto valor.
+
 ## O que a plataforma faz
 
 - Consulta e cruza fontes públicas oficiais.
@@ -15,6 +19,9 @@ O objetivo é tornar dados públicos mais acessíveis, pesquisáveis e compreens
 - Mantém um feed pesquisável com lazy load para grandes bases.
 - Expõe uma API pública para integração e auditoria técnica.
 - Preserva rastreabilidade por links e evidências das fontes consultadas.
+
+- Permite zoom por scroll no mapa, exibindo UF e municipios cacheados por aproximacao.
+- Usa cache geoespacial local e PostGIS opcional para reduzir chamadas repetidas ao backend em uso multiusuario.
 
 ## Cruzamentos de dados
 
@@ -73,6 +80,13 @@ A licenca completa esta em [LICENSE](LICENSE).
 - Monitoramento: `local_monitor.py` coleta, normaliza, analisa e atualiza a base.
 - Publicação leve: frontend estático na Hostinger e backend local exposto via Cloudflare Tunnel ou backend Docker em Render.
 
+### Geoespacial e cache
+
+- O mapa usa cache JSON por TTL mesmo sem banco externo.
+- Quando `COIBE_POSTGIS_DATABASE_URL` estiver configurada, o backend cria `CREATE EXTENSION IF NOT EXISTS postgis` e usa PostGIS para armazenar, indexar e consultar pontos de municipio/UF.
+- A API aceita filtros separados de `uf`, `city`, `q` e bbox quando aplicavel, reduzindo varreduras textuais e chamadas repetidas.
+- O zip de frontend continua independente do backend: a URL publica da API vem de `VITE_API_BASE_URL` ou do tunel local configurado.
+
 ## Uso responsável dos dados
 
 A Coibe IA não acusa fraude, corrupção ou irregularidade definitiva. Os resultados indicam fatores de atenção, padrões estatísticos e cruzamentos públicos que precisam ser interpretados por pessoas e, quando aplicável, por órgãos competentes.
@@ -84,6 +98,20 @@ Copy-Item .env.example .env
 # Edite o .env e preencha PORTAL_TRANSPARENCIA_API_KEY
 py -3.10 -m pip install -r requirements.txt
 py -3.10 -m uvicorn main:app --reload
+```
+
+PostGIS local opcional:
+
+```powershell
+.\setup-postgis-local.ps1 -PostgresPassword coibe_local_2026
+```
+
+No `.env`, habilite:
+
+```env
+COIBE_POSTGIS_ENABLED=true
+COIBE_POSTGIS_DATABASE_URL=postgresql://postgres:coibe_local_2026@127.0.0.1:5432/coibe
+COIBE_MAP_CACHE_TTL_SECONDS=120
 ```
 
 Acesse:
@@ -146,6 +174,7 @@ A busca indexada usa a base acumulada em `data/processed` com fuzzy search simpl
 ```http
 GET /api/monitoring/feed?page=1&page_size=10
 GET /api/monitoring/feed?page=1&page_size=10&q=banco
+GET /api/monitoring/feed?page=1&page_size=10&uf=SP&city=Sao%20Paulo
 GET /api/monitoring/feed?page=1&page_size=10&source=live
 GET /api/monitoring/feed?page=1&page_size=10
 ```
@@ -160,13 +189,16 @@ Cada item pode ser enriquecido por BrasilAPI CNPJ, CEIS/CNEP, contratos por forn
 
 ```http
 GET /api/monitoring/map?page_size=50
+GET /api/monitoring/map?page_size=240&uf=SP&city=Sao%20Paulo
+GET /api/monitoring/map?page_size=240&min_lat=-25&max_lat=-19&min_lng=-53&max_lng=-44
 GET /api/monitoring/state-map?page_size=80
 GET /api/monitoring/state-map?page_size=80&source=live
 GET /api/public-data/ibge/states-geojson
 ```
 
 Agrega contratos reais por município/UF da UASG e retorna coordenadas, quantidade de alertas, valor total e score de risco.
-O frontend usa a malha oficial do IBGE para renderizar o mapa do Brasil por estados, com clique por UF e filtro do feed.
+O frontend usa a malha oficial do IBGE para renderizar o mapa do Brasil por estados, com zoom por scroll, pontos por municipio, labels em aproximacao e filtro do feed por cidade/UF.
+Quando PostGIS esta configurado, os pontos entram em tabela indexada por `geometry(Point, 4326)`; sem PostGIS, o backend usa `data/cache/monitoring-map.json`.
 
 Fontes usadas nesta etapa:
 
@@ -175,6 +207,17 @@ Fontes usadas nesta etapa:
 - IBGE/UASG: município e UF da unidade gestora
 - PNCP: referência oficial de contratação quando o identificador estiver disponível
 - Querido Diário: busca complementar em diários oficiais municipais
+
+### Decisao geoespacial em 2026
+
+PostGIS continua sendo a melhor escolha padrao para o COIBE porque fica no mesmo banco transacional do backend, oferece tipos `geometry/geography`, indice espacial GiST e funcoes SQL maduras para filtro por area, distancia e intersecao.
+
+Alternativas avaliadas:
+
+- DuckDB Spatial: excelente para analise local, GeoParquet e pipelines offline, mas nao substitui tao bem um cache transacional multiusuario da API.
+- Apache Sedona/SedonaDB: forte para processamento espacial em escala lakehouse/Spark/Flink, porem mais pesado para o mapa operacional atual.
+- ClickHouse geo/H3/S2: bom para analitica de eventos e grande volume de leitura, mas exige outra arquitetura para CRUD/cache de pontos do painel.
+- H3/S2 podem complementar PostGIS como indice hierarquico de zoom no futuro, principalmente para tiles e agregacoes por celula.
 
 ### Varredura política preventiva
 

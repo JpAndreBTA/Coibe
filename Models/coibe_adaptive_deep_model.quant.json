@@ -1,5 +1,5 @@
 {
-  "model_id": "coibe-adaptive-default",
+  "model_id": "coibe-deep-mlp",
   "quantization_compatible": true,
   "mode": "dynamic-int8",
   "schema": "int8_dynamic_manifest",
@@ -8,180 +8,190 @@
     {
       "term": "Valor Empenha Ocorrer",
       "score_int8": 127,
-      "hits": 1
+      "hits": 2
     },
     {
       "term": "Clinicas Ribeirao Preto",
-      "score_int8": 106,
+      "score_int8": 101,
       "hits": 13
     },
     {
       "term": "Luiz Inacio Lula",
-      "score_int8": 101,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Inacio Lula Silva",
-      "score_int8": 101,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Luiz Inacio",
-      "score_int8": 101,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Inacio Lula",
-      "score_int8": 101,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Lula Silva",
-      "score_int8": 101,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Geraldo Alckmin",
-      "score_int8": 100,
+      "score_int8": 96,
       "hits": 12
     },
     {
       "term": "Jair Messias Bolsonaro",
-      "score_int8": 100,
+      "score_int8": 96,
       "hits": 12
     },
     {
+      "term": "Fundo Municipal",
+      "score_int8": 93,
+      "hits": 3
+    },
+    {
       "term": "Jair Messias",
-      "score_int8": 92,
+      "score_int8": 88,
       "hits": 11
     },
     {
       "term": "Messias Bolsonaro",
-      "score_int8": 92,
+      "score_int8": 88,
       "hits": 11
     },
     {
       "term": "Clinicas Ribeirao",
-      "score_int8": 89,
+      "score_int8": 85,
       "hits": 11
     },
     {
-      "term": "Fundo Municipal",
-      "score_int8": 85,
-      "hits": 2
-    },
-    {
       "term": "Ribeirao Preto",
-      "score_int8": 82,
+      "score_int8": 79,
       "hits": 10
     },
     {
       "term": "Ocorrer Generos Alimenticios",
-      "score_int8": 78,
+      "score_int8": 75,
+      "hits": 2
+    },
+    {
+      "term": "Valor Empenha",
+      "score_int8": 73,
+      "hits": 2
+    },
+    {
+      "term": "Municipal Educacao",
+      "score_int8": 71,
       "hits": 2
     },
     {
       "term": "Empenha Ocorrer Generos",
-      "score_int8": 74,
-      "hits": 1
-    },
-    {
-      "term": "Valor Empenha",
       "score_int8": 70,
       "hits": 1
     },
     {
-      "term": "Municipal Educacao",
-      "score_int8": 67,
-      "hits": 1
+      "term": "Empenha Ocorrer",
+      "score_int8": 66,
+      "hits": 2
     },
     {
       "term": "Fundo Municipal Educacao",
-      "score_int8": 66,
-      "hits": 1
-    },
-    {
-      "term": "Municipal Educacao Campo",
-      "score_int8": 64,
-      "hits": 1
-    },
-    {
-      "term": "Educacao Campo",
-      "score_int8": 64,
-      "hits": 1
-    },
-    {
-      "term": "Empenha Ocorrer",
       "score_int8": 63,
       "hits": 1
     },
     {
+      "term": "Municipal Educacao Campo",
+      "score_int8": 61,
+      "hits": 1
+    },
+    {
+      "term": "Educacao Campo",
+      "score_int8": 61,
+      "hits": 1
+    },
+    {
       "term": "Manutencao Merenda Escolar",
-      "score_int8": 53,
-      "hits": 1
-    },
-    {
-      "term": "Manutencao Rede Escolar",
-      "score_int8": 42,
-      "hits": 1
-    },
-    {
-      "term": "Empenha Ocorrer Limpeza",
-      "score_int8": 39,
-      "hits": 1
-    },
-    {
-      "term": "Merenda Escolar Escola",
-      "score_int8": 31,
-      "hits": 1
-    },
-    {
-      "term": "Ocorrer Generos",
-      "score_int8": 30,
+      "score_int8": 51,
       "hits": 1
     },
     {
       "term": "Generos Alimenticios",
-      "score_int8": 26,
-      "hits": 3
+      "score_int8": 42,
+      "hits": 4
+    },
+    {
+      "term": "Manutencao Rede Escolar",
+      "score_int8": 40,
+      "hits": 1
+    },
+    {
+      "term": "Empenha Ocorrer Limpeza",
+      "score_int8": 37,
+      "hits": 1
+    },
+    {
+      "term": "Merenda Escolar Escola",
+      "score_int8": 30,
+      "hits": 1
+    },
+    {
+      "term": "Ocorrer Generos",
+      "score_int8": 29,
+      "hits": 1
     },
     {
       "term": "Presidente Republica",
-      "score_int8": 24,
+      "score_int8": 23,
       "hits": 1
     },
     {
       "term": "Rede Escolar Infantil",
-      "score_int8": 24,
-      "hits": 1
-    },
-    {
-      "term": "Ocorrer Limpeza",
-      "score_int8": 19,
-      "hits": 1
-    },
-    {
-      "term": "Manut Rede Basica",
-      "score_int8": 19,
-      "hits": 1
-    },
-    {
-      "term": "Rede Escolar Escola",
-      "score_int8": 17,
-      "hits": 1
-    },
-    {
-      "term": "Decorrente Pregao Eletronico",
-      "score_int8": 16,
-      "hits": 1
-    },
-    {
-      "term": "Rede Basica Fundamental",
-      "score_int8": 16,
+      "score_int8": 23,
       "hits": 1
     },
     {
       "term": "Fundo Municipal Saude",
+      "score_int8": 21,
+      "hits": 2
+    },
+    {
+      "term": "Municipal Saude",
+      "score_int8": 21,
+      "hits": 2
+    },
+    {
+      "term": "Ocorrer Limpeza",
+      "score_int8": 18,
+      "hits": 1
+    },
+    {
+      "term": "Manut Rede Basica",
+      "score_int8": 18,
+      "hits": 1
+    },
+    {
+      "term": "Rede Escolar Escola",
+      "score_int8": 16,
+      "hits": 1
+    },
+    {
+      "term": "Decorrente Pregao Eletronico",
+      "score_int8": 15,
+      "hits": 1
+    },
+    {
+      "term": "Rede Basica Fundamental",
+      "score_int8": 15,
+      "hits": 1
+    },
+    {
+      "term": "Secretaria Municipal",
       "score_int8": 15,
       "hits": 1
     },
@@ -191,9 +201,9 @@
       "hits": 1
     },
     {
-      "term": "Municipal Saude",
-      "score_int8": 15,
-      "hits": 1
+      "term": "Manutencao Preventiva Corretiva",
+      "score_int8": 14,
+      "hits": 3
     },
     {
       "term": "Saude Baliza",
@@ -202,17 +212,17 @@
     },
     {
       "term": "Condicoes Estabelecidas Termo",
-      "score_int8": 14,
+      "score_int8": 13,
       "hits": 2
     },
     {
       "term": "Estabelecidas Termo Referencia",
-      "score_int8": 14,
+      "score_int8": 13,
       "hits": 2
     },
     {
       "term": "Vertente Distribuicao",
-      "score_int8": 13,
+      "score_int8": 12,
       "hits": 1
     },
     {
@@ -222,28 +232,153 @@
     },
     {
       "term": "Precos Medicamentos Injetaveis",
-      "score_int8": 11,
+      "score_int8": 10,
       "hits": 1
     },
     {
       "term": "Fornecedor Vincula Proposta",
-      "score_int8": 11,
-      "hits": 2
-    },
-    {
-      "term": "Seus Anexos Hipoteses",
-      "score_int8": 11,
-      "hits": 2
-    },
-    {
-      "term": "Tribunal Eleitoral",
       "score_int8": 10,
       "hits": 2
     },
     {
-      "term": "Manutencao Preventiva Corretiva",
+      "term": "Seus Anexos Hipoteses",
+      "score_int8": 10,
+      "hits": 2
+    },
+    {
+      "term": "Atender Necessidades",
+      "score_int8": 10,
+      "hits": 1
+    },
+    {
+      "term": "Tribunal Eleitoral",
       "score_int8": 9,
       "hits": 2
+    },
+    {
+      "term": "Atender Necessidades Secretaria",
+      "score_int8": 9,
+      "hits": 1
+    },
+    {
+      "term": "Secretaria Municipal Saude",
+      "score_int8": 8,
+      "hits": 1
+    },
+    {
+      "term": "Generos Alimenticios Estocaveis",
+      "score_int8": 7,
+      "hits": 1
+    },
+    {
+      "term": "Secretaria Municipal Educacao",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Atraves Sistema Precos",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Agudos",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Diversas Secretarias",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Assistencia Social",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Alimenticios Estocaveis",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Construcao Eletrico Hidraulico",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Eletrico Hidraulico Afins",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Hidraulico Afins Atender",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Afins Atender Necessidades",
+      "score_int8": 6,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Assistencia Social",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Construcao Eletrico",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Hortifrutigranjeiros Consumo Diversas",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Consumo Diversas Secretarias",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Diversas Secretarias Municipalidade",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Secretarias Municipalidade Atraves",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Municipalidade Atraves Sistema",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Hortifrutigranjeiros Consumo",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Consumo Diversas",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Secretarias Municipalidade",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Municipalidade Atraves",
+      "score_int8": 5,
+      "hits": 1
+    },
+    {
+      "term": "Atraves Sistema",
+      "score_int8": 5,
+      "hits": 1
     },
     {
       "term": "Limpeza Higiene",
@@ -296,6 +431,56 @@
       "hits": 1
     },
     {
+      "term": "Precos Futura",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Rocesso Expediente",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "158141 Alimentos Refeitorio",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Alimentos Refeitorio 23360",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Refeitorio 23360 000346",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "23360 000346 2026",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "000346 2026 Campus",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "2026 Campus 0100157181",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "158141 Alimentos",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Alimentos Refeitorio",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
       "term": "Lidos Foco Fornecedor",
       "score_int8": 4,
       "hits": 1
@@ -327,6 +512,11 @@
     },
     {
       "term": "2026 Proc Origem",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Programa Alimentacao Escolar",
       "score_int8": 4,
       "hits": 1
     },
@@ -381,6 +571,11 @@
       "hits": 1
     },
     {
+      "term": "Alimentacao Escolar Pnae",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
       "term": "Instituto Tecnologia",
       "score_int8": 4,
       "hits": 1
@@ -408,96 +603,6 @@
     {
       "term": "Fator Emergente",
       "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Emergente Recorrencia",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Recorrencia Atipica",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Atipica Janela",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Janela Curta",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Elegivel Estatistica",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Anomalia Valor",
-      "score_int8": 2,
-      "hits": 1
-    },
-    {
-      "term": "Recuperacao Judicial",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Engenharia Recuperacao Judicial",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Engenharia Recuperacao",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Coord Geral",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Exclusiva Obra",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Prestacao Continuos",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Execucao Obra",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Coord Geral Administ",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Geral Administ",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Valor Incompativel Capital",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Incompativel Capital Social",
-      "score_int8": 1,
-      "hits": 1
-    },
-    {
-      "term": "Valor Incompativel",
-      "score_int8": 1,
       "hits": 1
     }
   ]

@@ -471,6 +471,7 @@ class MonitoringMapPoint(BaseModel):
     risk_score: int
     total_value: Decimal
     alerts_count: int
+    spatial_source: str = "ibge_uasg_centroid"
 
 
 class MonitoringMapResponse(BaseModel):
@@ -479,6 +480,7 @@ class MonitoringMapResponse(BaseModel):
     generated_at: datetime | None = None
     cache_status: str = "live"
     postgis_enabled: bool = False
+    total_returned: int = 0
 
 
 class StateRiskPoint(BaseModel):
@@ -2084,6 +2086,7 @@ def monitoring_summary_for_item(item: MonitoringItem) -> str:
 def load_local_monitoring_items(
     q: str | None = None,
     uf: str | None = None,
+    city: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> list[MonitoringItem]:
@@ -2113,6 +2116,7 @@ def load_local_monitoring_items(
     normalized_queries = [normalize_text(part) for part in query_parts]
     query_digits_parts = ["".join(ch for ch in part if ch.isdigit()) for part in query_parts]
     uf_filter = (uf or "").strip().upper()
+    city_filter = normalize_text(city)
     items: list[MonitoringItem] = []
 
     for raw_item in raw_items:
@@ -2126,6 +2130,11 @@ def load_local_monitoring_items(
 
         if uf_filter and (item.uf or "").upper() != uf_filter:
             continue
+
+        if city_filter:
+            item_city = normalize_text(item.city or item.location)
+            if city_filter != item_city and city_filter not in item_city:
+                continue
 
         if date_from and item.date < date_from:
             continue
@@ -3544,6 +3553,7 @@ def filter_map_points(
     points: list[MonitoringMapPoint],
     q: str | None = None,
     uf: str | None = None,
+    city: str | None = None,
     min_lat: float | None = None,
     max_lat: float | None = None,
     min_lng: float | None = None,
@@ -3551,9 +3561,12 @@ def filter_map_points(
 ) -> list[MonitoringMapPoint]:
     normalized_query = normalize_text(q if isinstance(q, str) else None)
     uf_filter = (uf if isinstance(uf, str) else "").strip().upper()
+    city_filter = normalize_text(city)
     filtered: list[MonitoringMapPoint] = []
     for point in points:
         if uf_filter and point.uf.upper() != uf_filter:
+            continue
+        if city_filter and city_filter not in normalize_text(point.city):
             continue
         if normalized_query:
             text = normalize_text(f"{point.city} {point.uf}")
@@ -3699,6 +3712,7 @@ def postgis_upsert_map_points(points: list[MonitoringMapPoint]) -> bool:
 def postgis_read_map_points(
     q: str | None = None,
     uf: str | None = None,
+    city: str | None = None,
     min_lat: float | None = None,
     max_lat: float | None = None,
     min_lng: float | None = None,
@@ -3712,11 +3726,17 @@ def postgis_read_map_points(
         conditions = ["updated_at >= now() - (%s * interval '1 second')"]
         params: list[Any] = [MAP_CACHE_TTL_SECONDS]
         normalized_query = normalize_text(q if isinstance(q, str) else None).lower()
+        normalized_city = normalize_text(city).lower()
+        accent_from = "áàãâäéèêëíìîïóòõôöúùûüç"
+        accent_to = "aaaaaeeeeiiiiooooouuuuc"
         if uf:
             conditions.append("upper(uf) = %s")
             params.append(uf.upper())
+        if normalized_city:
+            conditions.append(f"translate(lower(city), '{accent_from}', '{accent_to}') LIKE %s")
+            params.append(f"%{normalized_city}%")
         if normalized_query:
-            conditions.append("(lower(city) LIKE %s OR lower(uf) LIKE %s)")
+            conditions.append(f"(translate(lower(city), '{accent_from}', '{accent_to}') LIKE %s OR lower(uf) LIKE %s)")
             like = f"%{normalized_query}%"
             params.extend([like, like])
         if None not in (min_lng, min_lat, max_lng, max_lat):
@@ -3745,7 +3765,7 @@ def postgis_read_map_points(
                             alerts_count=int(alerts_count or 0),
                         )
                     )
-        return points
+        return filter_map_points(points, q=q, uf=uf, city=city, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
     except Exception as exc:
         print(f"Falha ao ler cache PostGIS do mapa: {exc}")
         return []
@@ -7037,6 +7057,7 @@ async def monitoring_feed(
     page_size: int = Query(10, ge=10, le=100),
     q: str | None = Query(None, min_length=2),
     uf: str | None = Query(None, min_length=2, max_length=2),
+    city: str | None = Query(None, min_length=2),
     risk_level: str | None = Query(None),
     size_order: str | None = Query(None, pattern="^(data|data_asc|asc|desc)$"),
     date_from: date | None = Query(None, description="Data inicial do conteúdo/contrato, não da análise."),
@@ -7044,7 +7065,7 @@ async def monitoring_feed(
     source: str = Query("auto", pattern="^(auto|local|live)$"),
 ) -> MonitoringFeedResponse:
     if source != "live":
-        local_items = load_local_monitoring_items(q=q, uf=uf, date_from=date_from, date_to=date_to)
+        local_items = load_local_monitoring_items(q=q, uf=uf, city=city, date_from=date_from, date_to=date_to)
         if local_items or source == "local":
             local_items = filter_and_order_monitoring_items(local_items, risk_level, size_order)
             items, has_more = paginate_monitoring_items(local_items, page, page_size)
@@ -7079,12 +7100,15 @@ async def monitoring_feed(
             filtered = [item for item in filtered if item.date >= date_from]
         if date_to:
             filtered = [item for item in filtered if item.date <= date_to]
+        if city:
+            city_filter = normalize_text(city)
+            filtered = [item for item in filtered if city_filter in normalize_text(item.city or item.location)]
         filtered = filter_and_order_monitoring_items(filtered, risk_level, size_order)
         start = (page - 1) * page_size
         items = filtered[start : start + page_size]
         has_more = start + page_size < len(filtered)
     else:
-        filtered_live_feed = bool(risk_level or size_order or date_from or date_to)
+        filtered_live_feed = bool(risk_level or size_order or date_from or date_to or city)
         contracts = await fetch_public_contracts(
             1 if filtered_live_feed else page,
             100 if filtered_live_feed else page_size,
@@ -7104,6 +7128,9 @@ async def monitoring_feed(
             enriched = [item for item in enriched if item.date >= date_from]
         if date_to:
             enriched = [item for item in enriched if item.date <= date_to]
+        if city:
+            city_filter = normalize_text(city)
+            enriched = [item for item in enriched if city_filter in normalize_text(item.city or item.location)]
         if filtered_live_feed:
             enriched = filter_and_order_monitoring_items(enriched, risk_level, size_order)
             start = (page - 1) * page_size
@@ -7335,18 +7362,19 @@ async def monitoring_map(
     page_size: int = Query(50, ge=10, le=500),
     q: str | None = Query(None, min_length=2),
     uf: str | None = Query(None, min_length=2, max_length=2),
+    city: str | None = Query(None, min_length=2),
     source: str = Query("auto", pattern="^(auto|local|live)$"),
     min_lat: float | None = Query(None, ge=-90, le=90),
     max_lat: float | None = Query(None, ge=-90, le=90),
     min_lng: float | None = Query(None, ge=-180, le=180),
     max_lng: float | None = Query(None, ge=-180, le=180),
 ) -> MonitoringMapResponse:
-    cache_key = f"monitoring-map:{page_size}:{q}:{uf}:{source}:{min_lat}:{max_lat}:{min_lng}:{max_lng}"
+    cache_key = f"monitoring-map:{page_size}:{q}:{uf}:{city}:{source}:{min_lat}:{max_lat}:{min_lng}:{max_lng}"
 
     async def build_response() -> MonitoringMapResponse:
         cache_status = "live"
         if source != "live":
-            postgis_points = await asyncio.to_thread(postgis_read_map_points, q, uf, min_lat, max_lat, min_lng, max_lng)
+            postgis_points = await asyncio.to_thread(postgis_read_map_points, q, uf, city, min_lat, max_lat, min_lng, max_lng)
             if postgis_points:
                 return MonitoringMapResponse(
                     sources=["PostGIS cache", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
@@ -7354,10 +7382,11 @@ async def monitoring_map(
                     generated_at=brasilia_now(),
                     cache_status="postgis-hit",
                     postgis_enabled=POSTGIS_ENABLED,
+                    total_returned=min(len(postgis_points), page_size),
                 )
             file_points = read_map_points_cache()
             if file_points:
-                filtered = filter_map_points(file_points, q=q, uf=uf, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
+                filtered = filter_map_points(file_points, q=q, uf=uf, city=city, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
                 if filtered:
                     return MonitoringMapResponse(
                         sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
@@ -7365,6 +7394,7 @@ async def monitoring_map(
                         generated_at=brasilia_now(),
                         cache_status="file-hit",
                         postgis_enabled=POSTGIS_ENABLED,
+                        total_returned=min(len(filtered), page_size),
                     )
 
         local_items = load_local_monitoring_items() if source != "live" else []
@@ -7372,7 +7402,7 @@ async def monitoring_map(
             points = build_monitoring_map_points_from_items(local_items)
             cache_status = "local-refresh"
         else:
-            contracts = await fetch_public_contracts(page=1, page_size=min(max(page_size, 10), 100), query=q)
+            contracts = await fetch_public_contracts(page=1, page_size=min(max(page_size, 10), 100), query=q or city)
             estimates = estimate_variations_with_ml(contracts)
             items = await asyncio.gather(*[
                 contract_to_monitoring_item(
@@ -7384,11 +7414,14 @@ async def monitoring_map(
             ])
             if uf:
                 items = [item for item in items if (item.uf or "").upper() == uf.upper()]
+            if city:
+                city_filter = normalize_text(city)
+                items = [item for item in items if city_filter in normalize_text(item.city or item.location)]
             points = build_monitoring_map_points_from_items(items)
             cache_status = "live-refresh"
 
         all_points = points
-        points = filter_map_points(all_points, q=q, uf=uf, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
+        points = filter_map_points(all_points, q=q, uf=uf, city=city, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
         write_map_points_cache(all_points)
         await asyncio.to_thread(postgis_upsert_map_points, all_points)
         return MonitoringMapResponse(
@@ -7397,6 +7430,7 @@ async def monitoring_map(
             generated_at=brasilia_now(),
             cache_status=cache_status,
             postgis_enabled=POSTGIS_ENABLED,
+            total_returned=min(len(points), page_size),
         )
 
     return await cached_api_value(cache_key, MAP_CACHE_TTL_SECONDS, build_response)

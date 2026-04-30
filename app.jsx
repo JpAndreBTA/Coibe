@@ -260,6 +260,10 @@ function normalizeSearchText(value) {
     .toLowerCase();
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function ufFromSearchText(value) {
   return STATE_NAME_TO_UF[normalizeSearchText(value)] || '';
 }
@@ -930,11 +934,14 @@ export default function CoibeApp() {
   const [feedDateTo, setFeedDateTo] = useState('');
   const [activeTab, setActiveTab] = useState('feed');
   const [feedQuery, setFeedQuery] = useState('');
+  const [feedCityFilter, setFeedCityFilter] = useState('');
+  const [feedCityDraft, setFeedCityDraft] = useState('');
   const [activeSearchFilter, setActiveSearchFilter] = useState(null);
   const [items, setItems] = useState([]);
   const [mapPoints, setMapPoints] = useState([]);
   const [mapQuery, setMapQuery] = useState('');
   const [mapZoom, setMapZoom] = useState(1);
+  const [mapPan, setMapPan] = useState({ x: 0, y: 0 });
   const [mapCacheStatus, setMapCacheStatus] = useState('');
   const [stateRisks, setStateRisks] = useState({});
   const [politicalParties, setPoliticalParties] = useState([]);
@@ -971,6 +978,8 @@ export default function CoibeApp() {
   const loadMorePoliticalRef = useRef(null);
   const suppressSearchEffectRef = useRef(false);
   const searchRequestIdRef = useRef(0);
+  const mapPointerRef = useRef(null);
+  const mapClickSuppressRef = useRef(false);
   const loadedPoliticalTabsRef = useRef({ parties: false, politicians: false });
   const politicalDataStampRef = useRef({ parties: '', politicians: '' });
 
@@ -1151,7 +1160,8 @@ export default function CoibeApp() {
     risk = feedRiskFilter,
     sizeOrder = feedSizeOrder,
     dateFrom = feedDateFrom,
-    dateTo = feedDateTo
+    dateTo = feedDateTo,
+    city = feedCityFilter
   ) {
     setLoadingFeed(true);
     setError('');
@@ -1159,6 +1169,7 @@ export default function CoibeApp() {
       const params = new URLSearchParams({ page: String(nextPage), page_size: '10' });
       if (query.trim()) params.set('q', query.trim());
       if (uf) params.set('uf', uf);
+      if (city.trim()) params.set('city', city.trim());
       if (risk && risk !== 'todos') params.set('risk_level', risk);
       if (sizeOrder && sizeOrder !== 'data') params.set('size_order', sizeOrder);
       if (dateFrom) params.set('date_from', dateFrom);
@@ -1182,12 +1193,13 @@ export default function CoibeApp() {
     }
   }
 
-  async function loadMap(query = mapQuery) {
+  async function loadMap(query = mapQuery, uf = selectedUf, city = '') {
     setLoadingMap(true);
     try {
-      const params = new URLSearchParams({ page_size: '80', source: 'auto' });
+      const params = new URLSearchParams({ page_size: '240', source: 'auto' });
       if (query.trim()) params.set('q', query.trim());
-      if (selectedUf) params.set('uf', selectedUf);
+      if (uf) params.set('uf', uf);
+      if (city.trim()) params.set('city', city.trim());
       const [riskData, geoData] = await Promise.all([
         apiGet(`/api/monitoring/state-map?${params}`),
         apiGet('/api/public-data/ibge/states-geojson')
@@ -1340,10 +1352,11 @@ export default function CoibeApp() {
     const immediateSizeOrder = feedOptions.sizeOrder ?? feedSizeOrder;
     const immediateDateFrom = feedOptions.dateFrom ?? feedDateFrom;
     const immediateDateTo = feedOptions.dateTo ?? feedDateTo;
+    const immediateCity = feedOptions.city ?? feedCityFilter;
     try {
       await Promise.all([
-        loadFeed(1, false, query, uf || '', immediateRisk, immediateSizeOrder, immediateDateFrom, immediateDateTo),
-        loadMap(),
+        loadFeed(1, false, query, uf || '', immediateRisk, immediateSizeOrder, immediateDateFrom, immediateDateTo, immediateCity),
+        loadMap(mapQuery, uf || selectedUf, immediateCity),
         loadMonitorStatus()
       ]);
     } catch {
@@ -1352,28 +1365,36 @@ export default function CoibeApp() {
   }
 
   function selectStateOnMap(state) {
+    if (mapClickSuppressRef.current) return;
     const uf = state.uf || '';
     setSelectedState(state);
     setSelectedUf(uf);
   }
 
+  function applyFeedCityFilter(city = feedCityDraft) {
+    setFeedCityFilter(city.trim());
+  }
+
   function openStateInFeed(state) {
     const uf = state.uf || '';
     const label = state.city || state.state_name || state.name || uf;
-    const query = state.city || '';
+    const city = state.city || '';
+    const query = '';
     setSelectedState(state);
     setSelectedUf(uf);
     setFeedQuery(query);
+    setFeedCityFilter(city);
+    setFeedCityDraft(city);
     setFeedRiskFilter('todos');
     setFeedSizeOrder('data');
     setFeedDateFrom('');
     setFeedDateTo('');
-    setActiveSearchFilter({ type: 'estado', label, detail: `UF ${uf}` });
+    setActiveSearchFilter({ type: city ? 'municipio' : 'estado', label, detail: city ? `${city} - UF ${uf}` : `UF ${uf}` });
     setActiveTab('feed');
     suppressSearchEffectRef.current = true;
     setSearchTerm('');
-    loadFeed(1, false, query, uf, 'todos', 'data', '', '');
-    scanPriority(uf, query, { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '' });
+    loadFeed(1, false, query, uf, 'todos', 'data', '', '', city);
+    scanPriority(uf, query, { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '', city });
   }
 
 function queryFromResult(result) {
@@ -1417,6 +1438,7 @@ function queryFromResult(result) {
       return {
         query: '',
         uf,
+        city: '',
         label: result.title,
         detail: `UF ${uf}`,
         scan: true
@@ -1424,8 +1446,9 @@ function queryFromResult(result) {
     }
     if (result.type === 'municipio') {
       return {
-        query: result.title,
+        query: '',
         uf,
+        city: result.title,
         label: result.title,
         detail: uf ? `Municipio em ${uf}` : 'Municipio',
         scan: false
@@ -1436,6 +1459,7 @@ function queryFromResult(result) {
       return {
         query: primaryName || result.title,
         uf: '',
+        city: '',
         label: result.title,
         detail: 'Foco principal no politico selecionado',
         scan: false
@@ -1446,6 +1470,7 @@ function queryFromResult(result) {
       return {
         query: digits || result.title,
         uf: '',
+        city: '',
         label: result.title,
         detail: digits ? `CNPJ ${digits}` : 'CNPJ',
         scan: false
@@ -1455,6 +1480,7 @@ function queryFromResult(result) {
       return {
         query: payload.id || payload.supplier_cnpj || result.title,
         uf: payload.uf || '',
+        city: payload.city || payload.municipio || '',
         label: result.title,
         detail: payload.estimated_variation ? `Superfaturamento estimado R$ ${Number(payload.estimated_variation || 0).toLocaleString('pt-BR')}` : 'Risco de Superfaturamento',
         scan: false
@@ -1465,6 +1491,7 @@ function queryFromResult(result) {
       return {
         query: contractId || payload.supplier_cnpj || payload.niFornecedor || result.title,
         uf: payload.uf || '',
+        city: payload.city || payload.municipio || '',
         label: result.title,
         detail: contractId ? `Contrato ${contractId}` : 'Contrato relacionado',
         scan: false
@@ -1475,6 +1502,7 @@ function queryFromResult(result) {
       return {
         query: partyQuery || result.title,
         uf: '',
+        city: '',
         label: result.title,
         detail: 'Foco principal no partido selecionado',
         scan: false
@@ -1483,6 +1511,7 @@ function queryFromResult(result) {
     return {
       query: result.title || searchTerm,
       uf,
+      city: '',
       label: result.title || searchTerm,
       detail: result.source || 'Resultado relacionado',
       scan: false
@@ -1620,9 +1649,12 @@ function applySearchResult(result) {
     const filter = filterFromResult(result);
     const nextUf = filter.uf || '';
     const nextQuery = filter.query || '';
+    const nextCity = filter.city || '';
     setActiveTab('feed');
     setSelectedUf(nextUf);
     setFeedQuery(nextQuery);
+    setFeedCityFilter(nextCity);
+    setFeedCityDraft(nextCity);
     setFeedRiskFilter('todos');
     setFeedSizeOrder('data');
     setFeedDateFrom('');
@@ -1631,12 +1663,12 @@ function applySearchResult(result) {
     setSearchTerm(filter.label || nextQuery);
     setSearchResults([]);
     setActiveSearchFilter({ type: result.type, label: filter.label, detail: filter.detail });
-    setSelectedState(nextUf ? { uf: nextUf, state_name: filter.label } : null);
+    setSelectedState(nextUf ? { uf: nextUf, state_name: filter.label, city: nextCity } : null);
     if (filter.scan) {
-      scanPriority(nextUf, nextQuery, { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '' });
+      scanPriority(nextUf, nextQuery, { risk: 'todos', sizeOrder: 'data', dateFrom: '', dateTo: '', city: nextCity });
     } else {
-      loadFeed(1, false, nextQuery, nextUf, 'todos', 'data', '', '');
-      loadMap();
+      loadFeed(1, false, nextQuery, nextUf, 'todos', 'data', '', '', nextCity);
+      loadMap('', nextUf, nextCity);
     }
   }
 
@@ -1664,12 +1696,12 @@ function applySearchResult(result) {
 
   useEffect(() => {
     if (activeTab === 'feed') {
-      loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
+      loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, feedCityFilter);
     }
     if (activeTab === 'parties' || activeTab === 'politicians') {
       loadPoliticalData(activeTab);
     }
-  }, [activeTab, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
+  }, [activeTab, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, feedCityFilter]);
 
   useEffect(() => {
     if (activeTab !== 'parties' && activeTab !== 'politicians') return;
@@ -1691,15 +1723,15 @@ function applySearchResult(result) {
       if (document.hidden) return;
       loadMonitorStatus();
       if (activeTab === 'feed' && page === 1 && !loadingFeed) {
-        loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo);
+        loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, feedCityFilter);
       }
-      if (activeTab === 'map') loadMap(mapQuery);
+      if (activeTab === 'map') loadMap(mapQuery, selectedUf, '');
       if ((activeTab === 'parties' || activeTab === 'politicians') && !loadingPolitical) {
         loadPoliticalData(activeTab, true, 1, false);
       }
     }, 45000);
     return () => window.clearInterval(interval);
-  }, [activeTab, page, loadingFeed, loadingPolitical, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter, mapQuery]);
+  }, [activeTab, page, loadingFeed, loadingPolitical, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, feedCityFilter, politicalSearch, politicalRiskFilter, politicalSizeOrder, politicalTypeFilter, mapQuery]);
 
   useEffect(() => {
     if (suppressSearchEffectRef.current) {
@@ -1733,7 +1765,7 @@ function applySearchResult(result) {
 
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [activeTab, hasMore, loadingFeed, page, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo]);
+  }, [activeTab, hasMore, loadingFeed, page, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, feedCityFilter]);
 
   useEffect(() => {
     if (!loadMorePoliticalRef.current || (activeTab !== 'parties' && activeTab !== 'politicians')) return undefined;
@@ -1759,18 +1791,22 @@ function applySearchResult(result) {
     if (stateUf) {
       setSelectedUf(stateUf);
       setFeedQuery('');
+      setFeedCityFilter('');
+      setFeedCityDraft('');
       setActiveSearchFilter({ type: 'estado', label: searchTerm.trim().toUpperCase(), detail: `UF ${stateUf}` });
       setSelectedState({ uf: stateUf, state_name: searchTerm.trim().toUpperCase() });
       setActiveTab('feed');
-      scanPriority(stateUf, '');
+      scanPriority(stateUf, '', { city: '' });
       return;
     }
     setSelectedUf('');
     setFeedQuery(searchTerm);
+    setFeedCityFilter('');
+    setFeedCityDraft('');
     setActiveSearchFilter({ type: 'busca', label: searchTerm, detail: 'Termo livre' });
     setSearchResults([]);
     loadUniversalSearchProgressive(searchTerm);
-    loadFeed(1, false, searchTerm, '');
+    loadFeed(1, false, searchTerm, '', feedRiskFilter, feedSizeOrder, feedDateFrom, feedDateTo, '');
   }
 
   function handleSearchFocus() {
@@ -1798,7 +1834,56 @@ function applySearchResult(result) {
   const selectedSearchDescription = selectedSearchResult && selectedSearchReview
     ? searchAnalyticDescription(selectedSearchResult, selectedSearchReview)
     : '';
-  const mapTransform = `translate(${mapBounds.width / 2} ${mapBounds.height / 2}) scale(${mapZoom}) translate(${-mapBounds.width / 2} ${-mapBounds.height / 2})`;
+
+  function updateMapZoom(nextZoom) {
+    setMapZoom((current) => Number(clampNumber(typeof nextZoom === 'function' ? nextZoom(current) : nextZoom, 1, 3.2).toFixed(2)));
+  }
+
+  function handleMapWheel(event) {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -0.18 : 0.18;
+    updateMapZoom((current) => current + delta);
+  }
+
+  function handleMapPointerDown(event) {
+    mapPointerRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      pan: mapPan,
+      moved: false
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleMapPointerMove(event) {
+    const drag = mapPointerRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - drag.x) > 4 || Math.abs(event.clientY - drag.y) > 4) {
+      drag.moved = true;
+    }
+    const nextX = drag.pan.x + ((event.clientX - drag.x) / Math.max(mapZoom, 1));
+    const nextY = drag.pan.y + ((event.clientY - drag.y) / Math.max(mapZoom, 1));
+    setMapPan({
+      x: clampNumber(nextX, -260, 260),
+      y: clampNumber(nextY, -260, 260)
+    });
+  }
+
+  function handleMapPointerUp(event) {
+    if (mapPointerRef.current?.pointerId === event.pointerId) {
+      if (mapPointerRef.current.moved) {
+        mapClickSuppressRef.current = true;
+        window.setTimeout(() => {
+          mapClickSuppressRef.current = false;
+        }, 0);
+      }
+      mapPointerRef.current = null;
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }
+
+  const mapTransform = `translate(${mapBounds.width / 2 + mapPan.x} ${mapBounds.height / 2 + mapPan.y}) scale(${mapZoom}) translate(${-mapBounds.width / 2} ${-mapBounds.height / 2})`;
   const mapSearchText = normalizeSearchText(mapQuery);
   const visibleMapPoints = useMemo(() => {
     if (!mapSearchText) return mapPoints;
@@ -1808,6 +1893,8 @@ function applySearchResult(result) {
       stateRisks[point.uf]?.state_name
     ].join(' ')).includes(mapSearchText));
   }, [mapPoints, mapSearchText, stateRisks]);
+  const mapPointLimit = mapZoom >= 1.6 ? 240 : 140;
+  const mapCityLabelLimit = mapZoom >= 2.25 ? 140 : mapZoom >= 1.7 ? 90 : mapZoom >= 1.3 ? 45 : 0;
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-neutral-950 text-neutral-100">
@@ -2031,12 +2118,14 @@ function applySearchResult(result) {
                   onClick={() => {
                     setSelectedUf('');
                     setFeedQuery('');
+                    setFeedCityFilter('');
+                    setFeedCityDraft('');
                     setFeedDateFrom('');
                     setFeedDateTo('');
                     setActiveSearchFilter(null);
                     setSelectedState(null);
                     setSearchTerm('');
-                    loadFeed(1, false, '', '');
+                    loadFeed(1, false, '', '', feedRiskFilter, feedSizeOrder, '', '', '');
                   }}
                   className="font-bold text-white hover:text-red-200"
                 >
@@ -2046,7 +2135,7 @@ function applySearchResult(result) {
             )}
 
             {activeTab === 'feed' && (
-              <div className="mt-4 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_auto]">
+              <div className="mt-4 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1.25fr)_auto]">
                 <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
                   <Filter className="h-4 w-4 shrink-0 text-red-400" />
                   <span className="min-w-0 flex-1">
@@ -2081,6 +2170,37 @@ function applySearchResult(result) {
                   </span>
                 </label>
 
+                <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+                  <MapPin className="h-4 w-4 shrink-0 text-red-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11px] font-black uppercase text-neutral-500">Cidade</span>
+                    <span className="mt-1 flex min-w-0 items-center gap-2">
+                      <input
+                        value={feedCityDraft}
+                        onChange={(event) => setFeedCityDraft(event.target.value)}
+                        onBlur={() => applyFeedCityFilter()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            applyFeedCityFilter(event.currentTarget.value);
+                          }
+                        }}
+                        placeholder="Municipio"
+                        className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-neutral-600"
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => applyFeedCityFilter()}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-neutral-800 text-neutral-300 hover:border-red-700"
+                        title="Aplicar cidade"
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </span>
+                </label>
+
                 <label className="flex min-w-0 items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 sm:col-span-2 lg:col-span-1">
                   <FileText className="h-4 w-4 shrink-0 text-red-400" />
                   <span className="min-w-0 flex-1">
@@ -2092,7 +2212,7 @@ function applySearchResult(result) {
                         onChange={(event) => {
                           const nextDateFrom = event.target.value;
                           setFeedDateFrom(nextDateFrom);
-                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, nextDateFrom, feedDateTo);
+                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, nextDateFrom, feedDateTo, feedCityFilter);
                         }}
                         className="min-w-0 bg-transparent text-sm font-bold text-white outline-none [color-scheme:dark]"
                         aria-label="Data inicial do conteúdo"
@@ -2103,7 +2223,7 @@ function applySearchResult(result) {
                         onChange={(event) => {
                           const nextDateTo = event.target.value;
                           setFeedDateTo(nextDateTo);
-                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, nextDateTo);
+                          loadFeed(1, false, feedQuery, selectedUf, feedRiskFilter, feedSizeOrder, feedDateFrom, nextDateTo, feedCityFilter);
                         }}
                         className="min-w-0 bg-transparent text-sm font-bold text-white outline-none [color-scheme:dark]"
                         aria-label="Data final do conteúdo"
@@ -2116,9 +2236,11 @@ function applySearchResult(result) {
                   onClick={() => {
                     setFeedRiskFilter('todos');
                     setFeedSizeOrder('data');
+                    setFeedCityFilter('');
+                    setFeedCityDraft('');
                     setFeedDateFrom('');
                     setFeedDateTo('');
-                    loadFeed(1, false, feedQuery, selectedUf, 'todos', 'data', '', '');
+                    loadFeed(1, false, feedQuery, selectedUf, 'todos', 'data', '', '', '');
                   }}
                   className="rounded-lg border border-neutral-700 px-4 py-2 text-sm font-bold text-neutral-200 transition hover:bg-neutral-800 sm:col-span-2 lg:col-span-1"
                 >
@@ -2209,7 +2331,7 @@ function applySearchResult(result) {
                     <form
                       onSubmit={(event) => {
                         event.preventDefault();
-                        loadMap(mapQuery);
+                        loadMap(mapQuery, selectedUf, '');
                       }}
                       className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2"
                     >
@@ -2231,7 +2353,7 @@ function applySearchResult(result) {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setMapZoom((current) => Math.max(1, Number((current - 0.25).toFixed(2))))}
+                        onClick={() => updateMapZoom((current) => current - 0.25)}
                         className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-red-700"
                         title="Reduzir zoom"
                       >
@@ -2240,7 +2362,7 @@ function applySearchResult(result) {
                       <span className="min-w-14 text-center text-xs font-black text-neutral-400">{Math.round(mapZoom * 100)}%</span>
                       <button
                         type="button"
-                        onClick={() => setMapZoom((current) => Math.min(2.5, Number((current + 0.25).toFixed(2))))}
+                        onClick={() => updateMapZoom((current) => current + 0.25)}
                         className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-red-700"
                         title="Aumentar zoom"
                       >
@@ -2251,8 +2373,10 @@ function applySearchResult(result) {
                         onClick={() => {
                           setMapQuery('');
                           setSelectedState(null);
-                          setMapZoom(1);
-                          loadMap('');
+                          setSelectedUf('');
+                          updateMapZoom(1);
+                          setMapPan({ x: 0, y: 0 });
+                          loadMap('', '', '');
                         }}
                         className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs font-black text-neutral-200 hover:border-red-700"
                         title="Limpar mapa"
@@ -2264,7 +2388,7 @@ function applySearchResult(result) {
                   {mapCacheStatus && (
                     <p className="mt-2 text-xs text-neutral-500">Cache do mapa: {mapCacheStatus}</p>
                   )}
-                  <p className="mt-1 text-sm text-neutral-400">Agregado por município da UASG a partir de contratos oficiais.</p>
+                  <p className="mt-1 text-sm text-neutral-400">Agregado por municipio da UASG com coordenadas e cache geoespacial quando configurado.</p>
                 </div>
                 <div className="relative min-h-[520px] bg-[radial-gradient(circle_at_center,#262626_0,#111_55%,#080808_100%)] p-4">
                   {loadingMap && (
@@ -2278,7 +2402,12 @@ function applySearchResult(result) {
                       viewBox={`0 0 ${mapBounds.width} ${mapBounds.height}`}
                       role="img"
                       aria-label="Mapa do Brasil por estados"
-                      className="h-auto w-full max-h-[620px]"
+                      className="h-auto w-full max-h-[620px] touch-none select-none cursor-grab active:cursor-grabbing"
+                      onWheel={handleMapWheel}
+                      onPointerDown={handleMapPointerDown}
+                      onPointerMove={handleMapPointerMove}
+                      onPointerUp={handleMapPointerUp}
+                      onPointerCancel={handleMapPointerUp}
                     >
                       <rect width={mapBounds.width} height={mapBounds.height} fill="transparent" />
                       <g transform={mapTransform}>
@@ -2329,7 +2458,7 @@ function applySearchResult(result) {
                           </text>
                         );
                       })}
-                      {visibleMapPoints.slice(0, 140).map((point, index) => {
+                      {visibleMapPoints.slice(0, mapPointLimit).map((point, index) => {
                         if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
                         const [x, y] = projectPoint([Number(point.lng), Number(point.lat)]);
                         const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
@@ -2337,7 +2466,11 @@ function applySearchResult(result) {
                           <g
                             key={`${point.city}-${point.uf}-${index}`}
                             className="cursor-pointer"
-                            onClick={() => setSelectedState({ ...point, state_name: stateRisks[point.uf]?.state_name || point.uf })}
+                            onClick={() => {
+                              if (mapClickSuppressRef.current) return;
+                              setSelectedState({ ...point, state_name: stateRisks[point.uf]?.state_name || point.uf });
+                              setSelectedUf(point.uf || '');
+                            }}
                           >
                             <circle
                               cx={x}
@@ -2353,14 +2486,39 @@ function applySearchResult(result) {
                           </g>
                         );
                       })}
+                      {mapCityLabelLimit > 0 && visibleMapPoints.slice(0, mapCityLabelLimit).map((point, index) => {
+                        if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
+                        const [x, y] = projectPoint([Number(point.lng), Number(point.lat)]);
+                        const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
+                        return (
+                          <text
+                            key={`${point.city}-${point.uf}-city-label-${index}`}
+                            x={x + 6}
+                            y={y - 5}
+                            textAnchor="start"
+                            dominantBaseline="central"
+                            pointerEvents="none"
+                            fill={selected ? '#ffffff' : '#fecaca'}
+                            stroke="rgba(0,0,0,0.8)"
+                            strokeWidth={2.6 / mapZoom}
+                            paintOrder="stroke"
+                            fontSize={Math.max(7, 11 / mapZoom)}
+                            fontWeight="800"
+                          >
+                            {compactText(point.city, mapZoom >= 2 ? 18 : 12)}
+                          </text>
+                        );
+                      })}
                       </g>
                     </svg>
                     <aside className="rounded-lg border border-neutral-800 bg-black/60 p-4 text-sm">
-                      <p className="text-xs font-black uppercase text-red-400">Estado selecionado</p>
+                      <p className="text-xs font-black uppercase text-red-400">Recorte selecionado</p>
                       {selectedState ? (
                         <div className="mt-3 space-y-3">
-                          <h3 className="text-xl font-black text-white">{selectedState.state_name || selectedState.name || selectedState.uf}</h3>
-                          <p className="text-neutral-400">UF {selectedState.uf}</p>
+                          <h3 className="text-xl font-black text-white">{selectedState.city || selectedState.state_name || selectedState.name || selectedState.uf}</h3>
+                          <p className="text-neutral-400">
+                            {selectedState.city ? `${selectedState.city} - ` : ''}UF {selectedState.uf}
+                          </p>
                           <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
                             <span className="text-neutral-500">Alertas</span>
                             <strong className="block text-2xl text-white">{selectedState.alerts_count || 0}</strong>
@@ -2375,6 +2533,15 @@ function applySearchResult(result) {
                               {Number(selectedState.total_value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
                             </strong>
                           </div>
+                          {Number.isFinite(Number(selectedState.lat)) && Number.isFinite(Number(selectedState.lng)) && (
+                            <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                              <span className="text-neutral-500">Coordenadas</span>
+                              <strong className="block text-white">
+                                {Number(selectedState.lat).toFixed(4)}, {Number(selectedState.lng).toFixed(4)}
+                              </strong>
+                              <small className="mt-1 block text-neutral-500">{selectedState.spatial_source || 'ibge_uasg_centroid'}</small>
+                            </div>
+                          )}
                           <button
                             onClick={() => {
                               openStateInFeed(selectedState);
@@ -2409,6 +2576,9 @@ function applySearchResult(result) {
                   </p>
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
                     O monitor também evolui estratégias de verificação: aprende termos, alvos e métodos inspirados em red flags de contratação pública, OCDS/Open Contracting, PNCP, TCU, CGU, Portal da Transparência, CEIS/CNEP, STF e TSE. A leitura busca sinais como fornecedor único, aditivos, sobrecusto, fracionamento, sanções, relações em grafo e movimentação de alto valor.
+                  </p>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
+                    O mapa de monitoramento cruza UF, municipio, coordenadas e cache local/PostGIS opcional para reduzir chamadas repetidas ao backend em uso multiusuario. O feed tambem aceita filtro direto por cidade, inclusive quando a abertura vem de um ponto do mapa.
                   </p>
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
