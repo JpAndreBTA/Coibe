@@ -12,7 +12,7 @@ import {
   Github,
   Loader2,
   MapPin,
-  Power,
+  RefreshCw,
   Search,
   ShieldCheck,
   Target,
@@ -1089,7 +1089,7 @@ export default function CoibeApp() {
     setError('');
     try {
       if (kind === 'parties') {
-        const params = new URLSearchParams({ limit: '24', source: 'local', page: String(nextPage), page_size: '10' });
+        const params = new URLSearchParams({ limit: '24', source: 'auto', page: String(nextPage), page_size: '10' });
         if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
         if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
         if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
@@ -1105,7 +1105,7 @@ export default function CoibeApp() {
         }));
       }
       if (kind === 'politicians') {
-        const params = new URLSearchParams({ limit: '36', source: 'local', page: String(nextPage), page_size: '10' });
+        const params = new URLSearchParams({ limit: '36', source: 'auto', page: String(nextPage), page_size: '10' });
         if (politicalSearch.trim()) params.set('q', politicalSearch.trim());
         if (politicalRiskFilter !== 'todos') params.set('risk_level', politicalRiskFilter);
         if (politicalTypeFilter !== 'todos') params.set('analysis_type', politicalTypeFilter);
@@ -1370,6 +1370,30 @@ function applySearchResult(result) {
       setSearchResults([]);
       return;
     }
+    if (result.type === 'politico_deputado' || result.type === 'politico_senador' || result.type === 'politico_relacionado') {
+      const nextQuery = queryFromResult(result);
+      setActiveTab('politicians');
+      setPoliticalSearch(nextQuery);
+      setPoliticalRiskFilter('todos');
+      setPoliticalSizeOrder('prioridade');
+      setPoliticalTypeFilter('todos');
+      setSelectedPoliticalItem(null);
+      setActiveSearchFilter({ type: result.type, label: result.title, detail: 'Analise politica em segundo plano' });
+      setSearchResults([]);
+      return;
+    }
+    if (result.type === 'partido_politico') {
+      const nextQuery = queryFromResult(result);
+      setActiveTab('parties');
+      setPoliticalSearch(nextQuery);
+      setPoliticalRiskFilter('todos');
+      setPoliticalSizeOrder('prioridade');
+      setPoliticalTypeFilter('todos');
+      setSelectedPoliticalItem(null);
+      setActiveSearchFilter({ type: result.type, label: result.title, detail: 'Analise de partido em segundo plano' });
+      setSearchResults([]);
+      return;
+    }
     const filter = filterFromResult(result);
     const nextUf = filter.uf || '';
     const nextQuery = filter.query || '';
@@ -1522,8 +1546,8 @@ function applySearchResult(result) {
     }
   }
 
-  function openLocalBackendPanel() {
-    window.open('http://127.0.0.1:8000/backend', '_blank', 'noopener,noreferrer');
+  function reloadPage() {
+    window.location.reload();
   }
 
   const selectedRisk = riskCopy[selectedAlert?.risk_level] || riskCopy.indeterminado;
@@ -1583,12 +1607,12 @@ function applySearchResult(result) {
             <span>{error}</span>
             <button
               type="button"
-              onClick={openLocalBackendPanel}
+              onClick={reloadPage}
               className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-red-800 bg-red-600 px-3 text-xs font-black text-white transition hover:bg-red-500"
-              title="Abrir painel local do backend"
+              title="Atualizar a pagina"
             >
-              <Power className="h-4 w-4" />
-              Iniciar backend
+              <RefreshCw className="h-4 w-4" />
+              Atualizar pagina
             </button>
           </div>
         )}

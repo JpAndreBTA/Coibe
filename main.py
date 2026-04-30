@@ -2610,6 +2610,49 @@ def save_universal_search_public_records(query: str, response: UniversalSearchRe
     return added
 
 
+def save_political_scan_public_records(record_type: str, query: str | None, items: list[PoliticalScanItem]) -> int:
+    if record_type not in {"political_people", "political_parties"} or not items:
+        return 0
+    existing = load_public_records()
+    by_key: dict[str, dict[str, Any]] = {}
+    for index, record in enumerate(existing):
+        key = str(record.get("record_key") or "")
+        if not key:
+            key = f"legacy:{index}:{record_fingerprint([record.get('title'), record.get('source'), record.get('url')])}"
+            record["record_key"] = key
+        by_key[key] = record
+
+    added = 0
+    collected_at = brasilia_now().isoformat()
+    source_label = "COIBE.IA/Camara/Senado - Politicos" if record_type == "political_people" else "COIBE.IA/Camara/TSE - Partidos"
+    for item in items:
+        stable = record_fingerprint([record_type, item.id, item.name, item.party, item.role])
+        record_key = f"{record_type}:{stable}"
+        if record_key not in by_key:
+            added += 1
+        by_key[record_key] = {
+            "record_key": record_key,
+            "record_type": record_type,
+            "source": source_label,
+            "query": query,
+            "title": item.name,
+            "subtitle": item.subtitle,
+            "url": item.sources[0].url if item.sources else None,
+            "risk_level": item.attention_level,
+            "collected_at": collected_at,
+            "cached_from": f"api/{record_type}",
+            "payload": item.model_dump(mode="json"),
+            "normalized_title": normalize_text(item.name),
+            "normalized_source": normalize_text(source_label),
+        }
+
+    merged = list(by_key.values())
+    merged.sort(key=lambda row: str(row.get("collected_at") or ""), reverse=True)
+    write_json(LOCAL_PUBLIC_RECORDS_PATH, merged[:5000])
+    POLITICAL_LOCAL_ITEMS_CACHE["loaded_at"] = 0.0
+    return added
+
+
 def superpricing_search_results(q: str, limit: int = 8) -> list[UniversalSearchResult]:
     scored: list[tuple[float, float, UniversalSearchResult]] = []
     for item in load_local_monitoring_items():
@@ -4800,6 +4843,32 @@ async def fetch_current_deputies(limit: int = 24, party: str | None = None, legi
     return response_items(data)
 
 
+async def fetch_deputies_by_name(
+    name: str,
+    limit: int = 24,
+    party: str | None = None,
+    legislature: int | None = None,
+) -> list[dict[str, Any]]:
+    clean_name = str(name or "").strip()
+    if len(clean_name) < 2:
+        return []
+    params: dict[str, Any] = {
+        "nome": clean_name,
+        "itens": min(max(limit, 1), 100),
+        "ordem": "ASC",
+        "ordenarPor": "nome",
+    }
+    if party:
+        params["siglaPartido"] = party
+    if legislature:
+        params["idLegislatura"] = legislature
+    try:
+        data = await get_json(CAMARA_DEPUTADOS_URL, params=params)
+    except HTTPException:
+        return []
+    return response_items(data)
+
+
 async def fetch_former_deputies(limit: int = 12, party: str | None = None) -> list[dict[str, Any]]:
     current_year = brasilia_today().year
     legislature_hints = [56, 55, 54, 53] if current_year >= 2023 else [55, 54, 53]
@@ -4819,15 +4888,30 @@ async def fetch_former_deputies(limit: int = 12, party: str | None = None) -> li
 async def political_people_scan(limit: int = 18, q: str | None = None, party: str | None = None) -> list[PoliticalScanItem]:
     current_target = max(4, int(limit * 0.6))
     former_target = max(3, limit - current_target)
-    deputies = await fetch_current_deputies(limit=max(current_target * 2, 12), party=party)
     normalized_query = normalize_text(q)
+    if normalized_query:
+        deputies = await fetch_deputies_by_name(str(q), limit=max(current_target * 3, 20), party=party)
+    else:
+        deputies = await fetch_current_deputies(limit=max(current_target * 2, 12), party=party)
     if normalized_query:
         deputies = [
             deputy for deputy in deputies
             if normalized_query in normalize_text(" ".join(str(deputy.get(key) or "") for key in ("nome", "siglaPartido", "siglaUf")))
         ]
     deputies = deputies[:current_target]
-    former_deputies = await fetch_former_deputies(limit=former_target * 2, party=party)
+    if normalized_query:
+        former_by_key: dict[str, dict[str, Any]] = {}
+        legislature_hints = [56, 55, 54, 53]
+        for legislature in legislature_hints:
+            for deputy in await fetch_deputies_by_name(str(q), limit=max(former_target * 2, 12), party=party, legislature=legislature):
+                key = str(deputy.get("id") or deputy.get("uri") or deputy.get("nome"))
+                if key:
+                    former_by_key[key] = deputy
+            if len(former_by_key) >= former_target * 2:
+                break
+        former_deputies = list(former_by_key.values())
+    else:
+        former_deputies = await fetch_former_deputies(limit=former_target * 2, party=party)
     if normalized_query:
         former_deputies = [
             deputy for deputy in former_deputies
@@ -6279,6 +6363,17 @@ async def political_parties(
             size_order=size_order,
             limit=cached_limit,
         )
+        if not cached_items and source != "local" and q:
+            live_items = await political_parties_scan(limit=limit, q=q)
+            save_political_scan_public_records("political_parties", q, live_items)
+            cached_items, generated_at = cached_political_items(
+                "political_parties",
+                q=q,
+                risk_level=risk_level,
+                analysis_type=analysis_type,
+                size_order=size_order,
+                limit=cached_limit,
+            )
         start = (page - 1) * page_size
         items = cached_items[start : start + page_size]
         return PoliticalScanResponse(
@@ -6294,6 +6389,7 @@ async def political_parties(
 
     allow_local_or_admin_live_scan(request, x_coibe_admin_token)
     live_items = await political_parties_scan(limit=limit, q=q)
+    save_political_scan_public_records("political_parties", q, live_items)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="partidos",
@@ -6331,6 +6427,18 @@ async def political_politicians(
             size_order=size_order,
             limit=cached_limit,
         )
+        if not cached_items and source != "local" and q:
+            live_items = await political_people_scan(limit=limit, q=q, party=party)
+            save_political_scan_public_records("political_people", q, live_items)
+            cached_items, generated_at = cached_political_items(
+                "political_people",
+                q=q,
+                party=party,
+                risk_level=risk_level,
+                analysis_type=analysis_type,
+                size_order=size_order,
+                limit=cached_limit,
+            )
         start = (page - 1) * page_size
         items = cached_items[start : start + page_size]
         return PoliticalScanResponse(
@@ -6346,6 +6454,7 @@ async def political_politicians(
 
     allow_local_or_admin_live_scan(request, x_coibe_admin_token)
     live_items = await political_people_scan(limit=limit, q=q, party=party)
+    save_political_scan_public_records("political_people", q, live_items)
     return PoliticalScanResponse(
         generated_at=brasilia_now(),
         kind="politicos",
