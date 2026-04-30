@@ -67,6 +67,39 @@ HIGH_RISK_FEED_QUERIES = [
     "pavimentacao",
 ]
 
+BOOTSTRAP_MODEL_TERMS = [
+    "single bidder contract",
+    "short tender period",
+    "contract amendment cost overrun",
+    "delivery delay contract execution",
+    "supplier concentration buyer spending",
+    "beneficial ownership supplier",
+    "blacklisted supplier sanctions",
+    "CEIS CNEP fornecedor sancionado",
+    "PNCP contratos dados abertos",
+    "Portal da Transparencia despesas contratos",
+    "TCU dados abertos acordaos controle externo",
+    "CGU integridade publica dados abertos",
+    "Open Contracting red flags procurement",
+    "OCDS planning tender award contract implementation",
+    "Benford law procurement values",
+    "threshold splitting procurement",
+    "political connections campaign financing",
+    "network anomaly supplier public official",
+    "positive unlabeled learning sanctioned suppliers",
+    "graph fraud procurement contracts",
+    "quasi real time procurement red flags",
+    "price reference public procurement",
+    "supplier tax haven registry",
+    "unrealistic procurement timeline",
+    "single source tender risk",
+    "unjustified cost increase",
+    "repeated emergency procurement",
+    "related supplier repeated payments",
+    "campaign donation supplier contract",
+    "family proximity public money flow",
+]
+
 
 def rotate_list(values: list[str], offset: int) -> list[str]:
     if not values:
@@ -402,6 +435,16 @@ def add_model_candidates(candidates: dict[str, dict[str, Any]], source_value: An
         bucket["sources"].add(source)
 
 
+def seed_model_candidate(candidates: dict[str, dict[str, Any]], term: str, weight: float, source: str) -> None:
+    clean = " ".join(str(term or "").split())
+    normalized = normalize_text(clean)
+    if len(normalized.split()) < 2:
+        return
+    bucket = candidates.setdefault(normalized, {"term": clean, "score": 0, "sources": set()})
+    bucket["score"] += weight
+    bucket["sources"].add(source)
+
+
 VERIFICATION_CHECK_LIBRARY: dict[str, dict[str, Any]] = {
     "reference_price_superpricing": {
         "title": "Comparar preco unitario com referencia de mercado",
@@ -450,6 +493,54 @@ VERIFICATION_CHECK_LIBRARY: dict[str, dict[str, Any]] = {
         "description": "Prioriza leitura em STF, TCU, TSE e fontes oficiais quando um nome aparece em varios recortes.",
         "query_hints": ["processo controle externo", "stf tcu tse pessoa publica"],
         "signals": ["processo", "controle externo", "stf", "tcu", "tse"],
+    },
+    "ocds_red_flags_methodology": {
+        "title": "Aplicar metodologia OCDS de red flags por etapa da contratacao",
+        "description": "Organiza sinais por planejamento, licitacao, adjudicacao, contrato e execucao, inspirado em guias Open Contracting.",
+        "query_hints": ["open contracting red flags procurement", "OCDS red flags public procurement"],
+        "signals": ["ocds", "red flags", "planning", "tender", "award", "contract", "implementation"],
+    },
+    "single_bidder_competition_check": {
+        "title": "Verificar baixa competicao ou fornecedor unico",
+        "description": "Procura contratacoes com poucos participantes, dispensa recorrente, inexigibilidade ou sinal de competicao limitada.",
+        "query_hints": ["single bidder contract", "fornecedor unico licitacao dispensa"],
+        "signals": ["fornecedor unico", "single bidder", "dispensa", "inexigibilidade", "baixa competicao"],
+    },
+    "contract_overrun_amendment_check": {
+        "title": "Medir aditivos, atraso e aumento injustificado de custo",
+        "description": "Compara valor inicial, aditivos, prazo e execucao para achar sobrecusto ou extensao fora do padrao.",
+        "query_hints": ["contract amendment cost overrun", "aditivo contrato aumento prazo custo"],
+        "signals": ["aditivo", "cost overrun", "delivery delay", "aumento de custo", "atraso"],
+    },
+    "sanctions_blacklist_supplier_check": {
+        "title": "Cruzar fornecedor com sancoes, CEIS, CNEP e listas restritivas",
+        "description": "Prioriza CNPJs que aparecem em bases de sancoes, empresas punidas, inidoneas ou cadastros restritivos.",
+        "query_hints": ["CEIS CNEP fornecedor sancionado", "blacklisted supplier sanctions procurement"],
+        "signals": ["ceis", "cnep", "sancionado", "inidoneo", "punido", "blacklist"],
+    },
+    "threshold_splitting_benford_check": {
+        "title": "Detectar fracionamento e padroes numericos atipicos",
+        "description": "Procura varios contratos abaixo de limite, valores repetidos, arredondados ou distribuicoes suspeitas por Benford.",
+        "query_hints": ["threshold splitting procurement", "Benford law procurement values"],
+        "signals": ["fracionamento", "benford", "limite", "valor arredondado", "contratos repetidos"],
+    },
+    "network_graph_relationship_check": {
+        "title": "Usar grafo de relacoes entre orgao, fornecedor, socios e politicos",
+        "description": "Aprende a priorizar componentes de rede com fornecedores recorrentes, pessoas relacionadas e orgaos concentrados.",
+        "query_hints": ["graph fraud procurement contracts", "network anomaly supplier public official"],
+        "signals": ["grafo", "rede", "socios", "relacionamento", "anomalia de rede"],
+    },
+    "positive_unlabeled_supplier_learning": {
+        "title": "Aprender com fornecedores sancionados sem presumir culpa",
+        "description": "Usa fornecedores ja sancionados como exemplos positivos e compara padroes com fornecedores nao rotulados.",
+        "query_hints": ["positive unlabeled learning sanctioned suppliers", "machine learning sanctioned government suppliers"],
+        "signals": ["positive unlabeled", "sancionados", "fornecedores punidos", "aprendizado semi-supervisionado"],
+    },
+    "open_public_source_expansion": {
+        "title": "Expandir fontes abertas oficiais para controle social",
+        "description": "Acrescenta PNCP, TCU, CGU, Portal da Transparencia, CEIS, CNEP, STF e TSE como trilhas de verificacao.",
+        "query_hints": ["TCU dados abertos controle externo", "CGU dados abertos integridade publica", "PNCP dados abertos contratos"],
+        "signals": ["pncp", "tcu", "cgu", "portal da transparencia", "ceis", "cnep", "tse", "stf"],
     },
 }
 
@@ -605,6 +696,16 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
     candidates: dict[str, dict[str, Any]] = {}
     check_candidates: dict[str, dict[str, Any]] = {}
     target_candidates: dict[str, dict[str, Any]] = {}
+    for term in BOOTSTRAP_MODEL_TERMS:
+        seed_model_candidate(candidates, term, 1.5, "public_method_research")
+    for check_id in VERIFICATION_CHECK_LIBRARY:
+        add_verification_check(
+            check_candidates,
+            check_id,
+            1.0,
+            "public_method_research",
+            {"title": VERIFICATION_CHECK_LIBRARY[check_id]["title"], "type": "metodologia_publica"},
+        )
     for alert in analysis.get("alerts", [])[:80]:
         if not isinstance(alert, dict):
             continue
@@ -666,7 +767,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         for item in block.get("items", [])[:80]:
             if not isinstance(item, dict):
                 continue
-            weight = 50 if int(item.get("priority_score") or 0) >= 80 else 25
+            weight = 8 if int(item.get("priority_score") or 0) >= 80 else 3
             political_evidence = {
                 "title": item.get("name"),
                 "person": item.get("name"),
@@ -674,7 +775,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
                 "value": item.get("total_public_money"),
                 "risk_level": item.get("attention_level"),
             }
-            for source_value in [item.get("name"), item.get("party"), item.get("role")]:
+            for source_value in [item.get("party"), item.get("role"), item.get("summary")]:
                 add_model_candidates(candidates, source_value, weight, block_name)
             add_investigation_target(target_candidates, "politico", item.get("name"), weight, block_name, political_evidence)
             add_investigation_target(target_candidates, "partido", item.get("party"), weight, block_name, political_evidence)
@@ -686,7 +787,21 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
 
     now = brasilia_now().isoformat()
     learned_limit = int(config.get("learned_terms_per_cycle") or MAX_LEARNED_TERMS_PER_CYCLE)
-    for normalized, candidate in sorted(candidates.items(), key=lambda row: row[1]["score"], reverse=True)[:learned_limit]:
+    sorted_candidates = sorted(candidates.items(), key=lambda row: row[1]["score"], reverse=True)
+    selected_candidates: list[tuple[str, dict[str, Any]]] = []
+    seen_candidate_keys: set[str] = set()
+    for normalized, candidate in sorted_candidates[:learned_limit]:
+        selected_candidates.append((normalized, candidate))
+        seen_candidate_keys.add(normalized)
+    for normalized, candidate in sorted_candidates:
+        if normalized in learned_by_key or normalized in seen_candidate_keys:
+            continue
+        selected_candidates.append((normalized, candidate))
+        seen_candidate_keys.add(normalized)
+        if len(selected_candidates) >= learned_limit * 2:
+            break
+
+    for normalized, candidate in selected_candidates:
         existing = learned_by_key.get(normalized, {"term": candidate["term"], "hits": 0, "score": 0, "first_seen_at": now})
         existing["term"] = existing.get("term") or candidate["term"]
         existing["hits"] = int(existing.get("hits") or 0) + 1
@@ -761,14 +876,29 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "public_records_seen": len(analysis.get("public_records", []) or []),
             "alerts_seen": len(analysis.get("alerts", []) or []),
             "items_seen": len(analysis.get("items", []) or []),
+            "method_research_sources": [
+                "Open Contracting Partnership - Red Flags in Public Procurement / OCDS",
+                "World Bank - procurement fraud and corruption warning signs",
+                "Portal Nacional de Contratacoes Publicas - dados abertos",
+                "Tribunal de Contas da Uniao - dados abertos",
+                "Controladoria-Geral da Uniao - dados abertos e integridade publica",
+            ],
         },
         "last_training": {
             "generated_at": analysis.get("generated_at"),
             "items_analyzed": analysis.get("items_analyzed"),
             "alerts_count": analysis.get("alerts_count"),
-            "learned_terms_added": min(len(candidates), learned_limit),
+            "learned_terms_added": len(selected_candidates),
             "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
             "learned_targets_added": min(len(target_candidates), max(learned_limit * 2, 16)),
+            "method_research_applied": True,
+            "method_research_sources": [
+                "Open Contracting Partnership",
+                "World Bank",
+                "PNCP",
+                "TCU",
+                "CGU",
+            ],
             "search_terms_used": search_terms,
             "optimized_search_terms_next_cycle": merged_search_terms(search_terms, {"learned_terms": learned_terms, "learned_checks": learned_checks, "learned_targets": learned_targets})[:60],
             "date_window": date_window,

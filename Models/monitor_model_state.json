@@ -1,7 +1,7 @@
 {
   "version": "coibe-monitor-v1",
-  "updated_at": "2026-04-30T01:54:04.269169-03:00",
-  "cycles": 17,
+  "updated_at": "2026-04-30T02:15:46.208558-03:00",
+  "cycles": 18,
   "learned_terms": [
     {
       "term": "Luiz Inacio Lula",
@@ -157,6 +157,248 @@
         "monitoring_items",
         "public_records"
       ]
+    },
+    {
+      "term": "Inviabilidade Logistica",
+      "hits": 1,
+      "score": 26.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Fator Emergente Recorrencia",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Emergente Recorrencia Atipica",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Recorrencia Atipica Janela",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Atipica Janela Curta",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Fator Emergente",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Emergente Recorrencia",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Recorrencia Atipica",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Atipica Janela",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Janela Curta",
+      "hits": 1,
+      "score": 15.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Elegivel Estatistica",
+      "hits": 1,
+      "score": 10.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Anomalia Valor",
+      "hits": 1,
+      "score": 10.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Recuperacao Judicial",
+      "hits": 1,
+      "score": 8.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Engenharia Recuperacao Judicial",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Engenharia Recuperacao",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Coord Geral",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Exclusiva Obra",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Prestacao Continuos",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Execucao Obra",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts",
+        "public_records"
+      ]
+    },
+    {
+      "term": "Coord Geral Administ",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Geral Administ",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "term": "Valor Incompativel Capital",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Incompativel Capital Social",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
+    },
+    {
+      "term": "Valor Incompativel",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "risk_flags"
+      ]
     }
   ],
   "learned_checks": [
@@ -174,8 +416,8 @@
         "partido",
         "politico"
       ],
-      "hits": 8,
-      "score": 17545.0,
+      "hits": 9,
+      "score": 17723.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -205,6 +447,10 @@
           "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
           "value": "6788154.34",
           "risk_level": "médio"
+        },
+        {
+          "title": "Cruzar politico, partido e contratos locais",
+          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -254,21 +500,15 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
-        },
-        {
-          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
-          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
-          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
-          "value": "6788154.34",
-          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -285,8 +525,8 @@
         "fornecedor recorrente",
         "pagamento concentrado"
       ],
-      "hits": 8,
-      "score": 17521.0,
+      "hits": 9,
+      "score": 17696.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -316,6 +556,10 @@
           "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
           "value": "6788154.34",
           "risk_level": "médio"
+        },
+        {
+          "title": "Checar concentracao por fornecedor",
+          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -365,21 +609,15 @@
           "supplier": "ST JUDE MEDICAL BRASIL LTDA",
           "value": "784851.04",
           "risk_level": "médio"
-        },
-        {
-          "title": "PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE PLANEJAMENTO OPERACIONAL, ORGANIZAÇÃO E EXECUÇÃO DE EVENTOS, RECEPTIVOS E ATIVIDADES CORRELATAS",
-          "entity": "AGENCIA NACIONAL DE ENERGIA ELETRICA",
-          "supplier": "LIDER BRASIL INTELIGENCIA EM EVENTOS LTDA",
-          "value": "6788154.34",
-          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -398,8 +636,8 @@
         "tcu",
         "tse"
       ],
-      "hits": 8,
-      "score": 16113.0,
+      "hits": 9,
+      "score": 16161.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -417,6 +655,10 @@
         {
           "title": "PL - Partido Liberal",
           "type": "political_parties"
+        },
+        {
+          "title": "Conferir processos e controle externo em fontes oficiais",
+          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
@@ -457,18 +699,15 @@
         {
           "title": "PSB - Partido Socialista Brasileiro",
           "type": "political_parties"
-        },
-        {
-          "title": "PL - Partido Liberal",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -486,8 +725,8 @@
         "pessoa proxima",
         "vinculos"
       ],
-      "hits": 8,
-      "score": 9078.0,
+      "hits": 9,
+      "score": 9143.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -517,6 +756,10 @@
           "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
           "value": "1893204.9",
           "risk_level": "médio"
+        },
+        {
+          "title": "Mapear alto valor em pessoas ou fornecedores proximos",
+          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
@@ -566,21 +809,15 @@
           "supplier": "POSITIVO TECNOLOGIA S.A.",
           "value": "3265119.0",
           "risk_level": "médio"
-        },
-        {
-          "title": "AQUISIÇÃO DE OBRAS DIDÁTICAS NO ÂMBITO DO PROGRAMA NACIONAL DO LIVRO E DO MATERIAL DIDÁTICO - PNLD 2023, OBJETO 01, NO FORMATO ACESSÍVEL BRA",
-          "entity": "FUNDO NACIONAL DE DESENVOLVIMENTO DA EDUCACAO",
-          "supplier": "FUNDACAO DORINA NOWILL PARA CEGOS",
-          "value": "1893204.9",
-          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -598,16 +835,20 @@
         "doacao",
         "tse"
       ],
-      "hits": 8,
-      "score": 8667.0,
+      "hits": 9,
+      "score": 8706.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
-          "title": "SOLIDARIEDADE - Solidariedade",
+          "title": "PSDB - Partido da Social Democracia Brasileira",
           "type": "political_parties"
         },
         {
-          "title": "UNIÃO - União Brasil",
+          "title": "REPUBLICANOS - Republicanos",
+          "type": "political_parties"
+        },
+        {
+          "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
         },
         {
@@ -615,8 +856,8 @@
           "type": "political_parties"
         },
         {
-          "title": "REPUBLICANOS - Republicanos",
-          "type": "political_parties"
+          "title": "Verificar doacoes e contas eleitorais",
+          "type": "metodologia_publica"
         },
         {
           "title": "PT - Partido dos Trabalhadores",
@@ -645,17 +886,14 @@
         {
           "title": "SOLIDARIEDADE - Solidariedade",
           "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -673,12 +911,20 @@
         "passagem",
         "viagem"
       ],
-      "hits": 8,
-      "score": 8358.0,
+      "hits": 9,
+      "score": 8401.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
+        {
           "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
         },
         {
@@ -686,12 +932,8 @@
           "type": "political_parties"
         },
         {
-          "title": "UNIÃO - União Brasil",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
+          "title": "Revisar padrao de viagem e deslocamento",
+          "type": "metodologia_publica"
         },
         {
           "title": "CONTRATAÇÃO DE SERVIÇOS DE ADMINISTRAÇÃO, GERENCIAMENTO E CONTROLE DOS ABASTECIMENTOS DE COMBUSTÍVEL PARA A FROTA DE VEÍCULOS DA SES/AM EM R",
@@ -723,18 +965,15 @@
         {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
-        },
-        {
-          "title": "SOLIDARIEDADE - Solidariedade",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
       ]
     },
@@ -751,8 +990,8 @@
         "superfaturamento",
         "valor acima da referencia"
       ],
-      "hits": 8,
-      "score": 6826.0,
+      "hits": 9,
+      "score": 7040.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
@@ -782,6 +1021,10 @@
           "supplier": "ALPER ENERGIA LTDA.",
           "value": "2477068.68",
           "risk_level": "médio"
+        },
+        {
+          "title": "Comparar preco unitario com referencia de mercado",
+          "type": "metodologia_publica"
         },
         {
           "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
@@ -831,21 +1074,15 @@
           "supplier": "ALPER ENERGIA LTDA.",
           "value": "2477068.68",
           "risk_level": "médio"
-        },
-        {
-          "title": "ILUMINAÇÃO DOS CAMPOS DE FUTEBOL E PISTA DE ATLETISMO DO CEPEUSP",
-          "entity": "ESP-CENTRO DE PRATICAS ESPORTIVAS DA USP",
-          "supplier": "ALPER ENERGIA LTDA.",
-          "value": "2477068.68",
-          "risk_level": "médio"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "alerts",
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records",
         "risk_flags"
       ]
@@ -863,12 +1100,20 @@
         "fonte incompleta",
         "sem documento"
       ],
-      "hits": 8,
-      "score": 5582.0,
+      "hits": 9,
+      "score": 5618.0,
       "first_seen_at": "2026-04-29T18:54:13.670483-03:00",
       "examples": [
         {
+          "title": "UNIÃO - União Brasil",
+          "type": "political_parties"
+        },
+        {
           "title": "PSDB - Partido da Social Democracia Brasileira",
+          "type": "political_parties"
+        },
+        {
+          "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
         },
         {
@@ -876,12 +1121,8 @@
           "type": "political_parties"
         },
         {
-          "title": "UNIÃO - União Brasil",
-          "type": "political_parties"
-        },
-        {
-          "title": "PSD - Partido Social Democrático",
-          "type": "political_parties"
+          "title": "Conferir documento fiscal ausente ou incompleto",
+          "type": "metodologia_publica"
         },
         {
           "title": "PNCP API Consulta",
@@ -910,18 +1151,134 @@
         {
           "title": "REPUBLICANOS - Republicanos",
           "type": "political_parties"
-        },
-        {
-          "title": "SOLIDARIEDADE - Solidariedade",
-          "type": "political_parties"
         }
       ],
-      "latest_seen_at": "2026-04-30T01:54:04.269169-03:00",
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
       "sources": [
         "monitoring_items",
         "political_parties",
         "political_people",
+        "public_method_research",
         "public_records"
+      ]
+    },
+    {
+      "id": "ocds_red_flags_methodology",
+      "title": "Aplicar metodologia OCDS de red flags por etapa da contratacao",
+      "description": "Organiza sinais por planejamento, licitacao, adjudicacao, contrato e execucao, inspirado em guias Open Contracting.",
+      "query_hints": [
+        "open contracting red flags procurement",
+        "OCDS red flags public procurement"
+      ],
+      "signals": [
+        "award",
+        "contract",
+        "implementation",
+        "ocds",
+        "planning",
+        "red flags",
+        "tender"
+      ],
+      "hits": 1,
+      "score": 1.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "Aplicar metodologia OCDS de red flags por etapa da contratacao",
+          "type": "metodologia_publica"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "public_method_research"
+      ]
+    },
+    {
+      "id": "single_bidder_competition_check",
+      "title": "Verificar baixa competicao ou fornecedor unico",
+      "description": "Procura contratacoes com poucos participantes, dispensa recorrente, inexigibilidade ou sinal de competicao limitada.",
+      "query_hints": [
+        "single bidder contract",
+        "fornecedor unico licitacao dispensa"
+      ],
+      "signals": [
+        "baixa competicao",
+        "dispensa",
+        "fornecedor unico",
+        "inexigibilidade",
+        "single bidder"
+      ],
+      "hits": 1,
+      "score": 1.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "Verificar baixa competicao ou fornecedor unico",
+          "type": "metodologia_publica"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "public_method_research"
+      ]
+    },
+    {
+      "id": "contract_overrun_amendment_check",
+      "title": "Medir aditivos, atraso e aumento injustificado de custo",
+      "description": "Compara valor inicial, aditivos, prazo e execucao para achar sobrecusto ou extensao fora do padrao.",
+      "query_hints": [
+        "contract amendment cost overrun",
+        "aditivo contrato aumento prazo custo"
+      ],
+      "signals": [
+        "aditivo",
+        "atraso",
+        "aumento de custo",
+        "cost overrun",
+        "delivery delay"
+      ],
+      "hits": 1,
+      "score": 1.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "Medir aditivos, atraso e aumento injustificado de custo",
+          "type": "metodologia_publica"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "public_method_research"
+      ]
+    },
+    {
+      "id": "sanctions_blacklist_supplier_check",
+      "title": "Cruzar fornecedor com sancoes, CEIS, CNEP e listas restritivas",
+      "description": "Prioriza CNPJs que aparecem em bases de sancoes, empresas punidas, inidoneas ou cadastros restritivos.",
+      "query_hints": [
+        "CEIS CNEP fornecedor sancionado",
+        "blacklisted supplier sanctions procurement"
+      ],
+      "signals": [
+        "blacklist",
+        "ceis",
+        "cnep",
+        "inidoneo",
+        "punido",
+        "sancionado"
+      ],
+      "hits": 1,
+      "score": 1.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "Cruzar fornecedor com sancoes, CEIS, CNEP e listas restritivas",
+          "type": "metodologia_publica"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "public_method_research"
       ]
     }
   ],
@@ -1708,13 +2065,706 @@
       "sources": [
         "political_parties"
       ]
+    },
+    {
+      "id": "universal_search_result:RISCO DE SUPERFATURAMENTO AQUISICAO DE MEDICAMENTOS",
+      "type": "universal_search_result",
+      "query": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+      "term": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+      "hits": 1,
+      "score": 8.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        },
+        {
+          "title": "Risco de Superfaturamento - AQUISIÇÃO DE MEDICAMENTOS",
+          "type": "universal_search_result"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "public_records"
+      ]
+    },
+    {
+      "id": "orgao:ESP HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+      "type": "orgao",
+      "query": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+      "term": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+      "hits": 1,
+      "score": 7.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "SOLUCAO FISIOLOGICA ISOTONICA",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "MEDILAR IMPORTACAO E DISTRIBUICAO DE PRODUTOS MEDICO HOSPITALARES S/A",
+          "value": "15063.36",
+          "risk_level": "médio"
+        },
+        {
+          "title": "CLORIDRATO DE CLORPROMAZINA, GOTAS 4%",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "3630.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "BICARBONATO DE SODIO, SOLUCAO 8,4%",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "FARMARIN INDUSTRIA E COMERCIO LTDA",
+          "value": "35520.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FENTANILA + DROPERIDOL",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "3885.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "BROMOPRIDA, SOLUCAO INJETAVEL, AMPOLA 10 MG 2 ML, VIA ENDOVENOSA OU INTRAMUSCULAR.",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "SOMA/SP PRODUTOS HOSPITALARES LTDA",
+          "value": "10800.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PROPOFOL, EMULSAO INJETAVEL, FRASCO-AMPOLA",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "44208.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "BUSSULFANO, SOLUCAO INJETAVEL, FRASCO-AMPOLA 60 MG 10 ML",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "ACCORD FARMACEUTICA LTDA",
+          "value": "44360.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:B3M CONSTRUTORA LTDA",
+      "type": "fornecedor",
+      "query": "B3M CONSTRUTORA LTDA",
+      "term": "B3M CONSTRUTORA LTDA",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        },
+        {
+          "title": "EXECUÇÃO DE OBRAS DE ADEQUAÇÃO DO SERVIÇO DE INTERCORRÊNCIAS CLÍNICAS E CIRÚRGICAS (SICC)/EMERGÊNCIA, INCLUINDO A ELABORAÇÃO DOS PROJETOS EX",
+          "entity": "COMPLEXO HOSPITALAR DA UNIVERSIDADE FEDERAL",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "6682740.39",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:AUTO SUTURE DO BRASIL LTDA",
+      "type": "fornecedor",
+      "query": "AUTO SUTURE DO BRASIL LTDA.",
+      "term": "AUTO SUTURE DO BRASIL LTDA.",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "13038.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "272244.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "122.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+      "type": "fornecedor",
+      "query": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+      "term": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+      "hits": 1,
+      "score": 6.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CLORIDRATO DE CLORPROMAZINA, GOTAS 4%",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "3630.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "FENTANILA + DROPERIDOL",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "3885.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "PROPOFOL, EMULSAO INJETAVEL, FRASCO-AMPOLA",
+          "entity": "ESP-HOSPITAL DAS CLINICAS RIBEIRAO PRETO",
+          "supplier": "CRISTALIA PRODUTOS QUIMICOS FARMACEUTICOS LTDA",
+          "value": "44208.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:AQUISICAO DE MATERIAIS DE ENFERMAGEM",
+      "type": "contrato",
+      "query": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+      "term": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "13038.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "41030.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "272244.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "26110.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "122.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:ESP COORD GERAL ADMINIST CGA",
+      "type": "orgao",
+      "query": "ESP-COORD. GERAL ADMINIST. - CGA",
+      "term": "ESP-COORD. GERAL ADMINIST. - CGA",
+      "hits": 1,
+      "score": 5.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "13038.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "41030.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "272244.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "26110.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "AUTO SUTURE DO BRASIL LTDA.",
+          "value": "122.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:R P L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+      "type": "fornecedor",
+      "query": "R.P.L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+      "term": "R.P.L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+      "hits": 1,
+      "score": 4.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, NAS CONDIÇÕES ESTABELEC",
+          "entity": "UNIVERSIDADE FEDERAL DE OURO PRETO",
+          "supplier": "R.P.L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+          "value": "2062136.64",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:ABBOTT LABORATORIOS DO BRASIL LTDA",
+      "type": "fornecedor",
+      "query": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+      "term": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+      "hits": 1,
+      "score": 4.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "41030.0",
+          "risk_level": "médio"
+        },
+        {
+          "title": "AQUISIÇÃO DE MATERIAIS DE ENFERMAGEM",
+          "entity": "ESP-COORD. GERAL ADMINIST. - CGA",
+          "supplier": "ABBOTT LABORATORIOS DO BRASIL LTDA",
+          "value": "26110.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:VIVA SERVICOS LTDA",
+      "type": "fornecedor",
+      "query": "VIVA SERVICOS LTDA",
+      "term": "VIVA SERVICOS LTDA",
+      "hits": 1,
+      "score": 4.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE EMPRESA ESPECIALIZADA NA PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE HIGIENIZAÇÃO E DESINFECÇÃO/D",
+          "entity": "EBSERH CHC-UFPR",
+          "supplier": "VIVA SERVICOS LTDA",
+          "value": "40849379.17",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+      "type": "fornecedor",
+      "query": "ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+      "term": "ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+      "hits": 1,
+      "score": 4.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA PARA A PRESTAÇÃO DE SERVIÇOS DE MANUTENÇÃO PREDIAL PREVENTIVA, CORRETIVA, EVENTUAL E EMERGENCIAL, DE NA",
+          "entity": "MUSEU NACIONAL DA UFRJ",
+          "supplier": "ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+          "value": "4188000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:BH FOODS COMERCIO E INDUSTRIA LTDA",
+      "type": "fornecedor",
+      "query": "BH FOODS COMERCIO E INDUSTRIA LTDA",
+      "term": "BH FOODS COMERCIO E INDUSTRIA LTDA",
+      "hits": 1,
+      "score": 4.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE GÊNEROS DE ALIMENTAÇÃO DO QUANTITATIVO DE SUBSISTÊNCIA PARA AS ORGANIZAÇÕES MILITARES DO COMANDO MILITAR DO OESTE",
+          "entity": "9º GRUPAMENTO LOGISTICO",
+          "supplier": "BH FOODS COMERCIO E INDUSTRIA LTDA",
+          "value": "912000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:CONTRATACAO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUCAO CIVIL PARA EXECUCAO DA OBRA DE FINALIZACAO DO CENTRO DE EDUCACAO E ADMINISTR",
+      "type": "contrato",
+      "query": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+      "term": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:HOSPITAL DE CLINICAS DE UBERLANDIA",
+      "type": "orgao",
+      "query": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+      "term": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA EM ENGENHARIA E CONSTRUÇÃO CIVIL PARA EXECUÇÃO DA OBRA DE FINALIZAÇÃO DO CENTRO DE EDUCAÇÃO E ADMINISTR",
+          "entity": "HOSPITAL DE CLINICAS DE UBERLANDIA",
+          "supplier": "B3M CONSTRUTORA LTDA",
+          "value": "3569061.66",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:CONTRATACAO DE SERVICOS CONTINUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICACAO EXCLUSIVA DE MAO DE OBRA NAS CONDICOES ESTABELEC",
+      "type": "contrato",
+      "query": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, NAS CONDIÇÕES ESTABELEC",
+      "term": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, NAS CONDIÇÕES ESTABELEC",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, NAS CONDIÇÕES ESTABELEC",
+          "entity": "UNIVERSIDADE FEDERAL DE OURO PRETO",
+          "supplier": "R.P.L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+          "value": "2062136.64",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:UNIVERSIDADE FEDERAL DE OURO PRETO",
+      "type": "orgao",
+      "query": "UNIVERSIDADE FEDERAL DE OURO PRETO",
+      "term": "UNIVERSIDADE FEDERAL DE OURO PRETO",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE MOTORISTAS A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO EXCLUSIVA DE MÃO DE OBRA, NAS CONDIÇÕES ESTABELEC",
+          "entity": "UNIVERSIDADE FEDERAL DE OURO PRETO",
+          "supplier": "R.P.L ENGENHARIA E SERVICOS LTDA EM RECUPERACAO JUDICIAL",
+          "value": "2062136.64",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:O OBJETO DO PRESENTE INSTRUMENTO E A CONTRATACAO DE EMPRESA ESPECIALIZADA NA PRESTACAO DE SERVICOS CONTINUOS DE HIGIENIZACAO E DESINFECCAO D",
+      "type": "contrato",
+      "query": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE EMPRESA ESPECIALIZADA NA PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE HIGIENIZAÇÃO E DESINFECÇÃO/D",
+      "term": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE EMPRESA ESPECIALIZADA NA PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE HIGIENIZAÇÃO E DESINFECÇÃO/D",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE EMPRESA ESPECIALIZADA NA PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE HIGIENIZAÇÃO E DESINFECÇÃO/D",
+          "entity": "EBSERH CHC-UFPR",
+          "supplier": "VIVA SERVICOS LTDA",
+          "value": "40849379.17",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:EBSERH CHC UFPR",
+      "type": "orgao",
+      "query": "EBSERH CHC-UFPR",
+      "term": "EBSERH CHC-UFPR",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "O OBJETO DO PRESENTE INSTRUMENTO É A CONTRATAÇÃO DE EMPRESA ESPECIALIZADA NA PRESTAÇÃO DE SERVIÇOS CONTÍNUOS DE HIGIENIZAÇÃO E DESINFECÇÃO/D",
+          "entity": "EBSERH CHC-UFPR",
+          "supplier": "VIVA SERVICOS LTDA",
+          "value": "40849379.17",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:CONTRATACAO DE EMPRESA ESPECIALIZADA PARA A PRESTACAO DE SERVICOS DE MANUTENCAO PREDIAL PREVENTIVA CORRETIVA EVENTUAL E EMERGENCIAL DE NA",
+      "type": "contrato",
+      "query": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA PARA A PRESTAÇÃO DE SERVIÇOS DE MANUTENÇÃO PREDIAL PREVENTIVA, CORRETIVA, EVENTUAL E EMERGENCIAL, DE NA",
+      "term": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA PARA A PRESTAÇÃO DE SERVIÇOS DE MANUTENÇÃO PREDIAL PREVENTIVA, CORRETIVA, EVENTUAL E EMERGENCIAL, DE NA",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA PARA A PRESTAÇÃO DE SERVIÇOS DE MANUTENÇÃO PREDIAL PREVENTIVA, CORRETIVA, EVENTUAL E EMERGENCIAL, DE NA",
+          "entity": "MUSEU NACIONAL DA UFRJ",
+          "supplier": "ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+          "value": "4188000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:MUSEU NACIONAL DA UFRJ",
+      "type": "orgao",
+      "query": "MUSEU NACIONAL DA UFRJ",
+      "term": "MUSEU NACIONAL DA UFRJ",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE EMPRESA ESPECIALIZADA PARA A PRESTAÇÃO DE SERVIÇOS DE MANUTENÇÃO PREDIAL PREVENTIVA, CORRETIVA, EVENTUAL E EMERGENCIAL, DE NA",
+          "entity": "MUSEU NACIONAL DA UFRJ",
+          "supplier": "ELETRODATA ENGENHARIA LTDA EM RECUPERACAO JUDICIAL",
+          "value": "4188000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "contrato:AQUISICAO DE GENEROS DE ALIMENTACAO DO QUANTITATIVO DE SUBSISTENCIA PARA AS ORGANIZACOES MILITARES DO COMANDO MILITAR DO OESTE",
+      "type": "contrato",
+      "query": "AQUISIÇÃO DE GÊNEROS DE ALIMENTAÇÃO DO QUANTITATIVO DE SUBSISTÊNCIA PARA AS ORGANIZAÇÕES MILITARES DO COMANDO MILITAR DO OESTE",
+      "term": "AQUISIÇÃO DE GÊNEROS DE ALIMENTAÇÃO DO QUANTITATIVO DE SUBSISTÊNCIA PARA AS ORGANIZAÇÕES MILITARES DO COMANDO MILITAR DO OESTE",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE GÊNEROS DE ALIMENTAÇÃO DO QUANTITATIVO DE SUBSISTÊNCIA PARA AS ORGANIZAÇÕES MILITARES DO COMANDO MILITAR DO OESTE",
+          "entity": "9º GRUPAMENTO LOGISTICO",
+          "supplier": "BH FOODS COMERCIO E INDUSTRIA LTDA",
+          "value": "912000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "orgao:9O GRUPAMENTO LOGISTICO",
+      "type": "orgao",
+      "query": "9º GRUPAMENTO LOGISTICO",
+      "term": "9º GRUPAMENTO LOGISTICO",
+      "hits": 1,
+      "score": 3.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "AQUISIÇÃO DE GÊNEROS DE ALIMENTAÇÃO DO QUANTITATIVO DE SUBSISTÊNCIA PARA AS ORGANIZAÇÕES MILITARES DO COMANDO MILITAR DO OESTE",
+          "entity": "9º GRUPAMENTO LOGISTICO",
+          "supplier": "BH FOODS COMERCIO E INDUSTRIA LTDA",
+          "value": "912000.0",
+          "risk_level": "alto"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:MG ECCARD LTDA",
+      "type": "fornecedor",
+      "query": "MG ECCARD LTDA",
+      "term": "MG ECCARD LTDA",
+      "hits": 1,
+      "score": 2.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "CONTRATAÇÃO DE SERVIÇOS CONTÍNUOS DE SECRETARIADO, RECEPÇÃO E APOIO ADMINISTRATIVO, A SEREM EXECUTADOS COM REGIME DE DEDICAÇÃO\nEXCLUSIVA DE ",
+          "entity": "BANCO CENTRAL DO BRASIL - BRASÍLIA",
+          "supplier": "MG ECCARD LTDA",
+          "value": "28955329.69",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
+    },
+    {
+      "id": "fornecedor:APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+      "type": "fornecedor",
+      "query": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+      "term": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+      "hits": 1,
+      "score": 2.0,
+      "first_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "examples": [
+        {
+          "title": "ELABORAÇÃO DE ANTEPROJETO E PROJETO EXECUTIVO PARA A REFORMA DO ESTACIONAMENTO DO CENTRO DE SAÚDE ESCOLA PROF. DR. JOEL DOMINGOS MACHADO - C",
+          "entity": "ESP-FACULDADE DE MEDICINA RIBERÃO PRETO - USP",
+          "supplier": "APSE PROJETOS SERVICOS E CONSULTORIA LTDA",
+          "value": "30500.0",
+          "risk_level": "médio"
+        }
+      ],
+      "latest_seen_at": "2026-04-30T02:15:46.208558-03:00",
+      "sources": [
+        "alerts"
+      ]
     }
   ],
   "cache_profile": {
     "date_window": {
       "start": "2025-01-15",
       "end": "2026-04-30",
-      "dates_found": 1343
+      "dates_found": 992
     },
     "public_record_types": {
       "connector_source": 9,
@@ -1726,15 +2776,30 @@
     },
     "public_records_seen": 97,
     "alerts_seen": 578,
-    "items_seen": 0
+    "items_seen": 0,
+    "method_research_sources": [
+      "Open Contracting Partnership - Red Flags in Public Procurement / OCDS",
+      "World Bank - procurement fraud and corruption warning signs",
+      "Portal Nacional de Contratacoes Publicas - dados abertos",
+      "Tribunal de Contas da Uniao - dados abertos",
+      "Controladoria-Geral da Uniao - dados abertos e integridade publica"
+    ]
   },
   "last_training": {
     "generated_at": "2026-04-30T01:54:01.978383-03:00",
     "items_analyzed": 7390,
     "alerts_count": 578,
-    "learned_terms_added": 12,
-    "learned_checks_added": 8,
+    "learned_terms_added": 24,
+    "learned_checks_added": 12,
     "learned_targets_added": 24,
+    "method_research_applied": true,
+    "method_research_sources": [
+      "Open Contracting Partnership",
+      "World Bank",
+      "PNCP",
+      "TCU",
+      "CGU"
+    ],
     "search_terms_used": [
       "contrato",
       "computador",
@@ -1742,7 +2807,6 @@
       "pavimentação",
       "merenda",
       "medicamento",
-      "Tiririca",
       "São Paulo",
       "00000000000191",
       "Luiz Inacio Lula",
@@ -1793,7 +2857,6 @@
       "pavimentação",
       "merenda",
       "medicamento",
-      "Tiririca",
       "São Paulo",
       "00000000000191",
       "Luiz Inacio Lula",
@@ -1835,12 +2898,18 @@
       "doacao eleitoral fornecedor",
       "contas eleitorais partido candidato",
       "passagens hospedagem locomoção",
-      "viagens deslocamento parlamentar"
+      "viagens deslocamento parlamentar",
+      "Inviabilidade Logistica",
+      "Fator Emergente Recorrencia",
+      "Emergente Recorrencia Atipica",
+      "Recorrencia Atipica Janela",
+      "Atipica Janela Curta",
+      "Fator Emergente"
     ],
     "date_window": {
       "start": "2025-01-15",
       "end": "2026-04-30",
-      "dates_found": 1343
+      "dates_found": 992
     },
     "public_record_types": {
       "connector_source": 9,

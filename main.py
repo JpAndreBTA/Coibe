@@ -2484,7 +2484,9 @@ def public_monitor_model_summary() -> dict[str, Any]:
         "learned_terms_count": len(learned_terms),
         "learned_checks_count": len(learned_checks),
         "learned_targets_count": len(learned_targets),
+        "learned_total_count": len(learned_terms) + len(learned_checks) + len(learned_targets),
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
+        "last_training": state.get("last_training") if isinstance(state.get("last_training"), dict) else {},
         "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
     }
 
@@ -5742,7 +5744,7 @@ async def backend_ui(request: Request) -> HTMLResponse:
       fillConfig(model.config);
       document.getElementById('cards').innerHTML = [
         card('Modelo', model.version || 'n/d', model.updated_at || 'aguardando treino'),
-        card('Aprendizados', `${model.learned_terms_count || 0} termos`, `${model.learned_checks_count || 0} verificacoes - ${model.models_dir}`),
+        card('Aprendizados', `${model.learned_total_count || 0} itens`, `${model.learned_terms_count || 0} termos • ${model.learned_checks_count || 0} verificacoes • ${model.learned_targets_count || 0} alvos - ${model.models_dir}`),
         card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled ? 'ativada na configuração' : 'desativada na configuração', model.gpu.available ? 'ok' : ''),
         card('Treinamento', model.training_process?.running ? 'Rodando' : 'Parado', model.training_process?.pid ? 'PID '+model.training_process.pid : 'sem processo'),
         card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),
