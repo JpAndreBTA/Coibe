@@ -1748,28 +1748,55 @@ def save_collection_state(paths: dict[str, Path], state: dict[str, Any]) -> None
     write_json(paths["state"] / "collector_state.json", state)
 
 
-def merge_public_records_database(paths: dict[str, Path], records: list[dict[str, Any]]) -> int:
-    database_path = paths["processed"] / "public_api_records.json"
-    existing: list[dict[str, Any]] = []
-    if database_path.exists():
-        try:
-            loaded = json.loads(database_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, list):
-                existing = [item for item in loaded if isinstance(item, dict)]
-        except Exception:
-            existing = []
+def public_record_key(record: dict[str, Any], fallback_index: int = 0) -> str:
+    key = str(record.get("record_key") or "").strip()
+    if key:
+        return key
+    raw = "|".join(
+        str(record.get(field) or "")
+        for field in ("record_type", "source", "query", "title", "subtitle", "url")
+    )
+    return f"public:{fallback_index}:{hashlib.md5(raw.encode('utf-8')).hexdigest()}"
 
+
+def normalize_public_record(record: dict[str, Any], fallback_index: int = 0) -> dict[str, Any]:
+    normalized = dict(record)
+    normalized["record_key"] = public_record_key(normalized, fallback_index)
+    normalized["normalized_title"] = normalize_text(normalized.get("title"))
+    normalized["normalized_source"] = normalize_text(normalized.get("source"))
+    return normalized
+
+
+def merge_public_record_rows(records: list[dict[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
     by_key: dict[str, dict[str, Any]] = {}
-    for record in existing + records:
-        record["normalized_title"] = normalize_text(record.get("title"))
-        record["normalized_source"] = normalize_text(record.get("source"))
-        key = str(record.get("record_key") or "")
-        if not key:
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
             continue
-        by_key[key] = record
+        normalized = normalize_public_record(record, index)
+        by_key[normalized["record_key"]] = normalized
 
     merged = list(by_key.values())
     merged.sort(key=lambda item: (str(item.get("collected_at") or ""), str(item.get("record_key") or "")), reverse=True)
+    return merged[:limit] if limit else merged
+
+
+def load_public_records_database(paths: dict[str, Path], limit: int = 2000) -> list[dict[str, Any]]:
+    database_path = paths["processed"] / "public_api_records.json"
+    if not database_path.exists():
+        return []
+    try:
+        loaded = json.loads(database_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return merge_public_record_rows([item for item in loaded if isinstance(item, dict)], limit=limit)
+
+
+def merge_public_records_database(paths: dict[str, Path], records: list[dict[str, Any]]) -> int:
+    database_path = paths["processed"] / "public_api_records.json"
+    existing = load_public_records_database(paths, limit=5000)
+    merged = merge_public_record_rows([*existing, *records], limit=5000)
     write_json(database_path, merged)
     return len(merged)
 
@@ -1995,9 +2022,15 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     existing_keys = {item_key(item) for item in existing_items}
     feed_items = flatten_feed(snapshot)
     new_feed_items = [item for item in feed_items if item_key(item) not in existing_keys]
-    connector_records = flatten_public_records(snapshot)
+    snapshot_public_records = flatten_public_records(snapshot)
+    cached_public_records = load_public_records_database(paths, limit=2000)
+    connector_records = merge_public_record_rows([*cached_public_records, *snapshot_public_records], limit=5000)
 
     analysis = analyze_items(snapshot, new_feed_items, connector_records)
+    for record in analysis["public_records"]:
+        if record.get("monitor_status") == "pending_analysis" or record.get("cached_from"):
+            record["monitor_status"] = "analyzed"
+            record["analyzed_at"] = analysis["generated_at"]
     new_alerts = list(analysis["alerts"])
     database_count = merge_monitoring_database(paths, analysis["items"])
     public_records_count = merge_public_records_database(paths, analysis["public_records"])

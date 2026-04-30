@@ -662,6 +662,9 @@ class PoliticalScanResponse(BaseModel):
 
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
 POLITICAL_LOCAL_ITEMS_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
+POLITICAL_BACKGROUND_REFRESHES: set[str] = set()
+SENATORS_PUBLIC_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
+SENATORS_PUBLIC_CACHE_TTL_SECONDS = int(os.getenv("COIBE_SENATORS_CACHE_TTL_SECONDS", "21600"))
 ADMIN_PROTECTED_PATHS = {
     "/api/storage/status",
     "/api/public-data/portal-transparencia/proxy",
@@ -2601,6 +2604,8 @@ def save_universal_search_public_records(query: str, response: UniversalSearchRe
             "url": result.url,
             "risk_level": result.risk_level,
             "collected_at": collected_at,
+            "monitor_status": "pending_analysis",
+            "analysis_requested_at": collected_at,
             "cached_from": "api/search",
             "payload": result.payload,
             "normalized_title": normalize_text(result.title),
@@ -2642,6 +2647,8 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
             "url": item.sources[0].url if item.sources else None,
             "risk_level": item.attention_level,
             "collected_at": collected_at,
+            "monitor_status": "pending_analysis",
+            "analysis_requested_at": collected_at,
             "cached_from": f"api/{record_type}",
             "payload": item.model_dump(mode="json"),
             "normalized_title": normalize_text(item.name),
@@ -3775,18 +3782,32 @@ async def search_deputies(query: str) -> list[UniversalSearchResult]:
     return results
 
 
-async def search_senators(query: str) -> list[UniversalSearchResult]:
-    try:
-        data = await get_json(SENADO_SENADORES_URL)
-    except HTTPException:
-        return []
+async def fetch_current_senators() -> list[dict[str, Any]]:
+    now = time.time()
+    cached_items = SENATORS_PUBLIC_CACHE.get("items") or []
+    if cached_items and now - float(SENATORS_PUBLIC_CACHE.get("loaded_at") or 0) < SENATORS_PUBLIC_CACHE_TTL_SECONDS:
+        return list(cached_items)
 
-    normalized = query.strip().lower()
+    data = await get_json(SENADO_SENADORES_URL)
     senators = (
         data.get("ListaParlamentarEmExercicio", {})
         .get("Parlamentares", {})
         .get("Parlamentar", [])
     )
+    if not isinstance(senators, list):
+        senators = [senators] if senators else []
+    SENATORS_PUBLIC_CACHE["loaded_at"] = now
+    SENATORS_PUBLIC_CACHE["items"] = senators
+    return list(senators)
+
+
+async def search_senators(query: str) -> list[UniversalSearchResult]:
+    try:
+        senators = await fetch_current_senators()
+    except HTTPException:
+        return []
+
+    normalized = query.strip().lower()
     results = []
     for senator in senators:
         ident = senator.get("IdentificacaoParlamentar", {})
@@ -4688,6 +4709,171 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
     return apply_political_priority(item)
 
 
+def quick_public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
+    title = str(person.get("title") or "Pessoa pública")
+    role = str(person.get("role") or "Pessoa pública ou política relacionada")
+    party = str(person.get("party") or "")
+    sources = [
+        MonitoringSource(
+            label="Fonte pública informativa relacionada",
+            url=str(person.get("url") or "https://www.tse.jus.br/"),
+            kind="Fonte oficial ou institucional para contexto inicial",
+        ),
+        *legal_public_sources_for_name(title),
+    ]
+    item = PoliticalScanItem(
+        id=record_fingerprint([title, "quick_related_public_person"]),
+        type="politico",
+        name=title,
+        subtitle=str(person.get("subtitle") or "Pessoa pública relacionada"),
+        party=party or None,
+        role=role,
+        total_public_money=Decimal("0"),
+        travel_public_money=Decimal("0"),
+        records_count=len(sources),
+        attention_level="baixo",
+        summary=(
+            f"Perfil público inicial de {title}. A análise detalhada de contratos, despesas, doações "
+            "e vínculos fica em atualização no backend e será reaproveitada do cache."
+        ),
+        people=list(dict.fromkeys([title, *[str(query) for query in person.get("related_queries", [])[:5]]]))[:16],
+        analysis_types=["processos", "controle", "contas", "contratos", "doacoes", "vinculos", "prioridade"],
+        analysis_details=[
+            {
+                "type": "prioridade",
+                "title": "Perfil carregado rapidamente",
+                "description": "A busca retornou primeiro os dados públicos básicos para não travar a plataforma. O backend aprofunda a análise em segundo plano.",
+                "person": title,
+                "party": party,
+            },
+            {
+                "type": "processos",
+                "title": "Consultas legais oficiais",
+                "description": "Links oficiais para conferência humana de processos públicos, jurisprudência, contas eleitorais e controle externo.",
+                "person": title,
+            },
+        ],
+        sources=sources,
+        risks=[
+            legal_attention_factor(title, role),
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Análise aprofundada em segundo plano",
+                message="O resultado inicial evita espera longa; o monitor local completa cruzamentos e cacheia novas evidências.",
+                evidence={"mode": "quick_public_profile", "party": party},
+                source="COIBE.IA - busca política rápida",
+                url=str(person.get("url") or "https://www.tse.jus.br/"),
+            ),
+        ],
+    )
+    return apply_political_priority(item)
+
+
+def quick_political_item_from_deputy(deputy: dict[str, Any], current: bool = True) -> PoliticalScanItem:
+    name = str(deputy.get("nome") or "Parlamentar")
+    role = "Deputado federal" if current else "Ex-deputado federal"
+    deputy_id = deputy.get("id")
+    source_url = str(deputy.get("uri") or f"{CAMARA_DEPUTADOS_URL}/{deputy_id or ''}")
+    sources = [
+        MonitoringSource(
+            label="Câmara dos Deputados - perfil público",
+            url=source_url,
+            kind="API oficial de parlamentares",
+        ),
+        *legal_public_sources_for_name(name),
+    ]
+    item = PoliticalScanItem(
+        id=str(deputy_id or record_fingerprint([name, role])),
+        type="politico",
+        name=name,
+        subtitle=f"{deputy.get('siglaPartido', '-')}/{deputy.get('siglaUf', '-')}",
+        party=deputy.get("siglaPartido"),
+        role=role,
+        uf=deputy.get("siglaUf"),
+        total_public_money=Decimal("0"),
+        travel_public_money=Decimal("0"),
+        records_count=len(sources),
+        attention_level="baixo",
+        summary=(
+            f"Perfil público inicial de {name} ({role}). Despesas, contratos, doações e vínculos "
+            "serão aprofundados pelo monitor em segundo plano e salvos no cache."
+        ),
+        people=[name, str(deputy.get("siglaPartido") or "")],
+        analysis_types=["processos", "controle", "contas", "contratos", "doacoes", "vinculos", "prioridade"],
+        analysis_details=[
+            {
+                "type": "prioridade",
+                "title": "Perfil parlamentar carregado rapidamente",
+                "description": "A busca usa a API pública pelo nome e retorna sem aguardar todas as despesas. A análise completa roda em segundo plano.",
+                "person": name,
+                "party": deputy.get("siglaPartido"),
+            },
+            {
+                "type": "processos",
+                "title": "Consultas legais oficiais",
+                "description": "Fontes oficiais para conferência humana de processos, contas eleitorais e controle externo.",
+                "person": name,
+            },
+        ],
+        sources=sources,
+        risks=[
+            legal_attention_factor(name, role),
+            PoliticalRiskFactor(
+                level="baixo",
+                title="Análise completa pendente no cache",
+                message="O backend retornou o perfil rápido e continuará cruzando despesas, contratos, doações e vínculos.",
+                evidence={"mode": "quick_deputy_profile", "party": deputy.get("siglaPartido"), "uf": deputy.get("siglaUf")},
+                source="Câmara dos Deputados - Dados Abertos",
+                url=source_url,
+            ),
+        ],
+    )
+    return apply_political_priority(item)
+
+
+def quick_political_item_from_senator(senator: dict[str, Any]) -> PoliticalScanItem:
+    ident = senator.get("IdentificacaoParlamentar", {})
+    name = str(ident.get("NomeParlamentar") or ident.get("NomeCompletoParlamentar") or "Senador")
+    party = ident.get("SiglaPartidoParlamentar")
+    uf = ident.get("UfParlamentar") or senator.get("Mandato", {}).get("UfParlamentar")
+    sources = [
+        MonitoringSource(
+            label="Senado Federal - parlamentares em exercício",
+            url="https://legis.senado.leg.br/dadosabertos/senador/lista/atual",
+            kind="API oficial de parlamentares",
+        ),
+        *legal_public_sources_for_name(name),
+    ]
+    item = PoliticalScanItem(
+        id=str(ident.get("CodigoParlamentar") or record_fingerprint([name, party, uf])),
+        type="politico",
+        name=name,
+        subtitle=f"{party or '-'}/{uf or '-'}",
+        party=party,
+        role="Senador",
+        uf=uf,
+        total_public_money=Decimal("0"),
+        travel_public_money=Decimal("0"),
+        records_count=len(sources),
+        attention_level="baixo",
+        summary=f"Perfil público inicial de {name}. O backend aprofunda contratos, despesas, doações e vínculos em segundo plano.",
+        people=[name, str(party or "")],
+        analysis_types=["processos", "controle", "contas", "contratos", "doacoes", "vinculos", "prioridade"],
+        analysis_details=[
+            {
+                "type": "prioridade",
+                "title": "Perfil do Senado carregado rapidamente",
+                "description": "A busca retornou o cadastro público antes dos cruzamentos pesados para manter a plataforma responsiva.",
+                "person": name,
+                "party": party,
+            },
+        ],
+        sources=sources,
+        risks=[legal_attention_factor(name, "Senador")],
+    )
+    return apply_political_priority(item)
+
+
 def political_item_from_deputy(deputy: dict[str, Any], expenses: list[dict[str, Any]], current: bool = True) -> PoliticalScanItem:
     total = sum((expense_value(expense) for expense in expenses), Decimal("0"))
     travel_total = sum((expense_value(expense) for expense in expenses if is_travel_expense(expense)), Decimal("0"))
@@ -4935,14 +5121,9 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
     items.extend(political_item_from_deputy(deputy, expenses, current=False) for deputy, expenses in zip(former_deputies, former_expense_batches))
 
     try:
-        senate_data = await get_json(SENADO_SENADORES_URL)
+        senators = await fetch_current_senators()
     except HTTPException:
-        senate_data = {}
-    senators = (
-        senate_data.get("ListaParlamentarEmExercicio", {})
-        .get("Parlamentares", {})
-        .get("Parlamentar", [])
-    )
+        senators = []
     for senator in senators[: max(0, min(6, limit - len(items)))]:
         ident = senator.get("IdentificacaoParlamentar", {})
         name = ident.get("NomeParlamentar") or ident.get("NomeCompletoParlamentar") or "Senador"
@@ -5036,6 +5217,82 @@ async def political_people_scan(limit: int = 18, q: str | None = None, party: st
 
     items.sort(key=political_sort_key, reverse=True)
     return items[:limit]
+
+
+async def political_people_quick_scan(limit: int = 18, q: str | None = None, party: str | None = None, offset: int = 0) -> list[PoliticalScanItem]:
+    normalized_query = normalize_text(q)
+    current_limit = min(max(limit, 1), 12)
+    if normalized_query:
+        deputies = await fetch_deputies_by_name(str(q), limit=current_limit, party=party)
+    else:
+        page_size = max(current_limit, 12)
+        page = max(int(offset or 0), 0) // page_size + 1
+        deputies = await fetch_current_deputies(limit=page_size, party=party, page=page)
+
+    items = [quick_political_item_from_deputy(deputy, current=True) for deputy in deputies[:current_limit]]
+
+    if not normalized_query or not items:
+        try:
+            senators = await fetch_current_senators()
+        except HTTPException:
+            senators = []
+        for senator in senators:
+            if len(items) >= limit:
+                break
+            ident = senator.get("IdentificacaoParlamentar", {})
+            name = ident.get("NomeParlamentar") or ident.get("NomeCompletoParlamentar") or ""
+            senator_party = ident.get("SiglaPartidoParlamentar")
+            uf = ident.get("UfParlamentar") or senator.get("Mandato", {}).get("UfParlamentar")
+            searchable = normalize_text(f"{name} {senator_party} {uf}")
+            if normalized_query and normalized_query not in searchable:
+                continue
+            if party and normalize_text(party) != normalize_text(senator_party):
+                continue
+            items.append(quick_political_item_from_senator(senator))
+
+    if not party:
+        for person in POLITICAL_RELATED_PEOPLE:
+            if len(items) >= limit:
+                break
+            searchable = normalize_text(f"{person.get('title')} {' '.join(person.get('aliases', []))}")
+            if normalized_query and normalized_query not in searchable:
+                continue
+            items.append(quick_public_related_political_item(person))
+
+    by_key: dict[str, PoliticalScanItem] = {}
+    for item in items:
+        key = f"{item.type}:{item.id or normalize_text(item.name)}"
+        by_key[key] = item
+    ordered = list(by_key.values())
+    ordered.sort(key=political_sort_key, reverse=True)
+    return ordered[:limit]
+
+
+async def refresh_political_people_cache_background(q: str | None, party: str | None, limit: int, offset: int) -> None:
+    try:
+        live_items = await political_people_scan(limit=limit, q=q, party=party, offset=offset)
+        save_political_scan_public_records("political_people", q, live_items)
+    except Exception:
+        return
+
+
+def schedule_political_people_cache_refresh(q: str | None, party: str | None, limit: int, offset: int) -> None:
+    key = record_fingerprint(["political_people_refresh", q, party, limit, offset])
+    if key in POLITICAL_BACKGROUND_REFRESHES:
+        return
+
+    async def runner() -> None:
+        try:
+            await refresh_political_people_cache_background(q, party, limit, offset)
+        finally:
+            POLITICAL_BACKGROUND_REFRESHES.discard(key)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    POLITICAL_BACKGROUND_REFRESHES.add(key)
+    loop.create_task(runner())
 
 
 async def political_parties_scan(limit: int = 16, q: str | None = None) -> list[PoliticalScanItem]:
@@ -6440,8 +6697,10 @@ async def political_politicians(
             limit=cached_limit,
         )
         if not cached_items and source != "local" and q:
-            live_items = await political_people_scan(limit=limit, q=q, party=party, offset=offset)
+            live_items = await political_people_quick_scan(limit=min(limit, 12), q=q, party=party, offset=offset)
             save_political_scan_public_records("political_people", q, live_items)
+            if live_items:
+                schedule_political_people_cache_refresh(q, party, min(max(limit, 1), 12), offset)
             cached_items, generated_at = cached_political_items(
                 "political_people",
                 q=q,

@@ -2067,6 +2067,9 @@ function applySearchResult(result) {
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
                     O COIBE organiza dados públicos, compara valores, cruza nomes e mostra sinais que merecem conferência. Ele consulta múltiplas fontes públicas em uma resposta única, para reduzir tempo de pesquisa e facilitar a checagem.
                   </p>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
+                    O monitor também evolui estratégias de verificação: aprende termos, alvos e métodos inspirados em red flags de contratação pública, OCDS/Open Contracting, PNCP, TCU, CGU, Portal da Transparência, CEIS/CNEP, STF e TSE. A leitura busca sinais como fornecedor único, aditivos, sobrecusto, fracionamento, sanções, relações em grafo e movimentação de alto valor.
+                  </p>
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
                       <ShieldCheck className="h-5 w-5 text-red-400" />
@@ -2095,10 +2098,11 @@ function applySearchResult(result) {
                   <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
                     <p className="text-xs font-black uppercase text-neutral-500">O que a plataforma faz</p>
                     <div className="mt-4 space-y-3 text-sm leading-6 text-neutral-300">
-                      <p><strong className="text-white">1. Lê contratos e compras:</strong> valor, objeto, órgão, fornecedor, data e local.</p>
-                      <p><strong className="text-white">2. Compara preços:</strong> calcula média encontrada, diferença em reais e percentual acima ou abaixo.</p>
-                      <p><strong className="text-white">3. Cruza nomes:</strong> relaciona partidos, políticos, fornecedores, órgãos, despesas, doações e processos.</p>
-                      <p><strong className="text-white">4. Resume o risco:</strong> entrega texto curto, dados objetivos e prioridade de conferência.</p>
+                      <p><strong className="text-white">1. Lê contratos, compras e despesas:</strong> valor, objeto, órgão, fornecedor, CNPJ, data, local, documentos e fonte oficial.</p>
+                      <p><strong className="text-white">2. Prioriza riscos de preço:</strong> compara médias da base, referências, aditivos, sobrecusto, fracionamento e padrões numéricos atípicos.</p>
+                      <p><strong className="text-white">3. Analisa políticos e partidos:</strong> busca dados públicos sob demanda, cacheia no backend e cruza despesas, contratos, doações, processos e controle externo.</p>
+                      <p><strong className="text-white">4. Aprende estratégias novas:</strong> evolui termos, alvos e verificações com red flags de contratação, fontes públicas e padrões de combate à corrupção.</p>
+                      <p><strong className="text-white">5. Explica para leigos:</strong> transforma cada achado em parecer claro, com o que foi comprado, quem aparece, valores e motivo da conferência.</p>
                     </div>
                   </div>
 
@@ -2111,6 +2115,12 @@ function applySearchResult(result) {
                         'Partido/político x contratos, despesas e viagens',
                         'Doações eleitorais x nomes, siglas e fornecedores',
                         'Processos e controle externo x pessoas e entidades',
+                        'CEIS/CNEP e sanções x CNPJ e fornecedores recorrentes',
+                        'PNCP, Compras.gov.br, TCU, CGU, STF e TSE x evidências oficiais',
+                        'Sócios, pessoas próximas e fornecedores x movimentação de alto valor',
+                        'Aditivos, prazo, custo e execução x risco de sobrepreço',
+                        'Fornecedor único, dispensa, emergencial e baixa competição',
+                        'Fracionamento, valores arredondados, Benford e anomalias de rede',
                         'Repetição de fornecedor, valor alto e concentração financeira'
                       ].map((item) => (
                         <p key={item} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2 leading-5">
