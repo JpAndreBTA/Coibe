@@ -168,8 +168,8 @@ IBGE_STATES_GEOJSON_CACHE_PATH = Path(os.getenv("COIBE_IBGE_STATES_GEOJSON_CACHE
 MONITORING_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_MAP_CACHE_PATH", "data/cache/monitoring-map.json"))
 MONITORING_STATE_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_STATE_MAP_CACHE_PATH", "data/cache/monitoring-state-map.json"))
 CITY_COORDINATES_CACHE_PATH = Path(os.getenv("COIBE_CITY_COORDINATES_CACHE_PATH", "data/cache/city-coordinates.json"))
-MAP_POINTS_CACHE_VERSION = 2
-CITY_COORDINATES_LOOKUP_LIMIT = int(os.getenv("COIBE_CITY_COORDINATES_LOOKUP_LIMIT", "140"))
+MAP_POINTS_CACHE_VERSION = 3
+CITY_COORDINATES_LOOKUP_LIMIT = int(os.getenv("COIBE_CITY_COORDINATES_LOOKUP_LIMIT", "500"))
 API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
 API_RESPONSE_CACHE_MAX_ENTRIES = int(os.getenv("COIBE_API_RESPONSE_CACHE_MAX_ENTRIES", "512"))
 RATE_LIMIT_BUCKET_MAX_KEYS = int(os.getenv("COIBE_RATE_LIMIT_BUCKET_MAX_KEYS", "5000"))
@@ -1513,13 +1513,35 @@ async def fetch_city_from_ibge(city_name: str, uf: str | None = None) -> dict[st
     cities = await fetch_ibge_cities_cached()
     normalized = normalize_text(city_name)
     normalized_uf = (uf or "").strip().upper()
+    candidates: list[tuple[dict[str, Any], str]] = []
     for city in cities:
         microrregiao = city.get("microrregiao") or {}
         mesorregiao = microrregiao.get("mesorregiao") if isinstance(microrregiao, dict) else {}
         uf_data = (mesorregiao or {}).get("UF") if isinstance(mesorregiao, dict) else {}
         city_uf = (uf_data or {}).get("sigla") if isinstance(uf_data, dict) else None
-        if normalize_text(city.get("nome", "")) == normalized and (not normalized_uf or str(city_uf or "").upper() == normalized_uf):
+        if normalized_uf and str(city_uf or "").upper() != normalized_uf:
+            continue
+        city_normalized = normalize_text(city.get("nome", ""))
+        if city_normalized == normalized:
             return city
+        candidates.append((city, city_normalized))
+
+    best_city = None
+    best_ratio = 0.0
+    compact_normalized = normalized.replace(" ", "")
+    for city, city_normalized in candidates:
+        compact_city = city_normalized.replace(" ", "")
+        ratio = max(
+            SequenceMatcher(None, normalized, city_normalized).ratio(),
+            SequenceMatcher(None, compact_normalized, compact_city).ratio(),
+        )
+        if compact_normalized and (compact_normalized in compact_city or compact_city in compact_normalized):
+            ratio = max(ratio, 0.94)
+        if ratio > best_ratio:
+            best_city = city
+            best_ratio = ratio
+    if best_city is not None and best_ratio >= 0.86:
+        return best_city
     return None
 
 
@@ -3743,13 +3765,15 @@ async def coords_for_map_point(
     uf: str | None,
     cache: dict[str, Any],
     lookup_counter: dict[str, int],
-) -> tuple[float, float, str, bool]:
+) -> tuple[float, float, str, bool] | None:
     key = city_coordinate_cache_key(city, uf)
     cached = cache.get(key)
     if isinstance(cached, dict):
         lat = cached.get("lat")
         lng = cached.get("lng")
-        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+        source = str(cached.get("source") or "")
+        city_has_name = bool(city and city.strip() and city.lower() != "brasil")
+        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)) and not (city_has_name and source == "uf_capital_fallback"):
             return float(lat), float(lng), str(cached.get("source") or "ibge_municipality_centroid_cache"), False
 
     if city and city.lower() != "brasil" and lookup_counter["count"] < CITY_COORDINATES_LOOKUP_LIMIT:
@@ -3770,8 +3794,29 @@ async def coords_for_map_point(
             }
             return lat, lng, "ibge_municipality_centroid", True
 
+    if city and city.strip().upper() in CITY_COORDS:
+        lat, lng = CITY_COORDS[city.strip().upper()]
+        cache[key] = {
+            "city": city,
+            "uf": uf,
+            "lat": lat,
+            "lng": lng,
+            "source": "city_reference",
+            "updated_at": brasilia_now().isoformat(),
+        }
+        return lat, lng, "city_reference", True
+
+    if city and city.strip() and city.lower() != "brasil":
+        cache[key] = {
+            "city": city,
+            "uf": uf,
+            "source": "unresolved_ibge_city",
+            "updated_at": brasilia_now().isoformat(),
+        }
+        return None
+
     lat, lng = coords_for(city, uf)
-    source = "city_reference" if city and city.strip().upper() in CITY_COORDS else "uf_capital_fallback"
+    source = "uf_capital_fallback"
     cache[key] = {
         "city": city,
         "uf": uf,
@@ -3843,13 +3888,19 @@ async def build_monitoring_map_points_from_items(items: list[MonitoringItem]) ->
     coordinate_cache = read_city_coordinates_cache()
     lookup_counter = {"count": 0}
     cache_changed = False
+    unresolved_keys: list[str] = []
     for bucket in grouped.values():
-        lat, lng, source, changed = await coords_for_map_point(
+        resolved = await coords_for_map_point(
             str(bucket.get("city") or ""),
             str(bucket.get("uf") or ""),
             coordinate_cache,
             lookup_counter,
         )
+        if resolved is None:
+            unresolved_keys.append(f"{bucket.get('city')}-{bucket.get('uf')}")
+            cache_changed = True
+            continue
+        lat, lng, source, changed = resolved
         bucket["lat"] = lat
         bucket["lng"] = lng
         bucket["spatial_source"] = source
@@ -3857,7 +3908,11 @@ async def build_monitoring_map_points_from_items(items: list[MonitoringItem]) ->
     if cache_changed:
         write_city_coordinates_cache(coordinate_cache)
 
-    points = [MonitoringMapPoint(**bucket) for bucket in grouped.values()]
+    points = [
+        MonitoringMapPoint(**bucket)
+        for key, bucket in grouped.items()
+        if key not in unresolved_keys
+    ]
     points.sort(key=lambda point: (point.risk_score, point.total_value, point.alerts_count), reverse=True)
     return points
 

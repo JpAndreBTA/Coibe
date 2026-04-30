@@ -1924,7 +1924,7 @@ function applySearchResult(result) {
   function updateMapZoom(nextZoom, anchorPoint = null) {
     setMapZoom((currentZoom) => {
       const nextValue = typeof nextZoom === 'function' ? nextZoom(currentZoom) : nextZoom;
-      const nextClampedZoom = Number(clampNumber(nextValue, 1, 3.2).toFixed(2));
+      const nextClampedZoom = Number(clampNumber(nextValue, 1, 4).toFixed(2));
       const anchor = anchorPoint || { x: mapBounds.width / 2, y: mapBounds.height / 2 };
       if (nextClampedZoom !== currentZoom) {
         setMapPan((currentPan) => {
@@ -2709,7 +2709,7 @@ function applySearchResult(result) {
                       <button
                         type="button"
                         onClick={() => updateMapZoom((current) => current + 0.25)}
-                        disabled={mapZoom >= 3.2}
+                        disabled={mapZoom >= 4}
                         className="flex h-9 w-9 items-center justify-center text-lg font-black text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
                         title="Aumentar zoom"
                         aria-label="Aumentar zoom"
