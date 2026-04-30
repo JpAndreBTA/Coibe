@@ -985,6 +985,7 @@ export default function CoibeApp() {
   const suppressSearchEffectRef = useRef(false);
   const searchRequestIdRef = useRef(0);
   const mapPointerRef = useRef(null);
+  const mapViewportRef = useRef(null);
   const mapClickSuppressRef = useRef(false);
   const loadedPoliticalTabsRef = useRef({ parties: false, politicians: false });
   const politicalDataStampRef = useRef({ parties: '', politicians: '' });
@@ -1387,6 +1388,39 @@ export default function CoibeApp() {
     const uf = state.uf || '';
     setSelectedState(state);
     setSelectedUf(uf);
+  }
+
+  function mapSelectionFromEvent(event) {
+    let element = event.target;
+    while (element && element !== event.currentTarget) {
+      if (element.dataset?.mapKind) {
+        const kind = element.dataset.mapKind;
+        const uf = element.dataset.uf || '';
+        const baseSelection = {
+          uf,
+          alerts_count: Number(element.dataset.alertsCount || 0),
+          risk_score: Number(element.dataset.riskScore || 0),
+          total_value: Number(element.dataset.totalValue || 0)
+        };
+        if (kind === 'city') {
+          return {
+            ...baseSelection,
+            city: element.dataset.city || '',
+            state_name: element.dataset.stateName || uf,
+            lat: Number(element.dataset.lat),
+            lng: Number(element.dataset.lng),
+            spatial_source: element.dataset.spatialSource || ''
+          };
+        }
+        return {
+          ...baseSelection,
+          name: element.dataset.name || uf,
+          state_name: element.dataset.stateName || element.dataset.name || uf
+        };
+      }
+      element = element.parentElement;
+    }
+    return null;
   }
 
   function applyFeedCityFilter(city = feedCityDraft) {
@@ -1857,11 +1891,18 @@ function applySearchResult(result) {
     setMapZoom((current) => Number(clampNumber(typeof nextZoom === 'function' ? nextZoom(current) : nextZoom, 1, 3.2).toFixed(2)));
   }
 
-  function handleMapWheel(event) {
-    event.preventDefault();
-    const delta = event.deltaY > 0 ? -0.18 : 0.18;
-    updateMapZoom((current) => current + delta);
-  }
+  useEffect(() => {
+    const node = mapViewportRef.current;
+    if (!node) return undefined;
+    const handleNativeWheel = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.deltaY > 0 ? -0.18 : 0.18;
+      updateMapZoom((current) => current + delta);
+    };
+    node.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => node.removeEventListener('wheel', handleNativeWheel);
+  }, []);
 
   function handleMapPointerDown(event) {
     mapPointerRef.current = {
@@ -1869,7 +1910,8 @@ function applySearchResult(result) {
       x: event.clientX,
       y: event.clientY,
       pan: mapPan,
-      moved: false
+      moved: false,
+      selection: mapSelectionFromEvent(event)
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
@@ -1895,6 +1937,8 @@ function applySearchResult(result) {
         window.setTimeout(() => {
           mapClickSuppressRef.current = false;
         }, 0);
+      } else if (mapPointerRef.current.selection) {
+        selectStateOnMap(mapPointerRef.current.selection);
       }
       mapPointerRef.current = null;
       event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -2377,7 +2421,6 @@ function applySearchResult(result) {
                       >
                         <ZoomOut className="h-4 w-4" />
                       </button>
-                      <span className="min-w-14 text-center text-xs font-black text-neutral-400">{Math.round(mapZoom * 100)}%</span>
                       <button
                         type="button"
                         onClick={() => updateMapZoom((current) => current + 0.25)}
@@ -2408,7 +2451,10 @@ function applySearchResult(result) {
                   )}
                   <p className="mt-1 text-sm text-neutral-400">Agregado por municipio da UASG com coordenadas e cache geoespacial quando configurado.</p>
                 </div>
-                <div className="relative min-h-[520px] bg-[radial-gradient(circle_at_center,#262626_0,#111_55%,#080808_100%)] p-4">
+                <div
+                  ref={mapViewportRef}
+                  className="relative min-h-[520px] bg-[radial-gradient(circle_at_center,#262626_0,#111_55%,#080808_100%)] p-4"
+                >
                   {loadingMap && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-neutral-300">
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -2421,7 +2467,6 @@ function applySearchResult(result) {
                       role="img"
                       aria-label="Mapa do Brasil por estados"
                       className="h-auto w-full max-h-[620px] touch-none select-none cursor-grab active:cursor-grabbing"
-                      onWheel={handleMapWheel}
                       onPointerDown={handleMapPointerDown}
                       onPointerMove={handleMapPointerMove}
                       onPointerUp={handleMapPointerUp}
@@ -2438,6 +2483,13 @@ function applySearchResult(result) {
                         return (
                           <path
                             key={uf || name}
+                            data-map-kind="state"
+                            data-uf={uf || ''}
+                            data-name={name || ''}
+                            data-state-name={stateRisks[uf]?.state_name || name || uf || ''}
+                            data-alerts-count={risk.alerts_count || 0}
+                            data-risk-score={risk.risk_score || 0}
+                            data-total-value={risk.total_value || 0}
                             d={geometryToPath(feature.geometry)}
                             fill={stateFill(risk.risk_score || 0, selected)}
                             stroke={selected ? '#fecaca' : '#525252'}
@@ -2483,6 +2535,16 @@ function applySearchResult(result) {
                         return (
                           <g
                             key={`${point.city}-${point.uf}-${index}`}
+                            data-map-kind="city"
+                            data-uf={point.uf || ''}
+                            data-city={point.city || ''}
+                            data-state-name={stateRisks[point.uf]?.state_name || point.uf || ''}
+                            data-alerts-count={point.alerts_count || 0}
+                            data-risk-score={point.risk_score || 0}
+                            data-total-value={point.total_value || 0}
+                            data-lat={point.lat || ''}
+                            data-lng={point.lng || ''}
+                            data-spatial-source={point.spatial_source || ''}
                             className="cursor-pointer"
                             onClick={() => {
                               if (mapClickSuppressRef.current) return;
@@ -2574,15 +2636,20 @@ function applySearchResult(result) {
                       )}
                     </aside>
                   </div>
-                  <div className="absolute bottom-4 left-4 rounded-lg border border-neutral-800 bg-black/70 p-3 text-xs text-neutral-300">
-                    <p className="font-bold text-white">Intensidade</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="absolute bottom-4 left-4 flex max-w-[calc(100%-2rem)] flex-col gap-2">
+                    <div className="w-fit rounded-lg border border-neutral-800 bg-black/70 px-3 py-2 text-xs font-black text-neutral-200">
+                      Zoom {Math.round(mapZoom * 100)}%
+                    </div>
+                    <div className="rounded-lg border border-neutral-800 bg-black/70 p-3 text-xs text-neutral-300">
+                      <p className="font-bold text-white">Intensidade</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="h-3 w-3 rounded-full bg-yellow-400" /> Baixa
                       <span className="h-3 w-3 rounded-full bg-orange-500" /> Média
                       <span className="h-3 w-3 rounded-full bg-red-500" /> Alta
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
             ) : activeTab === 'about' ? (
               <div className="mt-5 space-y-5">
