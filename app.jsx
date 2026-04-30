@@ -1655,7 +1655,7 @@ function applySearchResult(result) {
           </section>
         )}
 
-        <section className="mt-8 grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <section className={`mt-8 grid gap-7 ${activeTab === 'about' || activeTab === 'donate' ? 'lg:grid-cols-1' : 'lg:grid-cols-[minmax(0,1fr)_360px]'}`}>
           <div>
             <div className="flex max-w-full overflow-x-auto border-b border-neutral-800">
               <button
@@ -1687,6 +1687,18 @@ function applySearchResult(result) {
                 className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'politicians' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
               >
                 Político
+              </button>
+              <button
+                onClick={() => setActiveTab('about')}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'about' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+              >
+                Sobre o Coibe
+              </button>
+              <button
+                onClick={() => setActiveTab('donate')}
+                className={`shrink-0 px-4 py-3 text-sm font-bold transition sm:px-5 ${activeTab === 'donate' ? 'border-b-2 border-red-600 text-red-500' : 'text-neutral-400 hover:text-white'}`}
+              >
+                Doar
               </button>
             </div>
             {activeSearchFilter && activeTab === 'feed' && (
@@ -1971,6 +1983,169 @@ function applySearchResult(result) {
                   </div>
                 </div>
               </div>
+            ) : activeTab === 'about' ? (
+              <div className="mt-5 space-y-5">
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                  <p className="text-xs font-black uppercase text-red-400">Sobre o Coibe</p>
+                  <h2 className="mt-1 text-xl font-black text-white">Monitoramento público com dados cruzados</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
+                    O COIBE organiza dados públicos, compara valores, cruza nomes e mostra sinais que merecem conferência. Ele consulta múltiplas fontes públicas em uma resposta única, para reduzir tempo de pesquisa e facilitar a checagem.
+                  </p>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <ShieldCheck className="h-5 w-5 text-red-400" />
+                      <strong className="mt-2 block text-white">Alerta preventivo</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Aponta valor alto, diferenca de preco, repeticao ou vinculo textual.</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <Activity className="h-5 w-5 text-red-400" />
+                      <strong className="mt-2 block text-white">Comparação clara</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Mostra valor pago, média, diferença em reais e percentual.</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <Search className="h-5 w-5 text-red-400" />
+                      <strong className="mt-2 block text-white">Fontes em conjunto</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Reúne contratos, políticos, partidos, doações, despesas e processos em uma leitura.</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <FileText className="h-5 w-5 text-red-400" />
+                      <strong className="mt-2 block text-white">Fonte verificavel</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Prioriza links oficiais e dados que podem ser conferidos fora da plataforma.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                    <p className="text-xs font-black uppercase text-neutral-500">O que a plataforma faz</p>
+                    <div className="mt-4 space-y-3 text-sm leading-6 text-neutral-300">
+                      <p><strong className="text-white">1. Lê contratos e compras:</strong> valor, objeto, órgão, fornecedor, data e local.</p>
+                      <p><strong className="text-white">2. Compara preços:</strong> calcula média encontrada, diferença em reais e percentual acima ou abaixo.</p>
+                      <p><strong className="text-white">3. Cruza nomes:</strong> relaciona partidos, políticos, fornecedores, órgãos, despesas, doações e processos.</p>
+                      <p><strong className="text-white">4. Resume o risco:</strong> entrega texto curto, dados objetivos e prioridade de conferência.</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                    <p className="text-xs font-black uppercase text-neutral-500">Cruzamentos de dados</p>
+                    <div className="mt-4 grid gap-2 text-sm text-neutral-300">
+                      {[
+                        'Contratos x média de mercado encontrada na base',
+                        'Fornecedor x órgão público x valor contratado',
+                        'Partido/político x contratos, despesas e viagens',
+                        'Doações eleitorais x nomes, siglas e fornecedores',
+                        'Processos e controle externo x pessoas e entidades',
+                        'Repetição de fornecedor, valor alto e concentração financeira'
+                      ].map((item) => (
+                        <p key={item} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2 leading-5">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                  <p className="text-xs font-black uppercase text-neutral-500">APIs e fontes públicas</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {[
+                      ['Compras.gov.br', 'Contratos, compras públicas, valores, fornecedores e órgãos federais.', COMPRAS_CONTRATOS_URL],
+                      ['Portal Nacional de Contratações Públicas', 'Editais, atas, contratos e dados nacionais de compras públicas.', 'https://www.gov.br/pncp'],
+                      ['Dados Abertos da Câmara', 'Deputados, despesas, viagens, cotas parlamentares e dados legislativos.', 'https://dadosabertos.camara.leg.br/'],
+                      ['Senado Federal', 'Senadores, despesas, legislação e dados parlamentares públicos.', 'https://www12.senado.leg.br/dados-abertos'],
+                      ['TSE', 'Partidos, candidaturas, contas eleitorais e doações oficiais.', 'https://dadosabertos.tse.jus.br/'],
+                      ['STF, TCU e portais oficiais', 'Processos, controle externo, acórdãos e documentos para conferência.', 'https://portal.stf.jus.br/']
+                    ].map(([name, text, url]) => (
+                      <a
+                        key={name}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex min-w-0 items-start justify-between gap-3 rounded border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-300 transition hover:border-red-700"
+                      >
+                        <span className="min-w-0">
+                          <strong className="block break-words text-white">{name}</strong>
+                          <span className="mt-1 block leading-5 text-neutral-400">{text}</span>
+                        </span>
+                        <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-red-400" />
+                      </a>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                    <p className="text-xs font-black uppercase text-neutral-500">Como ler os alertas</p>
+                    <div className="mt-4 space-y-3 text-sm leading-6 text-neutral-300">
+                      <p><strong className="text-red-300">Atenção Alta:</strong> valor, diferença, repetição ou vínculo forte pedem conferência rápida.</p>
+                      <p><strong className="text-amber-300">Atenção Média:</strong> existe sinal relevante, mas ainda depende de contexto e documento.</p>
+                      <p><strong className="text-neutral-200">Atenção Baixa:</strong> há dado lido, porém sem sinal forte no recorte atual.</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                    <p className="text-xs font-black uppercase text-neutral-500">Uso responsável dos dados</p>
+                    <div className="mt-4 space-y-3 text-sm leading-6 text-neutral-300">
+                      <p>O COIBE mostra indícios para orientar checagem. Indício não é acusação.</p>
+                      <p>Cada alerta deve ser validado na fonte oficial, com documento, contexto, objeto, prazo e justificativa técnica.</p>
+                      <p>Diferença de preço pode ter motivo legítimo: logística, quantidade, urgência, especificação ou local de entrega.</p>
+                      <p>A conclusão final cabe à revisão humana e aos órgãos competentes.</p>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : activeTab === 'donate' ? (
+              <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+                  <p className="text-xs font-black uppercase text-red-400">Doar por Pix</p>
+                  <h2 className="mt-1 text-xl font-black text-white">Apoie o COIBE</h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-300">
+                    Sua doação ajuda a manter a plataforma, melhorar as análises e ampliar os cruzamentos com dados públicos.
+                  </p>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <strong className="block text-white">Mantém o projeto</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Ajuda com hospedagem, testes e melhorias.</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <strong className="block text-white">Mais fontes</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Permite integrar novas bases públicas.</p>
+                    </div>
+                    <div className="rounded border border-neutral-800 bg-neutral-950 p-3">
+                      <strong className="block text-white">Mais transparência</strong>
+                      <p className="mt-1 text-xs leading-5 text-neutral-400">Fortalece uma ferramenta aberta de conferência.</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-950 p-4 text-sm leading-6 text-neutral-300">
+                    <p><strong className="text-white">Como doar:</strong> escaneie o QR Code ou copie a chave Pix.</p>
+                    <p className="mt-2"><strong className="text-white">Nome:</strong> JOAO PEDRO ANDRE</p>
+                    <p><strong className="text-white">Chave Pix:</strong> 0c81c958-1ab4-4cd1-a68f-fe6ab841944c</p>
+                  </div>
+                </section>
+
+                <aside className="rounded-lg border border-neutral-800 bg-neutral-900 p-5 lg:self-start">
+                  <p className="text-xs font-black uppercase text-neutral-500">QR Code Pix</p>
+                  <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800 bg-white p-2">
+                    <img
+                      src="/pix-chave.jpg"
+                      alt="QR Code Pix para doação ao COIBE"
+                      className="h-auto w-full"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard?.writeText('0c81c958-1ab4-4cd1-a68f-fe6ab841944c')}
+                    className="mt-4 flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700"
+                  >
+                    Copiar chave Pix
+                  </button>
+                  <p className="mt-3 text-center text-xs leading-5 text-neutral-500">
+                    Obrigado por apoiar o desenvolvimento do COIBE.
+                  </p>
+                </aside>
+              </div>
             ) : (
               <div className="mt-5 space-y-4">
                 <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
@@ -2127,6 +2302,7 @@ function applySearchResult(result) {
             )}
           </div>
 
+          {activeTab !== 'about' && activeTab !== 'donate' && (
           <aside className="rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto">
             {selectedAlert ? (
               <>
@@ -2270,6 +2446,7 @@ function applySearchResult(result) {
               </div>
             )}
           </aside>
+          )}
         </section>
         {selectedSearchResult && selectedSearchReview && (
           <div
