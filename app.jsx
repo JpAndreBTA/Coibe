@@ -347,6 +347,74 @@ function geometryLabelPoint(geometry) {
   return best ? { x: best.x, y: best.y } : null;
 }
 
+function geometryProjectedBounds(geometry) {
+  if (!geometry) return null;
+  const rings = geometry.type === 'Polygon'
+    ? geometry.coordinates
+    : geometry.type === 'MultiPolygon'
+      ? geometry.coordinates.flat()
+      : [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const ring of rings) {
+    for (const coord of ring) {
+      const [x, y] = projectPoint(coord);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+function offsetOverlappingMapPoints(points, boundsByUf) {
+  const prepared = points.map((point, index) => {
+    const lng = Number(point.lng);
+    const lat = Number(point.lat);
+    const [baseX, baseY] = projectPoint([lng, lat]);
+    return {
+      ...point,
+      displayKey: `${point.uf || 'BR'}:${baseX.toFixed(1)}:${baseY.toFixed(1)}`,
+      originalIndex: index,
+      displayX: baseX,
+      displayY: baseY
+    };
+  });
+
+  const groups = new Map();
+  for (const point of prepared) {
+    const group = groups.get(point.displayKey) || [];
+    group.push(point);
+    groups.set(point.displayKey, group);
+  }
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+    const total = group.length;
+    group.forEach((point, index) => {
+      const bounds = boundsByUf[point.uf] || {
+        minX: 0,
+        minY: 0,
+        maxX: mapBounds.width,
+        maxY: mapBounds.height
+      };
+      const safeWidth = Math.max(bounds.maxX - bounds.minX, 1);
+      const safeHeight = Math.max(bounds.maxY - bounds.minY, 1);
+      const maxRadius = Math.max(10, Math.min(95, safeWidth * 0.42, safeHeight * 0.42));
+      const radius = Math.min(maxRadius, 7 + Math.sqrt(index + 1) * (total > 18 ? 8 : 6));
+      const angle = index * 2.399963229728653;
+      point.displayX = clampNumber(point.displayX + Math.cos(angle) * radius, bounds.minX + 5, bounds.maxX - 5);
+      point.displayY = clampNumber(point.displayY + Math.sin(angle) * radius, bounds.minY + 5, bounds.maxY - 5);
+    });
+  }
+
+  return prepared.sort((left, right) => left.originalIndex - right.originalIndex);
+}
+
 function stateFill(score, selected) {
   if (selected) return '#ef4444';
   if (score >= 40) return '#b91c1c';
@@ -1892,6 +1960,7 @@ function applySearchResult(result) {
   }
 
   useEffect(() => {
+    if (activeTab !== 'map') return undefined;
     const node = mapViewportRef.current;
     if (!node) return undefined;
     const handleNativeWheel = (event) => {
@@ -1902,7 +1971,7 @@ function applySearchResult(result) {
     };
     node.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => node.removeEventListener('wheel', handleNativeWheel);
-  }, []);
+  }, [activeTab]);
 
   function handleMapPointerDown(event) {
     mapPointerRef.current = {
@@ -1957,9 +2026,23 @@ function applySearchResult(result) {
   }, [mapPoints, mapSearchText, stateRisks]);
   const mapPointLimit = mapZoom >= 1.6 ? 240 : 140;
   const mapCityLabelLimit = mapZoom >= 2.25 ? 140 : mapZoom >= 1.7 ? 90 : mapZoom >= 1.3 ? 45 : 0;
+  const mapStateBounds = useMemo(() => {
+    const bounds = {};
+    for (const feature of geoJson?.features || []) {
+      const props = feature.properties || {};
+      const uf = props.sigla || props.UF || props.uf || props.SIGLA_UF || IBGE_CODE_TO_UF[props.codarea];
+      const projectedBounds = geometryProjectedBounds(feature.geometry);
+      if (uf && projectedBounds) bounds[uf] = projectedBounds;
+    }
+    return bounds;
+  }, [geoJson]);
+  const positionedMapPoints = useMemo(
+    () => offsetOverlappingMapPoints(visibleMapPoints.slice(0, mapPointLimit), mapStateBounds),
+    [visibleMapPoints, mapPointLimit, mapStateBounds]
+  );
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-neutral-950 text-neutral-100">
+    <div className="min-h-screen overflow-x-clip bg-neutral-950 text-neutral-100">
       <header className="border-b border-neutral-800 bg-black md:sticky md:top-0 md:z-20">
         <div className="mx-auto flex min-h-16 max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -2528,9 +2611,8 @@ function applySearchResult(result) {
                           </text>
                         );
                       })}
-                      {visibleMapPoints.slice(0, mapPointLimit).map((point, index) => {
+                      {positionedMapPoints.map((point, index) => {
                         if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
-                        const [x, y] = projectPoint([Number(point.lng), Number(point.lat)]);
                         const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
                         return (
                           <g
@@ -2553,8 +2635,8 @@ function applySearchResult(result) {
                             }}
                           >
                             <circle
-                              cx={x}
-                              cy={y}
+                              cx={point.displayX}
+                              cy={point.displayY}
                               r={selected ? 5 : 3.4}
                               fill={selected ? '#ffffff' : '#f87171'}
                               stroke="#7f1d1d"
@@ -2566,15 +2648,14 @@ function applySearchResult(result) {
                           </g>
                         );
                       })}
-                      {mapCityLabelLimit > 0 && visibleMapPoints.slice(0, mapCityLabelLimit).map((point, index) => {
+                      {mapCityLabelLimit > 0 && positionedMapPoints.slice(0, mapCityLabelLimit).map((point, index) => {
                         if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
-                        const [x, y] = projectPoint([Number(point.lng), Number(point.lat)]);
                         const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
                         return (
                           <text
                             key={`${point.city}-${point.uf}-city-label-${index}`}
-                            x={x + 6}
-                            y={y - 5}
+                            x={point.displayX + 6}
+                            y={point.displayY - 5}
                             textAnchor="start"
                             dominantBaseline="central"
                             pointerEvents="none"
@@ -2637,6 +2718,28 @@ function applySearchResult(result) {
                     </aside>
                   </div>
                   <div className="absolute bottom-4 left-4 flex max-w-[calc(100%-2rem)] flex-col gap-2">
+                    <div className="flex w-fit overflow-hidden rounded-lg border border-neutral-800 bg-black/70">
+                      <button
+                        type="button"
+                        onClick={() => updateMapZoom((current) => current - 0.25)}
+                        disabled={mapZoom <= 1}
+                        className="flex h-9 w-9 items-center justify-center border-r border-neutral-800 text-lg font-black text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Reduzir zoom"
+                        aria-label="Reduzir zoom"
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateMapZoom((current) => current + 0.25)}
+                        disabled={mapZoom >= 3.2}
+                        className="flex h-9 w-9 items-center justify-center text-lg font-black text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Aumentar zoom"
+                        aria-label="Aumentar zoom"
+                      >
+                        +
+                      </button>
+                    </div>
                     <div className="w-fit rounded-lg border border-neutral-800 bg-black/70 px-3 py-2 text-xs font-black text-neutral-200">
                       Zoom {Math.round(mapZoom * 100)}%
                     </div>
@@ -2984,7 +3087,7 @@ function applySearchResult(result) {
           </div>
 
           {activeTab === 'feed' && (
-          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-5.5rem)] lg:self-start lg:overflow-hidden">
+          <aside className="coibe-feed-analysis-panel hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:block lg:overflow-hidden">
             {selectedAlert ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className={`rounded-t-lg px-5 py-4 ${selectedRisk.panel}`}>

@@ -8,20 +8,20 @@ html {
   scrollbar-width: thin;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
   margin: 0;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 #root {
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 * {
@@ -64,4 +64,15 @@ video {
 
 *::-webkit-scrollbar-corner {
   background: #0a0a0a;
+}
+
+@media (min-width: 1024px) {
+  .coibe-feed-analysis-panel {
+    position: sticky;
+    top: 6rem;
+    align-self: start;
+    width: 100%;
+    height: calc(100dvh - 7rem);
+    max-height: calc(100dvh - 7rem);
+  }
 }
