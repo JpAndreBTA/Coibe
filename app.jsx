@@ -1202,23 +1202,35 @@ export default function CoibeApp() {
   async function loadMap(query = mapQuery, uf = selectedUf, city = '') {
     setLoadingMap(true);
     try {
-      const params = new URLSearchParams({ page_size: '240', source: 'auto' });
-      if (query.trim()) params.set('q', query.trim());
-      if (uf) params.set('uf', uf);
-      if (city.trim()) params.set('city', city.trim());
-      const [riskData, geoData] = await Promise.all([
-        apiGet(`/api/monitoring/state-map?${params}`),
-        apiGet('/api/public-data/ibge/states-geojson')
+      const stateParams = new URLSearchParams({ page_size: '100', source: 'auto' });
+      const cityParams = new URLSearchParams({ page_size: '240', source: 'auto' });
+      if (query.trim()) {
+        stateParams.set('q', query.trim());
+        cityParams.set('q', query.trim());
+      }
+      if (uf) {
+        stateParams.set('uf', uf);
+        cityParams.set('uf', uf);
+      }
+      if (city.trim()) cityParams.set('city', city.trim());
+      const [riskResult, geoResult, cityResult] = await Promise.allSettled([
+        apiGet(`/api/monitoring/state-map?${stateParams}`),
+        apiGet('/api/public-data/ibge/states-geojson'),
+        apiGet(`/api/monitoring/map?${cityParams}`)
       ]);
-      const cityData = await apiGet(`/api/monitoring/map?${params}`).catch(() => ({ points: [] }));
+      const riskData = riskResult.status === 'fulfilled' ? riskResult.value : { states: [], cache_status: 'indisponivel' };
+      const nextGeoJson = geoResult.status === 'fulfilled' ? geoResult.value : geoJson;
+      const cityData = cityResult.status === 'fulfilled' ? cityResult.value : { points: mapPoints, cache_status: 'stale' };
+      if (!nextGeoJson) throw new Error('geojson indisponivel');
       const risksByUf = {};
       for (const state of riskData.states || []) {
         risksByUf[state.uf] = state;
       }
       setStateRisks(risksByUf);
-      setGeoJson(geoData);
+      setGeoJson(nextGeoJson);
       setMapPoints(cityData.points || []);
       setMapCacheStatus(cityData.cache_status || riskData.cache_status || '');
+      setError('');
     } catch {
       setError('Não foi possível carregar o mapa real agora.');
     } finally {
