@@ -1,21 +1,46 @@
-MIT License
+Licenca de Uso Publico com Atribuicao
 
-Copyright (c) 2026 Jp André
+Copyright (c) 2026 Jp Andre
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permissao e concedida, gratuitamente, a qualquer pessoa que obtenha uma copia
+deste software e dos arquivos de documentacao associados (o "Software"), para
+usar, copiar, modificar, mesclar, publicar, distribuir e criar trabalhos
+derivados do Software, inclusive para fins publicos, educacionais, jornalisticos,
+academicos, institucionais ou comerciais, desde que sejam cumpridas as seguintes
+condicoes:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Credito obrigatorio
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   Qualquer uso, copia, publicacao, distribuicao, modificacao, derivacao,
+   demonstracao publica, hospedagem, redistribuicao ou incorporacao do Software
+   deve manter credito visivel e razoavel ao autor original:
+
+   "COIBE.IA por Jp Andre"
+
+   Quando o uso ocorrer em interface publica, pagina web, painel, relatorio,
+   repositorio, documentacao, apresentacao, video, produto derivado ou material
+   de divulgacao, o credito deve aparecer em local acessivel ao publico ou aos
+   usuarios do material.
+
+2. Aviso de copyright e licenca
+
+   Este aviso de copyright e esta licenca devem ser incluidos em todas as copias
+   ou partes substanciais do Software.
+
+3. Uso de dados e resultados
+
+   O Software foi criado para monitoramento preventivo, cruzamento de dados
+   publicos, transparencia e apoio a analise humana. O uso do Software nao deve
+   apresentar seus resultados como conclusao oficial de crime, culpa,
+   irregularidade, parentesco, vinculo indevido ou responsabilidade legal sem a
+   devida verificacao por fontes oficiais e autoridades competentes.
+
+4. Sem garantia
+
+   O SOFTWARE E FORNECIDO "COMO ESTA", SEM GARANTIA DE QUALQUER TIPO, EXPRESSA
+   OU IMPLICITA, INCLUINDO, MAS NAO SE LIMITANDO A GARANTIAS DE COMERCIALIZACAO,
+   ADEQUACAO A UM FIM ESPECIFICO E NAO VIOLACAO. EM NENHUMA HIPOTESE OS AUTORES
+   OU DETENTORES DOS DIREITOS AUTORAIS SERAO RESPONSAVEIS POR QUALQUER
+   RECLAMACAO, DANO OU OUTRA RESPONSABILIDADE, SEJA EM ACAO CONTRATUAL,
+   EXTRACONTRATUAL OU DE OUTRA FORMA, DECORRENTE DE, FORA DE OU EM CONEXAO COM
+   O SOFTWARE OU O USO OU OUTRAS NEGOCIACOES NO SOFTWARE.

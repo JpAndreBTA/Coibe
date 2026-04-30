@@ -51,6 +51,16 @@ Esses cruzamentos servem para priorizar leitura e investigação. Eles não subs
 
 Coibe IA é um projeto de código aberto. Contribuições, auditorias, issues e melhorias são bem-vindas, especialmente em conectores de dados públicos, qualidade de evidências, performance, documentação e revisão das regras de risco.
 
+## Licenca e creditos
+
+Uso publico permitido com atribuicao obrigatoria ao autor original. Ao usar,
+copiar, modificar, hospedar, redistribuir, apresentar ou criar trabalho derivado
+do COIBE.IA, mantenha credito visivel e razoavel:
+
+`COIBE.IA por Jp Andre`
+
+A licenca completa esta em [LICENSE](LICENSE).
+
 ## Arquitetura atual
 
 - Frontend: React, Vite, TailwindCSS e Lucide React.
