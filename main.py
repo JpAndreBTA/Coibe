@@ -153,6 +153,8 @@ LOGISTIC_SUPPLY_ONLY_TERMS = (
 )
 UASG_LOCATION_CACHE: dict[str, dict[str, Any] | None] = {}
 CNPJ_DETAILS_CACHE: dict[str, dict[str, Any] | None] = {}
+IBGE_CITIES_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
+IBGE_CITIES_CACHE_TTL_SECONDS = int(os.getenv("COIBE_IBGE_CITIES_CACHE_TTL_SECONDS", "86400"))
 LOCAL_MONITOR_LATEST_PATH = Path(os.getenv("COIBE_MONITOR_LATEST_PATH", "data/processed/latest_analysis.json"))
 LOCAL_MONITOR_DB_PATH = Path(os.getenv("COIBE_MONITOR_DB_PATH", "data/processed/monitoring_items.json"))
 LOCAL_PUBLIC_RECORDS_PATH = Path(os.getenv("COIBE_PUBLIC_RECORDS_PATH", "data/processed/public_api_records.json"))
@@ -972,13 +974,31 @@ app.add_middleware(
 async def rate_limit_middleware(request: Request, call_next):
     if len(request.scope.get("query_string", b"")) > MAX_QUERY_STRING_BYTES:
         return JSONResponse(status_code=414, content={"detail": "Query string maior que o limite permitido."})
-    content_length = request.headers.get("content-length")
-    if content_length and request.method in {"POST", "PUT", "PATCH"}:
-        try:
-            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+    if request.method in {"POST", "PUT", "PATCH"}:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                    return JSONResponse(status_code=413, content={"detail": "Corpo da requisicao maior que o limite permitido."})
+            except ValueError:
+                return JSONResponse(status_code=400, content={"detail": "Content-Length invalido."})
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAX_REQUEST_BODY_BYTES:
                 return JSONResponse(status_code=413, content={"detail": "Corpo da requisicao maior que o limite permitido."})
-        except ValueError:
-            return JSONResponse(status_code=400, content={"detail": "Content-Length invalido."})
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        request._body = body
+        request._stream_consumed = False
+
+        async def receive_limited_body() -> dict[str, Any]:
+            nonlocal body
+            chunk, body = body, b""
+            return {"type": "http.request", "body": chunk, "more_body": False}
+
+        request._receive = receive_limited_body
     try:
         check_rate_limit(request)
     except HTTPException as exc:
@@ -1466,14 +1486,27 @@ async def fetch_cnpj_details_cached(cnpj: str | None) -> dict[str, Any] | None:
     if digits in CNPJ_DETAILS_CACHE:
         return CNPJ_DETAILS_CACHE[digits]
     try:
+        if len(CNPJ_DETAILS_CACHE) > 1000:
+            CNPJ_DETAILS_CACHE.pop(next(iter(CNPJ_DETAILS_CACHE)), None)
         CNPJ_DETAILS_CACHE[digits] = await fetch_cnpj_from_brasil_api(digits)
     except HTTPException:
         CNPJ_DETAILS_CACHE[digits] = None
     return CNPJ_DETAILS_CACHE[digits]
 
 
-async def fetch_city_from_ibge(city_name: str) -> dict[str, Any] | None:
+async def fetch_ibge_cities_cached() -> list[dict[str, Any]]:
+    now = time.monotonic()
+    if IBGE_CITIES_CACHE["items"] and now - float(IBGE_CITIES_CACHE["loaded_at"] or 0) < IBGE_CITIES_CACHE_TTL_SECONDS:
+        return IBGE_CITIES_CACHE["items"]
     cities = await get_json(IBGE_CITY_SEARCH_URL)
+    if isinstance(cities, list):
+        IBGE_CITIES_CACHE["loaded_at"] = now
+        IBGE_CITIES_CACHE["items"] = [city for city in cities if isinstance(city, dict)]
+    return IBGE_CITIES_CACHE["items"]
+
+
+async def fetch_city_from_ibge(city_name: str) -> dict[str, Any] | None:
+    cities = await fetch_ibge_cities_cached()
     normalized = normalize_text(city_name)
     for city in cities:
         if normalize_text(city.get("nome", "")) == normalized:
@@ -6953,9 +6986,13 @@ async def library_status() -> LibraryStatusResponse:
 
 @app.get("/api/search", response_model=UniversalSearchResponse)
 async def universal_search(
+    request: Request,
     q: str = Query(..., min_length=2, max_length=120),
     refresh: bool = Query(False, description="Ignora cache e consulta as APIs publicas novamente."),
+    x_coibe_admin_token: str | None = Header(default=None),
 ) -> UniversalSearchResponse:
+    if refresh:
+        allow_local_or_admin_live_scan(request, x_coibe_admin_token)
     cached = load_cached_universal_search(q)
     if cached and not refresh and cached.public_api_checked:
         return cached
@@ -7573,7 +7610,10 @@ async def ibge_states_geojson() -> dict[str, Any]:
 @app.get("/api/public-data/cnpj/{cnpj}")
 async def public_cnpj_data(cnpj: str) -> dict[str, Any]:
     normalized_cnpj = normalize_cnpj(cnpj)
-    return await fetch_cnpj_from_brasil_api(normalized_cnpj)
+    data = await fetch_cnpj_details_cached(normalized_cnpj)
+    if data is None:
+        raise HTTPException(status_code=404, detail="CNPJ nao encontrado na Brasil API.")
+    return data
 
 
 @app.get("/api/public-data/ibge/city")
