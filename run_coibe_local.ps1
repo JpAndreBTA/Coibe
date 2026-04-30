@@ -12,6 +12,42 @@ $LogDir = Join-Path $Root "logs"
 $MonitorPidPath = Join-Path $Root "data\state\monitor.pid"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+function Import-CoibeDotEnv {
+  $envPath = Join-Path $Root ".env"
+  if (-not (Test-Path -LiteralPath $envPath)) { return }
+  Get-Content -LiteralPath $envPath | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith("#") -or $line -notmatch "=") { return }
+    $key, $value = $line -split "=", 2
+    $key = $key.Trim()
+    $value = $value.Trim().Trim('"').Trim("'")
+    if ($key) { [Environment]::SetEnvironmentVariable($key, $value, "Process") }
+  }
+}
+
+function Start-CoibePostgres {
+  $configuredService = $env:COIBE_POSTGRES_SERVICE_NAME
+  $service = $null
+  if ($configuredService) {
+    $service = Get-Service -Name $configuredService -ErrorAction SilentlyContinue
+  }
+  if (-not $service) {
+    $service = Get-Service -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '^postgresql' -or $_.DisplayName -match 'PostgreSQL|Postgres' } |
+      Sort-Object Name -Descending |
+      Select-Object -First 1
+  }
+  if ($service -and $service.Status -ne "Running") {
+    Write-Host "Iniciando PostgreSQL: $($service.Name)"
+    Start-Service -Name $service.Name
+    $service.WaitForStatus("Running", "00:00:25")
+  }
+  $setupScript = Join-Path $Root "setup-postgis-local.ps1"
+  if (Test-Path -LiteralPath $setupScript) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File $setupScript
+  }
+}
+
 function Stop-PortProcess {
   param([int]$Port)
   Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
@@ -21,6 +57,9 @@ function Stop-PortProcess {
       try { Stop-Process -Id $_ -Force -ErrorAction Stop } catch {}
     }
 }
+
+Import-CoibeDotEnv
+Start-CoibePostgres
 
 Stop-PortProcess -Port $BackendPort
 Stop-PortProcess -Port $FrontendPort

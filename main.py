@@ -3725,20 +3725,9 @@ def postgis_read_map_points(
 
         conditions = ["updated_at >= now() - (%s * interval '1 second')"]
         params: list[Any] = [MAP_CACHE_TTL_SECONDS]
-        normalized_query = normalize_text(q if isinstance(q, str) else None).lower()
-        normalized_city = normalize_text(city).lower()
-        accent_from = "áàãâäéèêëíìîïóòõôöúùûüç"
-        accent_to = "aaaaaeeeeiiiiooooouuuuc"
         if uf:
             conditions.append("upper(uf) = %s")
             params.append(uf.upper())
-        if normalized_city:
-            conditions.append(f"translate(lower(city), '{accent_from}', '{accent_to}') LIKE %s")
-            params.append(f"%{normalized_city}%")
-        if normalized_query:
-            conditions.append(f"(translate(lower(city), '{accent_from}', '{accent_to}') LIKE %s OR lower(uf) LIKE %s)")
-            like = f"%{normalized_query}%"
-            params.extend([like, like])
         if None not in (min_lng, min_lat, max_lng, max_lat):
             conditions.append("geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
             params.extend([min_lng, min_lat, max_lng, max_lat])
@@ -3753,10 +3742,10 @@ def postgis_read_map_points(
         with psycopg.connect(POSTGIS_DATABASE_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
-                for city, point_uf, lat, lng, risk_score, total_value, alerts_count in cur.fetchall():
+                for point_city, point_uf, lat, lng, risk_score, total_value, alerts_count in cur.fetchall():
                     points.append(
                         MonitoringMapPoint(
-                            city=city,
+                            city=point_city,
                             uf=point_uf,
                             lat=float(lat),
                             lng=float(lng),
@@ -7373,9 +7362,10 @@ async def monitoring_map(
 
     async def build_response() -> MonitoringMapResponse:
         cache_status = "live"
+        has_map_filter = bool(q or uf or city) or None not in (min_lng, min_lat, max_lng, max_lat)
         if source != "live":
             postgis_points = await asyncio.to_thread(postgis_read_map_points, q, uf, city, min_lat, max_lat, min_lng, max_lng)
-            if postgis_points:
+            if postgis_points and (has_map_filter or len(postgis_points) >= min(page_size, 25)):
                 return MonitoringMapResponse(
                     sources=["PostGIS cache", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
                     points=postgis_points[:page_size],
@@ -7388,6 +7378,8 @@ async def monitoring_map(
             if file_points:
                 filtered = filter_map_points(file_points, q=q, uf=uf, city=city, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
                 if filtered:
+                    if POSTGIS_ENABLED:
+                        await asyncio.to_thread(postgis_upsert_map_points, file_points)
                     return MonitoringMapResponse(
                         sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
                         points=filtered[:page_size],

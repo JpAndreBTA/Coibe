@@ -30,9 +30,15 @@ const configuredApiBases = [
   .map((base) => base.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
+const PUBLIC_API_BASE = 'https://api.coibe.com.br';
+const isLocalFrontend = typeof window !== 'undefined'
+  && ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
+const fallbackApiBases = isLocalFrontend
+  ? ['', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001', PUBLIC_API_BASE]
+  : [PUBLIC_API_BASE, '', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'];
 const API_BASES = configuredApiBases.length
   ? configuredApiBases
-  : ['', 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'];
+  : fallbackApiBases;
 const API_REQUEST_TIMEOUT_MS = 10000;
 const API_CACHE_PREFIX = 'coibe-api-cache:';
 const preferredApiBaseKey = 'coibePreferredApiBase';
@@ -2062,7 +2068,7 @@ function applySearchResult(result) {
           </section>
         )}
 
-        <section className={`mt-8 grid gap-7 ${activeTab === 'about' || activeTab === 'donate' ? 'lg:grid-cols-1' : 'lg:grid-cols-[minmax(0,1fr)_360px]'}`}>
+        <section className={`mt-8 grid gap-7 ${activeTab === 'feed' ? 'lg:grid-cols-[minmax(0,1fr)_360px]' : 'lg:grid-cols-1'}`}>
           <div>
             <div className="flex max-w-full overflow-x-auto border-b border-neutral-800">
               <button
@@ -2898,8 +2904,8 @@ function applySearchResult(result) {
             )}
           </div>
 
-          {activeTab !== 'about' && activeTab !== 'donate' && (
-          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:fixed lg:right-8 lg:top-20 lg:z-30 lg:block lg:h-[calc(100vh-5.5rem)] lg:w-[360px] lg:overflow-hidden">
+          {activeTab === 'feed' && (
+          <aside className="hidden rounded-lg border border-neutral-800 bg-neutral-900 lg:sticky lg:top-20 lg:block lg:h-[calc(100vh-5.5rem)] lg:self-start lg:overflow-hidden">
             {selectedAlert ? (
               <div className="flex h-full min-h-0 flex-col">
                 <div className={`rounded-t-lg px-5 py-4 ${selectedRisk.panel}`}>

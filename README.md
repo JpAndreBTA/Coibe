@@ -106,6 +106,10 @@ PostGIS local opcional:
 .\setup-postgis-local.ps1 -PostgresPassword coibe_local_2026
 ```
 
+No Windows, `start-coibe-backend.bat`, `start-coibe-backend.ps1` e
+`iniciar_coibe_completo.bat` tentam iniciar o servico PostgreSQL local e validar
+o PostGIS antes de subir o backend.
+
 No `.env`, habilite:
 
 ```env
