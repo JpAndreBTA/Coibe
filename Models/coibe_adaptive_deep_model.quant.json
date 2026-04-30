@@ -1,0 +1,504 @@
+{
+  "model_id": "coibe-adaptive-default",
+  "quantization_compatible": true,
+  "mode": "dynamic-int8",
+  "schema": "int8_dynamic_manifest",
+  "calibration_sample_size": 500,
+  "quantized_terms": [
+    {
+      "term": "Valor Empenha Ocorrer",
+      "score_int8": 127,
+      "hits": 1
+    },
+    {
+      "term": "Clinicas Ribeirao Preto",
+      "score_int8": 106,
+      "hits": 13
+    },
+    {
+      "term": "Luiz Inacio Lula",
+      "score_int8": 101,
+      "hits": 12
+    },
+    {
+      "term": "Inacio Lula Silva",
+      "score_int8": 101,
+      "hits": 12
+    },
+    {
+      "term": "Luiz Inacio",
+      "score_int8": 101,
+      "hits": 12
+    },
+    {
+      "term": "Inacio Lula",
+      "score_int8": 101,
+      "hits": 12
+    },
+    {
+      "term": "Lula Silva",
+      "score_int8": 101,
+      "hits": 12
+    },
+    {
+      "term": "Geraldo Alckmin",
+      "score_int8": 100,
+      "hits": 12
+    },
+    {
+      "term": "Jair Messias Bolsonaro",
+      "score_int8": 100,
+      "hits": 12
+    },
+    {
+      "term": "Jair Messias",
+      "score_int8": 92,
+      "hits": 11
+    },
+    {
+      "term": "Messias Bolsonaro",
+      "score_int8": 92,
+      "hits": 11
+    },
+    {
+      "term": "Clinicas Ribeirao",
+      "score_int8": 89,
+      "hits": 11
+    },
+    {
+      "term": "Fundo Municipal",
+      "score_int8": 85,
+      "hits": 2
+    },
+    {
+      "term": "Ribeirao Preto",
+      "score_int8": 82,
+      "hits": 10
+    },
+    {
+      "term": "Ocorrer Generos Alimenticios",
+      "score_int8": 78,
+      "hits": 2
+    },
+    {
+      "term": "Empenha Ocorrer Generos",
+      "score_int8": 74,
+      "hits": 1
+    },
+    {
+      "term": "Valor Empenha",
+      "score_int8": 70,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Educacao",
+      "score_int8": 67,
+      "hits": 1
+    },
+    {
+      "term": "Fundo Municipal Educacao",
+      "score_int8": 66,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Educacao Campo",
+      "score_int8": 64,
+      "hits": 1
+    },
+    {
+      "term": "Educacao Campo",
+      "score_int8": 64,
+      "hits": 1
+    },
+    {
+      "term": "Empenha Ocorrer",
+      "score_int8": 63,
+      "hits": 1
+    },
+    {
+      "term": "Manutencao Merenda Escolar",
+      "score_int8": 53,
+      "hits": 1
+    },
+    {
+      "term": "Manutencao Rede Escolar",
+      "score_int8": 42,
+      "hits": 1
+    },
+    {
+      "term": "Empenha Ocorrer Limpeza",
+      "score_int8": 39,
+      "hits": 1
+    },
+    {
+      "term": "Merenda Escolar Escola",
+      "score_int8": 31,
+      "hits": 1
+    },
+    {
+      "term": "Ocorrer Generos",
+      "score_int8": 30,
+      "hits": 1
+    },
+    {
+      "term": "Generos Alimenticios",
+      "score_int8": 26,
+      "hits": 3
+    },
+    {
+      "term": "Presidente Republica",
+      "score_int8": 24,
+      "hits": 1
+    },
+    {
+      "term": "Rede Escolar Infantil",
+      "score_int8": 24,
+      "hits": 1
+    },
+    {
+      "term": "Ocorrer Limpeza",
+      "score_int8": 19,
+      "hits": 1
+    },
+    {
+      "term": "Manut Rede Basica",
+      "score_int8": 19,
+      "hits": 1
+    },
+    {
+      "term": "Rede Escolar Escola",
+      "score_int8": 17,
+      "hits": 1
+    },
+    {
+      "term": "Decorrente Pregao Eletronico",
+      "score_int8": 16,
+      "hits": 1
+    },
+    {
+      "term": "Rede Basica Fundamental",
+      "score_int8": 16,
+      "hits": 1
+    },
+    {
+      "term": "Fundo Municipal Saude",
+      "score_int8": 15,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Saude Baliza",
+      "score_int8": 15,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Saude",
+      "score_int8": 15,
+      "hits": 1
+    },
+    {
+      "term": "Saude Baliza",
+      "score_int8": 14,
+      "hits": 1
+    },
+    {
+      "term": "Condicoes Estabelecidas Termo",
+      "score_int8": 14,
+      "hits": 2
+    },
+    {
+      "term": "Estabelecidas Termo Referencia",
+      "score_int8": 14,
+      "hits": 2
+    },
+    {
+      "term": "Vertente Distribuicao",
+      "score_int8": 13,
+      "hits": 1
+    },
+    {
+      "term": "Outros Manutencao Rede",
+      "score_int8": 12,
+      "hits": 1
+    },
+    {
+      "term": "Precos Medicamentos Injetaveis",
+      "score_int8": 11,
+      "hits": 1
+    },
+    {
+      "term": "Fornecedor Vincula Proposta",
+      "score_int8": 11,
+      "hits": 2
+    },
+    {
+      "term": "Seus Anexos Hipoteses",
+      "score_int8": 11,
+      "hits": 2
+    },
+    {
+      "term": "Tribunal Eleitoral",
+      "score_int8": 10,
+      "hits": 2
+    },
+    {
+      "term": "Manutencao Preventiva Corretiva",
+      "score_int8": 9,
+      "hits": 2
+    },
+    {
+      "term": "Limpeza Higiene",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Referente Jeton Membros",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Jeton Membros Conselho",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Membros Conselho Municipal",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Conselho Municipal Educacao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Municipal Educacao Participaram",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Educacao Participaram Desessao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Participaram Desessao Plenaria",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Desessao Plenaria Data",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Oswaldo Cruz",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Lidos Foco Fornecedor",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Foco Fornecedor Orgao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Fornecedor Orgao Processo",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Orgao Processo Conta",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Processo Conta Eleitoral",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Empenho Pregao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "2026 Proc Origem",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Inviabilidade Logistica",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Vincula Proposta Convocatorio",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Proposta Convocatorio Seus",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Convocatorio Seus Anexos",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Anexos Hipoteses Infracao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Hipoteses Infracao Estao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Infracao Estao Previstas",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Tribunal Trabalho Regiao",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Fundacao Oswaldo Cruz",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Fundacao Oswaldo",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Instituto Tecnologia",
+      "score_int8": 4,
+      "hits": 1
+    },
+    {
+      "term": "Fator Emergente Recorrencia",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Emergente Recorrencia Atipica",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Recorrencia Atipica Janela",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Atipica Janela Curta",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Fator Emergente",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Emergente Recorrencia",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Recorrencia Atipica",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Atipica Janela",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Janela Curta",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Elegivel Estatistica",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Anomalia Valor",
+      "score_int8": 2,
+      "hits": 1
+    },
+    {
+      "term": "Recuperacao Judicial",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Engenharia Recuperacao Judicial",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Engenharia Recuperacao",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Coord Geral",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Exclusiva Obra",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Prestacao Continuos",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Execucao Obra",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Coord Geral Administ",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Geral Administ",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Valor Incompativel Capital",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Incompativel Capital Social",
+      "score_int8": 1,
+      "hits": 1
+    },
+    {
+      "term": "Valor Incompativel",
+      "score_int8": 1,
+      "hits": 1
+    }
+  ]
+}

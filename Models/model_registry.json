@@ -1,0 +1,26 @@
+{
+  "default_model_id": "coibe-adaptive-default",
+  "updated_at": "2026-04-30T04:56:47.446720-03:00",
+  "models": [
+    {
+      "id": "coibe-adaptive-default",
+      "name": "COIBE Adaptativo Padrao",
+      "kind": "rules+statistics+learning",
+      "path": "Models\\monitor_model_state.json",
+      "selected": true,
+      "available": true,
+      "quantization_compatible": true
+    },
+    {
+      "id": "coibe-deep-mlp",
+      "name": "COIBE Deep Learning MLP",
+      "kind": "tfidf+mlp",
+      "path": "Models\\coibe_adaptive_deep_model.joblib",
+      "selected": false,
+      "available": true,
+      "quantization_compatible": true,
+      "onnx_manifest_path": "Models\\coibe_adaptive_deep_model.onnx.json",
+      "quantization_manifest_path": "Models\\coibe_adaptive_deep_model.quant.json"
+    }
+  ]
+}

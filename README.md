@@ -278,12 +278,20 @@ O parecer tecnico nunca acusa formalmente corrupcao ou fraude. Os achados aparec
 
 Além dos fatores do guia, o monitor contínuo aplica uma camada adaptativa de machine learning sobre a base acumulada. Ela cria fatores emergentes apenas quando há evidência estatística, como concentração atípica por fornecedor ou recorrência incomum do mesmo fornecedor no mesmo órgão em janela curta. Esses fatores aparecem como `ML-NEW-*` e devem ser tratados como triagem para revisão humana.
 
+O backend local tambem pode usar o modelo `coibe-deep-mlp`, treinado com `scikit-learn` sobre texto, fornecedor, orgao, valor, UF, score e fatores de risco ja calculados. Quando esse modelo e selecionado em `/backend`, a inferencia entra no ciclo de analise e adiciona o fator `DL-LOCAL-RISK-CLASSIFIER` apenas quando a confianca minima por classe e atingida. O modelo padrao continua sendo `coibe-adaptive-default`.
+
+Para nao depender somente das APIs oficiais, o ciclo de monitoramento tambem faz varredura HTML publica em paginas oficiais e URLs descobertas por buscas locais. Essa varredura valida DNS/IP para bloquear localhost, rede privada e redirecionamentos inseguros antes de baixar texto publico.
+
 O estado do aprendizado fica em `Models/`:
 
 ```text
 Models/monitor_config.json
 Models/monitor_model_state.json
 Models/monitor_training_history.jsonl
+Models/model_registry.json
+Models/coibe_adaptive_deep_model.joblib
+Models/coibe_adaptive_deep_model.onnx.json
+Models/coibe_adaptive_deep_model.quant.json
 ```
 
 O monitor reaproveita termos aprendidos nos ciclos seguintes para buscar mais

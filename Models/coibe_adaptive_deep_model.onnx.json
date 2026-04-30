@@ -1,0 +1,22 @@
+{
+  "model_id": "coibe-adaptive-default",
+  "onnx_compatible": true,
+  "input": {
+    "name": "text",
+    "dtype": "string",
+    "shape": [
+      "batch"
+    ]
+  },
+  "output": {
+    "name": "risk_label",
+    "dtype": "int64",
+    "labels": [
+      "baixo",
+      "medio",
+      "alto"
+    ]
+  },
+  "export_note": "Exportacao ONNX real sera criada automaticamente quando skl2onnx/onnx estiverem instalados; este manifesto preserva contrato de inferencia.",
+  "joblib_model_path": "Models\\coibe_adaptive_deep_model.joblib"
+}

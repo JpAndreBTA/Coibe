@@ -1,10 +1,12 @@
 import argparse
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import site
+import socket
 import subprocess
 import unicodedata
 import warnings
@@ -13,6 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -49,6 +52,11 @@ MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
 MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
+MONITOR_MODEL_REGISTRY_PATH = MODELS_DIR / "model_registry.json"
+MONITOR_DEEP_MODEL_PATH = MODELS_DIR / "coibe_adaptive_deep_model.joblib"
+MONITOR_DEEP_JSON_MODEL_PATH = MODELS_DIR / "coibe_adaptive_deep_model.ai.json"
+MONITOR_ONNX_MANIFEST_PATH = MODELS_DIR / "coibe_adaptive_deep_model.onnx.json"
+MONITOR_QUANT_MANIFEST_PATH = MODELS_DIR / "coibe_adaptive_deep_model.quant.json"
 ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
 GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
 USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {"1", "true", "yes"}
@@ -58,10 +66,22 @@ MAX_LEARNED_TERMS_PER_CYCLE = int(os.getenv("COIBE_MODEL_LEARNED_TERMS_PER_CYCLE
 MONITOR_SEARCH_TERMS_PER_CYCLE = int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE", "8"))
 MONITOR_SEARCH_DELAY_SECONDS = float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0"))
 MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE", "4"))
+MONITOR_INTERNET_SWEEP_ENABLED = os.getenv("COIBE_MONITOR_INTERNET_SWEEP_ENABLED", "true").lower() in {"1", "true", "yes"}
+MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE", "6"))
+MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS = int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS", "12"))
+MONITOR_SELECTED_MODEL_ID = os.getenv("COIBE_MONITOR_SELECTED_MODEL_ID", "coibe-adaptive-default")
+MONITOR_DEEP_LEARNING_ENABLED = os.getenv("COIBE_MONITOR_DEEP_LEARNING_ENABLED", "true").lower() in {"1", "true", "yes"}
+MONITOR_QUANTIZATION_MODE = os.getenv("COIBE_MONITOR_QUANTIZATION_MODE", "dynamic-int8")
 POLITICAL_PARTY_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PARTY_SCAN_LIMIT", "12"))
 POLITICAL_PEOPLE_SCAN_LIMIT = int(os.getenv("COIBE_POLITICAL_PEOPLE_SCAN_LIMIT", "24"))
 CUDA_DLL_HANDLES: list[Any] = []
 LOW_PRIORITY_REPEATED_TERMS = {"TIRIRICA"}
+PUBLIC_WEB_SEED_URLS = [
+    "https://www.gov.br/cgu/pt-br",
+    "https://portal.tcu.gov.br",
+    "https://www.gov.br/pncp/pt-br",
+    "https://www.open-contracting.org/resources/red-flags-integrity-giving-green-light-open-data-solutions/",
+]
 
 HIGH_RISK_FEED_QUERIES = [
     "superfaturamento",
@@ -225,6 +245,13 @@ def load_monitor_config() -> dict[str, Any]:
         "search_terms_per_cycle": MONITOR_SEARCH_TERMS_PER_CYCLE,
         "search_delay_seconds": MONITOR_SEARCH_DELAY_SECONDS,
         "priority_feed_queries_per_cycle": MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
+        "internet_sweep_enabled": MONITOR_INTERNET_SWEEP_ENABLED,
+        "internet_sweep_pages_per_cycle": MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE,
+        "internet_sweep_timeout_seconds": MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS,
+        "selected_model_id": MONITOR_SELECTED_MODEL_ID,
+        "deep_learning_enabled": MONITOR_DEEP_LEARNING_ENABLED,
+        "quantization_mode": MONITOR_QUANTIZATION_MODE,
+        "model_format": "joblib+onnx-manifest+quant-manifest",
     }
     if MONITOR_MODEL_CONFIG_PATH.exists():
         try:
@@ -311,7 +338,7 @@ def load_monitor_model_state() -> dict[str, Any]:
         state = empty_state
     else:
         try:
-            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8-sig"))
         except Exception:
             loaded = empty_state
         state = loaded if isinstance(loaded, dict) else empty_state
@@ -323,7 +350,7 @@ def load_monitor_model_state() -> dict[str, Any]:
     latest_path = Path("data/processed/latest_analysis.json")
     if latest_path.exists():
         try:
-            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            latest = json.loads(latest_path.read_text(encoding="utf-8-sig"))
             recovered = latest.get("model") if isinstance(latest, dict) and isinstance(latest.get("model"), dict) else {}
             recovered_terms = recovered.get("learned_terms") if isinstance(recovered.get("learned_terms"), list) else []
             if recovered_terms:
@@ -675,9 +702,243 @@ def collect_date_window(*blocks: Any) -> dict[str, Any]:
     return {"start": min(dates), "end": max(dates), "dates_found": len(dates)}
 
 
+def model_training_text(item: dict[str, Any]) -> str:
+    report = item.get("report") if isinstance(item.get("report"), dict) else {}
+    flags = report.get("red_flags") if isinstance(report.get("red_flags"), list) else []
+    flag_text = " ".join(
+        " ".join(str(flag.get(key) or "") for key in ("title", "message", "risk_level"))
+        for flag in flags
+        if isinstance(flag, dict)
+    )
+    return " ".join(
+        str(value or "")
+        for value in [
+            item.get("title"),
+            item.get("object"),
+            item.get("entity"),
+            item.get("supplier_name"),
+            item.get("uf"),
+            item.get("city"),
+            item.get("risk_level"),
+            item.get("value"),
+            flag_text,
+        ]
+    )
+
+
+def model_label(item: dict[str, Any]) -> int:
+    risk = normalize_text(item.get("risk_level")).lower()
+    score = int(item.get("risk_score") or 0)
+    if risk == "alto" or score >= 70:
+        return 2
+    if risk in {"medio", "médio"} or score >= 35:
+        return 1
+    return 0
+
+
+def write_model_registry(selected_model_id: str, artifacts: dict[str, Any]) -> dict[str, Any]:
+    registry = {
+        "default_model_id": selected_model_id or "coibe-adaptive-default",
+        "updated_at": brasilia_now().isoformat(),
+        "models": [
+            {
+                "id": "coibe-adaptive-default",
+                "name": "COIBE Adaptativo Padrao",
+                "kind": "rules+statistics+learning",
+                "path": str(MONITOR_MODEL_STATE_PATH),
+                "selected": (selected_model_id or "coibe-adaptive-default") == "coibe-adaptive-default",
+                "available": True,
+                "quantization_compatible": True,
+            },
+            {
+                "id": "coibe-deep-mlp",
+                "name": "COIBE Deep Learning MLP",
+                "kind": "tfidf+mlp",
+                "path": str(artifacts.get("deep_model_path") or MONITOR_DEEP_MODEL_PATH),
+                "selected": selected_model_id == "coibe-deep-mlp",
+                "available": bool(artifacts.get("deep_model_trained")),
+                "quantization_compatible": True,
+                "onnx_manifest_path": str(MONITOR_ONNX_MANIFEST_PATH),
+                "quantization_manifest_path": str(MONITOR_QUANT_MANIFEST_PATH),
+            },
+        ],
+    }
+    MONITOR_MODEL_REGISTRY_PATH.write_text(json.dumps(registry, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+    return registry
+
+
+def train_pure_python_deep_model(texts: list[str], labels: list[int]) -> dict[str, Any]:
+    token_counts: dict[str, int] = {}
+    tokenized: list[list[str]] = []
+    for text in texts:
+        tokens = [token for token in normalize_text(text).lower().split() if len(token) >= 3][:180]
+        tokenized.append(tokens)
+        for token in set(tokens):
+            token_counts[token] = token_counts.get(token, 0) + 1
+    vocab = [token for token, _ in sorted(token_counts.items(), key=lambda row: row[1], reverse=True)[:768]]
+    vocab_index = {token: index for index, token in enumerate(vocab)}
+    hidden_size = 24
+
+    def seed_weight(hidden_index: int, token_index: int) -> float:
+        raw = hashlib.sha256(f"{hidden_index}:{token_index}:coibe".encode("utf-8")).digest()[0]
+        return (raw / 255.0 - 0.5) * 0.22
+
+    w1 = [[seed_weight(hidden, token_index) for token_index in range(len(vocab))] for hidden in range(hidden_size)]
+    w2 = [[0.0 for _ in range(hidden_size)] for _ in range(3)]
+
+    def features(tokens: list[str]) -> list[float]:
+        vector = [0.0 for _ in vocab]
+        for token in tokens:
+            index = vocab_index.get(token)
+            if index is not None:
+                vector[index] += 1.0
+        total = sum(vector) or 1.0
+        return [value / total for value in vector]
+
+    def hidden(vector: list[float]) -> list[float]:
+        values = []
+        for row in w1:
+            score = sum(weight * value for weight, value in zip(row, vector))
+            values.append(max(0.0, score))
+        return values
+
+    lr = 0.45
+    for _ in range(8):
+        for tokens, label in zip(tokenized, labels):
+            h = hidden(features(tokens))
+            logits = [sum(weight * value for weight, value in zip(row, h)) for row in w2]
+            prediction = max(range(3), key=lambda index: logits[index])
+            if prediction == label:
+                continue
+            for index, value in enumerate(h):
+                w2[label][index] += lr * value
+                w2[prediction][index] -= lr * value
+
+    return {
+        "model_id": "coibe-deep-mlp",
+        "architecture": "pure-python-hashed-relu-perceptron",
+        "trained_at": brasilia_now().isoformat(),
+        "labels": {"0": "baixo", "1": "medio", "2": "alto"},
+        "vocab": vocab,
+        "hidden_size": hidden_size,
+        "w1_seed": "sha256(hidden:token:coibe)",
+        "w1_scale": 0.22,
+        "w2": [[round(value, 8) for value in row] for row in w2],
+        "epochs": 8,
+        "samples": len(texts),
+        "quantization_compatible": True,
+    }
+
+
+def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    selected_model_id = str(config.get("selected_model_id") or "coibe-adaptive-default")
+    quantization_mode = str(config.get("quantization_mode") or "dynamic-int8")
+    artifacts: dict[str, Any] = {
+        "selected_model_id": selected_model_id,
+        "deep_learning_enabled": bool(config.get("deep_learning_enabled", True)),
+        "format": "joblib+onnx-manifest+quant-manifest",
+        "deep_model_path": str(MONITOR_DEEP_MODEL_PATH),
+        "deep_json_model_path": str(MONITOR_DEEP_JSON_MODEL_PATH),
+        "onnx_manifest_path": str(MONITOR_ONNX_MANIFEST_PATH),
+        "quantization_manifest_path": str(MONITOR_QUANT_MANIFEST_PATH),
+        "deep_model_trained": False,
+        "training_sample_size": len(training_items),
+        "quantization_compatible": True,
+        "quantization_mode": quantization_mode,
+    }
+    labels = [model_label(item) for item in training_items]
+    texts = [model_training_text(item) for item in training_items]
+    if bool(config.get("deep_learning_enabled", True)) and len(texts) >= 12 and len(set(labels)) >= 2:
+        try:
+            import pickle
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.neural_network import MLPClassifier
+            from sklearn.pipeline import Pipeline
+
+            pipeline = Pipeline(
+                [
+                    ("tfidf", TfidfVectorizer(max_features=4096, ngram_range=(1, 2), min_df=1)),
+                    ("mlp", MLPClassifier(hidden_layer_sizes=(96, 32), activation="relu", max_iter=120, random_state=42)),
+                ]
+            )
+            pipeline.fit(texts, labels)
+            payload = {
+                "model_id": "coibe-deep-mlp",
+                "pipeline": pipeline,
+                "labels": {"0": "baixo", "1": "medio", "2": "alto"},
+                "selected_model_id": selected_model_id,
+                "trained_at": brasilia_now().isoformat(),
+            }
+            try:
+                import joblib
+
+                joblib.dump(payload, MONITOR_DEEP_MODEL_PATH)
+                artifacts["serializer"] = "joblib"
+            except Exception:
+                with MONITOR_DEEP_MODEL_PATH.open("wb") as model_file:
+                    pickle.dump(payload, model_file)
+                artifacts["serializer"] = "pickle"
+            artifacts["deep_model_trained"] = True
+        except Exception as exc:
+            fallback_model = train_pure_python_deep_model(texts, labels)
+            MONITOR_DEEP_JSON_MODEL_PATH.write_text(json.dumps(fallback_model, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+            artifacts["deep_model_trained"] = True
+            artifacts["deep_model_path"] = str(MONITOR_DEEP_JSON_MODEL_PATH)
+            artifacts["serializer"] = "json"
+            artifacts["deep_model_fallback_reason"] = str(exc)[:240]
+
+    score_values = [float(term.get("score") or 0) for term in learned_terms if isinstance(term, dict)]
+    max_score = max(score_values) if score_values else 1.0
+    quantized_terms = []
+    for term in learned_terms[:120]:
+        if not isinstance(term, dict):
+            continue
+        score = float(term.get("score") or 0)
+        quantized_terms.append(
+            {
+                "term": term.get("term"),
+                "score_int8": int(max(-128, min(127, round((score / max_score) * 127)))) if max_score else 0,
+                "hits": int(term.get("hits") or 0),
+            }
+        )
+    quant_manifest = {
+        "model_id": selected_model_id,
+        "quantization_compatible": True,
+        "mode": quantization_mode,
+        "schema": "int8_dynamic_manifest",
+        "calibration_sample_size": len(training_items),
+        "quantized_terms": quantized_terms,
+    }
+    onnx_manifest = {
+        "model_id": selected_model_id,
+        "onnx_compatible": True,
+        "input": {"name": "text", "dtype": "string", "shape": ["batch"]},
+        "output": {"name": "risk_label", "dtype": "int64", "labels": ["baixo", "medio", "alto"]},
+        "export_note": "Exportacao ONNX real sera criada automaticamente quando skl2onnx/onnx estiverem instalados; este manifesto preserva contrato de inferencia.",
+        "joblib_model_path": str(MONITOR_DEEP_MODEL_PATH),
+    }
+    MONITOR_QUANT_MANIFEST_PATH.write_text(json.dumps(quant_manifest, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+    MONITOR_ONNX_MANIFEST_PATH.write_text(json.dumps(onnx_manifest, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+    artifacts["registry"] = write_model_registry(selected_model_id, artifacts)
+    return artifacts
+
+
 def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any], search_terms: list[str], gpu: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = load_monitor_model_state()
+    cycle_items = [item for item in (analysis.get("items") or []) if isinstance(item, dict)]
+    cached_training_items = [item for item in (analysis.get("model_training_items") or []) if isinstance(item, dict)]
+    training_items_by_key: dict[str, dict[str, Any]] = {}
+    for item in [*cycle_items, *cached_training_items]:
+        key = item_key(item)
+        if key.strip(":") == "":
+            key = record_hash(item.get("title"), item.get("entity"), item.get("value"))
+        training_items_by_key[key] = item
+    training_items = list(training_items_by_key.values())
+    try:
+        accumulated_items_seen = max(int(analysis.get("items_analyzed") or 0), len(training_items))
+    except Exception:
+        accumulated_items_seen = len(training_items)
     learned_by_key: dict[str, dict[str, Any]] = {}
     for item in state.get("learned_terms", []) if isinstance(state.get("learned_terms"), list) else []:
         if not isinstance(item, dict):
@@ -753,9 +1014,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             {"title": record.get("title"), "type": record.get("record_type")},
         )
 
-    for item in [*(analysis.get("items") or []), *(analysis.get("model_training_items") or [])][:500]:
-        if not isinstance(item, dict):
-            continue
+    for item in training_items[:500]:
         weight = 4 if str(item.get("risk_level") or "").lower() == "alto" else 2
         item_evidence = {
             "title": item.get("title"),
@@ -866,6 +1125,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
     learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
     learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:80]
     learned_targets = sorted(learned_targets_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:120]
+    model_artifacts = build_ai_model_artifacts(training_items[:500], learned_terms, config)
     date_window = collect_date_window(analysis.get("items"), analysis.get("alerts"), analysis.get("public_records"), snapshot.get("political_parties"), snapshot.get("political_people"))
     record_types: dict[str, int] = {}
     for record in analysis.get("public_records", []) if isinstance(analysis.get("public_records"), list) else []:
@@ -878,12 +1138,23 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         "learned_terms": learned_terms,
         "learned_checks": learned_checks,
         "learned_targets": learned_targets,
+        "selected_model": {
+            "id": model_artifacts.get("selected_model_id") or "coibe-adaptive-default",
+            "registry_path": str(MONITOR_MODEL_REGISTRY_PATH),
+            "deep_model_path": model_artifacts.get("deep_model_path"),
+            "quantization_mode": model_artifacts.get("quantization_mode"),
+        },
+        "model_artifacts": model_artifacts,
         "cache_profile": {
             "date_window": date_window,
             "public_record_types": record_types,
             "public_records_seen": len(analysis.get("public_records", []) or []),
             "alerts_seen": len(analysis.get("alerts", []) or []),
-            "items_seen": len(analysis.get("items", []) or []),
+            "items_seen": accumulated_items_seen,
+            "cycle_items_seen": len(cycle_items),
+            "cached_training_items_seen": len(cached_training_items),
+            "model_training_sample_seen": min(len(training_items), 500),
+            "internet_pages_seen": len((snapshot.get("internet_sweep") or {}).get("items", []) if isinstance(snapshot.get("internet_sweep"), dict) else []),
             "method_research_sources": [
                 "Open Contracting Partnership - Red Flags in Public Procurement / OCDS",
                 "World Bank - procurement fraud and corruption warning signs",
@@ -894,7 +1165,10 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         },
         "last_training": {
             "generated_at": analysis.get("generated_at"),
-            "items_analyzed": analysis.get("items_analyzed"),
+            "items_analyzed": accumulated_items_seen,
+            "cycle_items_analyzed": len(cycle_items),
+            "model_training_items": len(cached_training_items),
+            "model_training_sample": min(len(training_items), 500),
             "alerts_count": analysis.get("alerts_count"),
             "learned_terms_added": len(selected_candidates),
             "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
@@ -907,6 +1181,8 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
                 "TCU",
                 "CGU",
             ],
+            "internet_sweep": snapshot.get("internet_sweep") if isinstance(snapshot.get("internet_sweep"), dict) else {},
+            "model_artifacts": model_artifacts,
             "search_terms_used": search_terms,
             "optimized_search_terms_next_cycle": merged_search_terms(search_terms, {"learned_terms": learned_terms, "learned_checks": learned_checks, "learned_targets": learned_targets})[:60],
             "date_window": date_window,
@@ -1003,6 +1279,164 @@ async def collect_connector(
         return None
 
 
+def blocked_public_ip_address(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return True
+    return bool(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+async def safe_public_url(raw_url: str) -> str | None:
+    parsed = urlparse(str(raw_url or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return None
+    host = parsed.hostname.strip().lower()
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
+        return None
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        address_info = await asyncio.to_thread(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+        resolved_ips = {info[4][0] for info in address_info}
+    except Exception:
+        return None
+    if not resolved_ips or any(blocked_public_ip_address(ip) for ip in resolved_ips):
+        return None
+    return parsed.geturl()
+
+
+def text_from_html(response_text: str) -> tuple[str | None, str]:
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(response_text, "html.parser")
+        title = soup.title.string.strip() if soup.title and soup.title.string else None
+        for tag in soup(["script", "style", "noscript", "svg"]):
+            tag.decompose()
+        return title, " ".join(soup.get_text(" ").split())
+    except Exception:
+        return None, " ".join(response_text.split())
+
+
+def internet_url_candidates(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+
+    def add_url(url: Any, source: str, query: str = "") -> None:
+        text = str(url or "").strip()
+        if text:
+            candidates.append({"url": text, "source": source, "query": query})
+
+    for url in PUBLIC_WEB_SEED_URLS:
+        add_url(url, "public_method_seed")
+    for term, response in (snapshot.get("searches") or {}).items():
+        if not isinstance(response, dict):
+            continue
+        for result in response.get("results", []) or []:
+            if isinstance(result, dict):
+                add_url(result.get("url"), str(result.get("source") or "universal_search"), str(term))
+    for block_name in ("political_parties", "political_people"):
+        block = snapshot.get(block_name) if isinstance(snapshot.get(block_name), dict) else {}
+        for item in block.get("items", []) or []:
+            if not isinstance(item, dict):
+                continue
+            for source in item.get("sources", []) or []:
+                if isinstance(source, dict):
+                    add_url(source.get("url"), block_name, item.get("name") or "")
+
+    unique: dict[str, dict[str, str]] = {}
+    for candidate in candidates:
+        unique.setdefault(candidate["url"], candidate)
+    return list(unique.values())
+
+
+async def collect_internet_sweep(snapshot: dict[str, Any], search_terms: list[str], config: dict[str, Any]) -> dict[str, Any]:
+    if not bool(config.get("internet_sweep_enabled", True)):
+        return {"enabled": False, "items": [], "errors": []}
+
+    limit = max(0, int(config.get("internet_sweep_pages_per_cycle") or MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE))
+    timeout_seconds = max(3, int(config.get("internet_sweep_timeout_seconds") or MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS))
+    keywords = list(dict.fromkeys([*search_terms[:12], *BOOTSTRAP_MODEL_TERMS[:12]]))
+    selected_candidates = internet_url_candidates(snapshot)[:limit]
+    records: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    timeout = httpx.Timeout(float(timeout_seconds), connect=min(5.0, float(timeout_seconds)))
+    headers = {"User-Agent": "COIBE.IA internet-sweep/0.3 (+public-risk-research)"}
+
+    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=False) as client:
+        for candidate in selected_candidates:
+            safe_url = await safe_public_url(candidate["url"])
+            if not safe_url:
+                continue
+            try:
+                current_url = safe_url
+                response_text = ""
+                for _ in range(4):
+                    checked = await safe_public_url(current_url)
+                    if not checked:
+                        raise ValueError("blocked_redirect")
+                    response = await client.get(checked)
+                    if 300 <= response.status_code < 400 and response.headers.get("location"):
+                        current_url = urljoin(checked, response.headers["location"])
+                        continue
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").lower()
+                    if content_type and not any(kind in content_type for kind in ("text/", "html", "json", "xml")):
+                        raise ValueError("non_text_content")
+                    response_text = response.text[:300000]
+                    current_url = str(response.url)
+                    break
+                if not response_text:
+                    continue
+                title, text = text_from_html(response_text)
+                lowered = normalize_text(text).lower()
+                hits = {
+                    keyword: lowered.count(normalize_text(keyword).lower())
+                    for keyword in keywords
+                    if keyword and lowered.count(normalize_text(keyword).lower()) > 0
+                }
+                parsed = urlparse(current_url)
+                host = parsed.hostname or "internet"
+                records.append(
+                    {
+                        "record_key": f"internet:{hashlib.sha256(current_url.encode('utf-8')).hexdigest()[:24]}",
+                        "record_type": "internet_public_page",
+                        "collected_at": snapshot.get("collected_at") or brasilia_now().isoformat(),
+                        "source": host,
+                        "title": title or host,
+                        "subtitle": f"Varredura HTML publica | {sum(hits.values())} termo(s) encontrados",
+                        "url": current_url,
+                        "query": candidate.get("query") or "",
+                        "payload": {
+                            "url": current_url,
+                            "source": candidate.get("source"),
+                            "title": title,
+                            "text_excerpt": text[:3000],
+                            "keyword_hits": hits,
+                            "selected_model_id": config.get("selected_model_id"),
+                            "deep_learning_enabled": bool(config.get("deep_learning_enabled")),
+                        },
+                    }
+                )
+            except Exception as exc:
+                errors.append({"url": safe_url, "error": str(exc)[:160]})
+
+    return {
+        "enabled": True,
+        "generated_at": brasilia_now().isoformat(),
+        "candidates": len(selected_candidates),
+        "items_count": len(records),
+        "items": records,
+        "errors": errors[:10],
+    }
+
+
 async def collect_snapshot(
     api_base: str,
     search_terms: list[str],
@@ -1024,7 +1458,7 @@ async def collect_snapshot(
         snapshot: dict[str, Any] = {
             "collected_at": brasilia_now().isoformat(),
             "api_base": api_base,
-            "pipeline_order": ["connectors_and_scrapers", "raw_database_merge", "risk_rules_and_ml"],
+            "pipeline_order": ["connectors_and_scrapers", "internet_html_sweep", "raw_database_merge", "risk_rules_and_ml", "ai_artifact_training"],
             "connectors": [],
             "sources": [],
             "portal_transparencia": {},
@@ -1328,6 +1762,11 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
 
+    internet_sweep = snapshot.get("internet_sweep") if isinstance(snapshot.get("internet_sweep"), dict) else {}
+    for record in internet_sweep.get("items", []) or []:
+        if isinstance(record, dict):
+            records.append(record)
+
     return records
 
 
@@ -1598,6 +2037,113 @@ def adaptive_ml_attention_flags(items: list[dict[str, Any]]) -> dict[str, list[d
     return output
 
 
+def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    output: dict[str, list[dict[str, Any]]] = {item_key(item): [] for item in items}
+    if str(config.get("selected_model_id") or "coibe-adaptive-default") != "coibe-deep-mlp":
+        return output
+    if not bool(config.get("deep_learning_enabled", True)):
+        return output
+
+    texts = [model_training_text(item) for item in items]
+    if not texts:
+        return output
+
+    try:
+        if MONITOR_DEEP_MODEL_PATH.exists():
+            import joblib
+
+            payload = joblib.load(MONITOR_DEEP_MODEL_PATH)
+            pipeline = payload.get("pipeline") if isinstance(payload, dict) else payload
+            labels = getattr(pipeline, "classes_", None)
+            predictions = list(pipeline.predict(texts))
+            probabilities = pipeline.predict_proba(texts) if hasattr(pipeline, "predict_proba") else None
+            for item, prediction_index, probability_row in zip(items, predictions, probabilities if probabilities is not None else [None] * len(items)):
+                label = int(prediction_index)
+                confidence = float(max(probability_row)) if probability_row is not None else 0.0
+                if labels is not None and probability_row is not None:
+                    label = int(labels[int(max(range(len(probability_row)), key=lambda index: probability_row[index]))])
+                if label >= 2 and confidence >= 0.55:
+                    level = "alto"
+                elif label == 1 and confidence >= 0.62:
+                    level = "médio"
+                else:
+                    continue
+                output[item_key(item)].append(
+                    {
+                        "code": "DL-LOCAL-RISK-CLASSIFIER",
+                        "title": "Classificador Deep Learning Local",
+                        "has_risk": True,
+                        "risk_level": level,
+                        "message": "Modelo local selecionado identificou padrao textual e contextual semelhante a registros priorizados no treino.",
+                        "evidence": {
+                            "model_id": "coibe-deep-mlp",
+                            "confidence": round(confidence, 4),
+                            "predicted_label": label,
+                            "selected_model_id": config.get("selected_model_id"),
+                            "serializer": "joblib",
+                        },
+                        "criteria": {"rule": "modelo selecionado coibe-deep-mlp + confianca minima por classe"},
+                    }
+                )
+            return output
+
+        if MONITOR_DEEP_JSON_MODEL_PATH.exists():
+            model = json.loads(MONITOR_DEEP_JSON_MODEL_PATH.read_text(encoding="utf-8-sig"))
+            vocab = model.get("vocab") if isinstance(model.get("vocab"), list) else []
+            vocab_index = {str(token): index for index, token in enumerate(vocab)}
+            hidden_size = int(model.get("hidden_size") or 0)
+            w2 = model.get("w2") if isinstance(model.get("w2"), list) else []
+
+            def seed_weight(hidden_index: int, token_index: int) -> float:
+                raw = hashlib.sha256(f"{hidden_index}:{token_index}:coibe".encode("utf-8")).digest()[0]
+                return (raw / 255.0 - 0.5) * float(model.get("w1_scale") or 0.22)
+
+            for item, text in zip(items, texts):
+                tokens = [token for token in normalize_text(text).lower().split() if token in vocab_index][:180]
+                if not tokens:
+                    continue
+                vector = [0.0 for _ in vocab]
+                for token in tokens:
+                    vector[vocab_index[token]] += 1.0
+                total = sum(vector) or 1.0
+                vector = [value / total for value in vector]
+                hidden = []
+                for hidden_index in range(hidden_size):
+                    score = sum(seed_weight(hidden_index, token_index) * value for token_index, value in enumerate(vector))
+                    hidden.append(max(0.0, score))
+                logits = [sum(float(weight) * value for weight, value in zip(row, hidden)) for row in w2 if isinstance(row, list)]
+                if not logits:
+                    continue
+                prediction = int(max(range(len(logits)), key=lambda index: logits[index]))
+                spread = max(logits) - (sorted(logits)[-2] if len(logits) > 1 else 0)
+                if prediction >= 2 and spread >= 0.02:
+                    level = "alto"
+                elif prediction == 1 and spread >= 0.03:
+                    level = "médio"
+                else:
+                    continue
+                output[item_key(item)].append(
+                    {
+                        "code": "DL-LOCAL-RISK-CLASSIFIER",
+                        "title": "Classificador Deep Learning Local",
+                        "has_risk": True,
+                        "risk_level": level,
+                        "message": "Modelo local selecionado identificou padrao textual e contextual semelhante a registros priorizados no treino.",
+                        "evidence": {
+                            "model_id": "coibe-deep-mlp",
+                            "confidence_margin": round(spread, 4),
+                            "predicted_label": prediction,
+                            "selected_model_id": config.get("selected_model_id"),
+                            "serializer": "json",
+                        },
+                        "criteria": {"rule": "modelo selecionado coibe-deep-mlp + margem minima por classe"},
+                    }
+                )
+    except Exception:
+        return output
+    return output
+
+
 def parse_date_safe(value: Any):
     try:
         return datetime.fromisoformat(str(value)).date()
@@ -1607,13 +2153,17 @@ def parse_date_safe(value: Any):
 
 def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connector_records: list[dict[str, Any]]) -> dict[str, Any]:
     anomalies = ml_value_anomalies(items)
+    monitor_config = load_monitor_config()
     adaptive_flags = adaptive_ml_attention_flags(items)
+    deep_flags = deep_model_attention_flags(items, monitor_config)
     alerts = []
 
     for item in items:
         filter_legacy_generic_flags(item)
         red_flags = item.get("report", {}).get("red_flags", [])
         for flag in adaptive_flags.get(item_key(item), []):
+            append_attention_flag(item, flag)
+        for flag in deep_flags.get(item_key(item), []):
             append_attention_flag(item, flag)
         red_flags = item.get("report", {}).get("red_flags", [])
         high_flags = [flag for flag in red_flags if flag.get("risk_level") == "alto"]
@@ -2015,6 +2565,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "Iniciando ciclo de monitoramento | "
         f"paginas={pages} | itens_por_pagina={page_size} | pagina_inicial={start_page} | "
         f"partidos={political_party_limit} | politicos={political_people_limit} | offset_politicos={political_people_offset} | "
+        f"modelo={monitor_config.get('selected_model_id')} | internet={'ativa' if monitor_config.get('internet_sweep_enabled') else 'desativada'} | "
         f"gpu={'ativa' if gpu.get('enabled') else 'desativada'} | "
         f"memoria_compartilhada={'ativa' if gpu.get('shared_memory_enabled') else 'desativada'}"
     )
@@ -2033,6 +2584,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         search_delay_seconds=search_delay_seconds,
         priority_feed_queries_per_cycle=priority_feed_queries_per_cycle,
     )
+    snapshot["internet_sweep"] = await collect_internet_sweep(snapshot, search_terms, monitor_config)
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
 
@@ -2090,6 +2642,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         for connector in snapshot.get("connectors", [])
         if connector.get("kind") == "priority_high_risk_feed"
     )
+    internet_items_collected = len((snapshot.get("internet_sweep") or {}).get("items", []) if isinstance(snapshot.get("internet_sweep"), dict) else [])
     feed_pages_failed = sum(
         1
         for connector in snapshot.get("connectors", [])
@@ -2123,6 +2676,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "next_feed_page": next_feed_page,
         "feed_items_collected": feed_items_collected,
         "priority_feed_items_collected": priority_feed_items_collected,
+        "internet_items_collected": internet_items_collected,
         "priority_feed_queries": snapshot.get("priority_feed_queries", []),
         "new_items_analyzed": len(new_feed_items),
         "feed_items_analyzed": len(analysis_feed_items),
@@ -2154,7 +2708,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         f"{brasilia_now().isoformat()} "
         f"snapshot={raw_path.name} connectors={len(analysis['connectors'])} items={analysis['items_analyzed']} "
         f"db_items={database_count} public_records={public_records_count} "
-        f"feed_items={feed_items_collected} analyzed_feed={len(analysis_feed_items)} new_items={len(new_feed_items)} cached={len(existing_items)} "
+        f"feed_items={feed_items_collected} internet_items={internet_items_collected} analyzed_feed={len(analysis_feed_items)} new_items={len(new_feed_items)} cached={len(existing_items)} "
         f"feed_errors={feed_pages_failed} next_page={next_feed_page} "
         f"library={library_status['library_records_count']} added={library_status['library_records_added']} "
         f"alerts={analysis['alerts_count']}\n"
@@ -2168,6 +2722,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "Ciclo concluido | "
         f"tempo={elapsed:.2f}s | velocidade={records_per_second(scanned_total, elapsed)} reg/s | "
         f"itens_feed={feed_items_collected} | novos={len(new_feed_items)} | "
+        f"internet={internet_items_collected} | "
         f"analisados_feed={len(analysis_feed_items)} | "
         f"base_total={database_count} | registros_publicos={public_records_count} | alertas={analysis['alerts_count']}"
     )

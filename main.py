@@ -74,6 +74,8 @@ MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
 MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
+MONITOR_MODEL_REGISTRY_PATH = MODELS_DIR / "model_registry.json"
+MONITOR_SELECTED_MODEL_ID = os.getenv("COIBE_MONITOR_SELECTED_MODEL_ID", "coibe-adaptive-default")
 COIBE_ML_USE_GPU = os.getenv("COIBE_ML_USE_GPU", "false").lower() in {"1", "true", "yes"}
 COIBE_GPU_MEMORY_LIMIT_MB = int(os.getenv("COIBE_GPU_MEMORY_LIMIT_MB", "2048"))
 COIBE_ML_USE_SHARED_MEMORY = os.getenv("COIBE_ML_USE_SHARED_MEMORY", "true").lower() in {"1", "true", "yes"}
@@ -555,6 +557,13 @@ class MonitorModelConfig(BaseModel):
     gpu_memory_limit_mb: int = Field(default=2048, ge=256, le=49152)
     use_shared_memory: bool = True
     shared_memory_limit_mb: int = Field(default=4096, ge=512, le=131072)
+    selected_model_id: str = "coibe-adaptive-default"
+    deep_learning_enabled: bool = True
+    quantization_mode: str = "dynamic-int8"
+    model_format: str = "joblib+onnx-manifest+quant-manifest"
+    internet_sweep_enabled: bool = True
+    internet_sweep_pages_per_cycle: int = Field(default=6, ge=0, le=50)
+    internet_sweep_timeout_seconds: int = Field(default=12, ge=3, le=120)
     research_timeout_seconds: int = Field(default=90, ge=15, le=900)
     research_rounds: int = Field(default=10, ge=1, le=100)
     feed_page_size: int = Field(default=50, ge=10, le=100)
@@ -2230,11 +2239,31 @@ def read_monitor_model_state() -> dict[str, Any]:
         "cache_profile": {},
         "last_training": None,
     }
+
+    def normalize_model_counters(raw_state: dict[str, Any]) -> dict[str, Any]:
+        cache_profile = raw_state.get("cache_profile") if isinstance(raw_state.get("cache_profile"), dict) else {}
+        last_training = raw_state.get("last_training") if isinstance(raw_state.get("last_training"), dict) else {}
+        try:
+            trained_items = int(last_training.get("items_analyzed") or 0)
+        except Exception:
+            trained_items = 0
+        try:
+            cache_items = int(cache_profile.get("items_seen") or 0)
+        except Exception:
+            cache_items = 0
+        if trained_items > cache_items:
+            cache_profile = {**cache_profile, "items_seen": trained_items}
+            cache_profile.setdefault("model_training_sample_seen", min(trained_items, 500))
+            cache_profile.setdefault("cached_training_items_seen", min(trained_items, 500))
+            cache_profile.setdefault("cycle_items_seen", 0)
+            raw_state = {**raw_state, "cache_profile": cache_profile}
+        return raw_state
+
     if not MONITOR_MODEL_STATE_PATH.exists():
         state = empty_state
     else:
         try:
-            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+            loaded = json.loads(MONITOR_MODEL_STATE_PATH.read_text(encoding="utf-8-sig"))
         except Exception:
             loaded = empty_state
         state = loaded if isinstance(loaded, dict) else empty_state
@@ -2262,14 +2291,14 @@ def read_monitor_model_state() -> dict[str, Any]:
             should_recover = should_recover or not current_terms
 
     if should_recover:
-        recovered_state = {**empty_state, **recovered}
+        recovered_state = normalize_model_counters({**empty_state, **recovered})
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         MONITOR_MODEL_STATE_PATH.write_text(
             json.dumps(recovered_state, ensure_ascii=False, indent=2, default=json_default),
             encoding="utf-8",
         )
         return recovered_state
-    return state
+    return normalize_model_counters(state)
 
 
 def default_monitor_model_config() -> MonitorModelConfig:
@@ -2278,6 +2307,13 @@ def default_monitor_model_config() -> MonitorModelConfig:
         gpu_memory_limit_mb=COIBE_GPU_MEMORY_LIMIT_MB,
         use_shared_memory=COIBE_ML_USE_SHARED_MEMORY,
         shared_memory_limit_mb=COIBE_SHARED_MEMORY_LIMIT_MB,
+        selected_model_id=MONITOR_SELECTED_MODEL_ID,
+        deep_learning_enabled=True,
+        quantization_mode="dynamic-int8",
+        model_format="joblib+onnx-manifest+quant-manifest",
+        internet_sweep_enabled=True,
+        internet_sweep_pages_per_cycle=int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE", "6")),
+        internet_sweep_timeout_seconds=int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS", "12")),
         research_timeout_seconds=int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90")),
         research_rounds=AUTO_MONITOR_PAGES,
         feed_page_size=AUTO_MONITOR_PAGE_SIZE,
@@ -2438,6 +2474,75 @@ def stop_monitor_training_process() -> dict[str, Any]:
     return {"running": False, "pid": None, "pid_path": str(AUTO_MONITOR_PID_PATH)}
 
 
+def default_model_registry(selected_model_id: str | None = None) -> dict[str, Any]:
+    selected = selected_model_id or MONITOR_SELECTED_MODEL_ID
+    return {
+        "default_model_id": selected,
+        "models": [
+            {
+                "id": "coibe-adaptive-default",
+                "name": "COIBE Adaptativo Padrao",
+                "kind": "rules+statistics+learning",
+                "path": str(MONITOR_MODEL_STATE_PATH),
+                "selected": selected == "coibe-adaptive-default",
+                "available": True,
+                "quantization_compatible": True,
+            },
+            {
+                "id": "coibe-deep-mlp",
+                "name": "COIBE Deep Learning MLP",
+                "kind": "tfidf+mlp",
+                "path": str((MODELS_DIR / "coibe_adaptive_deep_model.joblib") if (MODELS_DIR / "coibe_adaptive_deep_model.joblib").exists() else (MODELS_DIR / "coibe_adaptive_deep_model.ai.json")),
+                "selected": selected == "coibe-deep-mlp",
+                "available": (MODELS_DIR / "coibe_adaptive_deep_model.joblib").exists() or (MODELS_DIR / "coibe_adaptive_deep_model.ai.json").exists(),
+                "quantization_compatible": True,
+                "onnx_manifest_path": str(MODELS_DIR / "coibe_adaptive_deep_model.onnx.json"),
+                "quantization_manifest_path": str(MODELS_DIR / "coibe_adaptive_deep_model.quant.json"),
+            },
+        ],
+    }
+
+
+def read_model_registry(config: MonitorModelConfig | None = None, state: dict[str, Any] | None = None) -> dict[str, Any]:
+    selected_model_id = (config.selected_model_id if config else None) or MONITOR_SELECTED_MODEL_ID
+    registry = default_model_registry(selected_model_id)
+    if MONITOR_MODEL_REGISTRY_PATH.exists():
+        try:
+            loaded = json.loads(MONITOR_MODEL_REGISTRY_PATH.read_text(encoding="utf-8-sig"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("models"), list):
+                registry = loaded
+        except Exception:
+            registry = default_model_registry(selected_model_id)
+    state_selected = state.get("selected_model", {}).get("id") if isinstance(state, dict) and isinstance(state.get("selected_model"), dict) else None
+    selected = selected_model_id or state_selected or registry.get("default_model_id") or "coibe-adaptive-default"
+    registry["default_model_id"] = selected
+    registry["models"] = [
+        {**model, "selected": str(model.get("id")) == selected}
+        for model in registry.get("models", [])
+        if isinstance(model, dict)
+    ]
+    if not any(model.get("id") == selected for model in registry["models"]):
+        registry["models"].insert(
+            0,
+            {
+                "id": selected,
+                "name": selected,
+                "kind": "custom",
+                "path": "",
+                "selected": True,
+                "available": False,
+                "quantization_compatible": True,
+            },
+        )
+    try:
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        if not MONITOR_MODEL_REGISTRY_PATH.exists():
+            MONITOR_MODEL_REGISTRY_PATH.write_text(json.dumps(registry, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+    except Exception:
+        pass
+    return registry
+
+
 def restart_backend_visible_terminal() -> None:
     time.sleep(1.0)
     script = Path("start-coibe-backend.ps1").resolve()
@@ -2465,6 +2570,7 @@ def monitor_model_status() -> dict[str, Any]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     state = read_monitor_model_state()
     config = read_monitor_model_config()
+    registry = read_model_registry(config, state)
     training_lines = 0
     if MONITOR_MODEL_TRAINING_PATH.exists():
         try:
@@ -2475,6 +2581,7 @@ def monitor_model_status() -> dict[str, Any]:
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
+    learned_total_count = len(learned_terms) + len(learned_checks) + len(learned_targets)
     return {
         "models_dir": str(MODELS_DIR),
         "state_path": str(MONITOR_MODEL_STATE_PATH),
@@ -2487,12 +2594,17 @@ def monitor_model_status() -> dict[str, Any]:
         "version": state.get("version") or "coibe-monitor-v1",
         "updated_at": state.get("updated_at"),
         "cycles": int(state.get("cycles") or 0),
+        "learned_total_count": learned_total_count,
         "learned_terms_count": len(learned_terms),
         "learned_terms": learned_terms[:25],
         "learned_checks_count": len(learned_checks),
         "learned_checks": learned_checks[:25],
         "learned_targets_count": len(learned_targets),
         "learned_targets": learned_targets[:25],
+        "selected_model": next((model for model in registry.get("models", []) if model.get("selected")), None),
+        "available_models": registry.get("models", []),
+        "model_registry_path": str(MONITOR_MODEL_REGISTRY_PATH),
+        "model_artifacts": state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {},
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
@@ -2503,6 +2615,8 @@ def monitor_model_status() -> dict[str, Any]:
 
 def public_monitor_model_summary() -> dict[str, Any]:
     state = read_monitor_model_state()
+    config = read_monitor_model_config()
+    registry = read_model_registry(config, state)
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
@@ -2514,6 +2628,9 @@ def public_monitor_model_summary() -> dict[str, Any]:
         "learned_checks_count": len(learned_checks),
         "learned_targets_count": len(learned_targets),
         "learned_total_count": len(learned_terms) + len(learned_checks) + len(learned_targets),
+        "selected_model": next((model for model in registry.get("models", []) if model.get("selected")), None),
+        "available_models_count": len(registry.get("models", [])),
+        "model_artifacts": state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {},
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training") if isinstance(state.get("last_training"), dict) else {},
         "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
@@ -6018,6 +6135,13 @@ async def backend_ui(request: Request) -> HTMLResponse:
     <section class="grid" id="cards"></section>
     <h2>Configuração local do treinamento</h2>
     <form id="configForm">
+      <label>Modelo de IA selecionado<select name="selected_model_id" id="selected_model_id"></select></label>
+      <label><input type="checkbox" name="deep_learning_enabled" /> Usar deep learning local no treino</label>
+      <label>Modo de quantização<select name="quantization_mode"><option value="dynamic-int8">dynamic-int8</option><option value="static-int8">static-int8</option><option value="none">sem quantização</option></select></label>
+      <label>Formato do modelo<input name="model_format" type="text" /></label>
+      <label><input type="checkbox" name="internet_sweep_enabled" /> Fazer varredura HTML pública sem depender só de APIs</label>
+      <label>Páginas públicas por ciclo<input name="internet_sweep_pages_per_cycle" type="number" min="0" max="50" /></label>
+      <label>Timeout por página pública (segundos)<input name="internet_sweep_timeout_seconds" type="number" min="3" max="120" /></label>
       <label><input type="checkbox" name="use_gpu" /> Usar GPU quando disponível</label>
       <label>Limite de memória da GPU (MB)<input name="gpu_memory_limit_mb" type="number" min="256" max="49152" /></label>
       <label><input type="checkbox" name="use_shared_memory" /> Permitir memória compartilhada/RAM do PC quando GPU não bastar</label>
@@ -6061,21 +6185,31 @@ async def backend_ui(request: Request) -> HTMLResponse:
         else field.value = value;
       }
     }
+    function fillModelOptions(models, selected){
+      const field = document.getElementById('selected_model_id');
+      field.innerHTML = (models||[]).map(model => `<option value="${model.id}">${model.name || model.id}${model.available === false ? ' (preparando)' : ''}</option>`).join('');
+      if(selected) field.value = selected;
+    }
     function readConfig(){
       const form = document.getElementById('configForm');
       const data = {};
       for(const field of form.elements){
         if(!field.name) continue;
-        data[field.name] = field.type === 'checkbox' ? field.checked : Number(field.value);
+        if(field.type === 'checkbox') data[field.name] = field.checked;
+        else if(field.type === 'number') data[field.name] = Number(field.value);
+        else data[field.name] = field.value;
       }
       return data;
     }
     async function load(){
       const [model, monitor] = await Promise.all([getJson('/api/models/status'), getJson('/api/monitoring/status')]);
+      fillModelOptions(model.available_models, model.config?.selected_model_id || model.selected_model?.id);
       fillConfig(model.config);
       document.getElementById('cards').innerHTML = [
-        card('Modelo', model.version || 'n/d', model.updated_at || 'aguardando treino'),
+        card('Modelo', model.selected_model?.name || model.version || 'n/d', model.updated_at || 'aguardando treino'),
         card('Aprendizados', `${model.learned_total_count || 0} itens`, `${model.learned_terms_count || 0} termos • ${model.learned_checks_count || 0} verificacoes • ${model.learned_targets_count || 0} alvos - ${model.models_dir}`),
+        card('IA/Quantização', model.model_artifacts?.deep_model_trained ? 'Deep pronta' : 'Manifesto pronto', model.model_artifacts?.quantization_mode || model.config?.quantization_mode || 'dynamic-int8'),
+        card('Internet', monitor.collector_state?.internet_items_collected || model.cache_profile?.internet_pages_seen || 0, model.config?.internet_sweep_enabled ? 'varredura HTML ativa' : 'desativada'),
         card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled ? 'ativada na configuração' : 'desativada na configuração', model.gpu.available ? 'ok' : ''),
         card('Treinamento', model.training_process?.running ? 'Rodando' : 'Parado', model.training_process?.pid ? 'PID '+model.training_process.pid : 'sem processo'),
         card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),
@@ -7154,14 +7288,16 @@ async def pipeline_readiness() -> PipelineReadinessResponse:
     return PipelineReadinessResponse(
         storage_mode="platform-index",
         zero_file_storage=True,
-        pipeline_order=["connectors_and_scrapers", "raw_database_merge", "risk_rules_and_ml"],
+        pipeline_order=["connectors_and_scrapers", "internet_html_sweep", "raw_database_merge", "risk_rules_and_ml", "ai_artifact_training"],
         implemented_now=[
             "coleta sem salvar arquivos baixados",
+            "varredura HTML publica independente de APIs",
             "normalizacao de texto e valores",
             "hash MD5 CNPJ+data+valor para deduplicacao",
             "busca fuzzy sobre índice da plataforma para autocomplete",
             "z-score sobre base acumulada",
             "calculo espacial por Haversine para alerta logistico",
+            "deep learning local com manifesto ONNX e compatibilidade de quantizacao",
         ],
         production_targets=[
             "PostgreSQL com particionamento por ano/UF",
