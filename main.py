@@ -57,6 +57,7 @@ PORTAL_TRANSPARENCIA_API_KEY = os.getenv("PORTAL_TRANSPARENCIA_API_KEY", "")
 PORTAL_TRANSPARENCIA_EMAIL = os.getenv("PORTAL_TRANSPARENCIA_EMAIL", "")
 IBGE_CITY_SEARCH_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
 IBGE_MUNICIPALITY_GEOJSON_URL = "https://servicodados.ibge.gov.br/api/v3/malhas/municipios/{city_id}"
+OSM_NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 COMPRAS_CONTRATOS_URL = "https://dadosabertos.compras.gov.br/modulo-contratos/1_consultarContratos"
 COMPRAS_UASG_URL = "https://dadosabertos.compras.gov.br/modulo-uasg/1_consultarUasg"
 QUERIDO_DIARIO_GAZETTES_URL = "https://api.queridodiario.ok.org.br/gazettes"
@@ -170,6 +171,7 @@ MONITORING_STATE_MAP_CACHE_PATH = Path(os.getenv("COIBE_MONITORING_STATE_MAP_CAC
 CITY_COORDINATES_CACHE_PATH = Path(os.getenv("COIBE_CITY_COORDINATES_CACHE_PATH", "data/cache/city-coordinates.json"))
 MAP_POINTS_CACHE_VERSION = 3
 CITY_COORDINATES_LOOKUP_LIMIT = int(os.getenv("COIBE_CITY_COORDINATES_LOOKUP_LIMIT", "500"))
+CITY_GEOCODING_DELAY_SECONDS = float(os.getenv("COIBE_CITY_GEOCODING_DELAY_SECONDS", "0.25"))
 API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
 API_RESPONSE_CACHE_MAX_ENTRIES = int(os.getenv("COIBE_API_RESPONSE_CACHE_MAX_ENTRIES", "512"))
 RATE_LIMIT_BUCKET_MAX_KEYS = int(os.getenv("COIBE_RATE_LIMIT_BUCKET_MAX_KEYS", "5000"))
@@ -344,6 +346,36 @@ UF_CAPITAL_COORDS = {
     "SE": (-10.9472, -37.0731),
     "SP": (-23.5505, -46.6333),
     "TO": (-10.1840, -48.3336),
+}
+
+UF_NAMES = {
+    "AC": "Acre",
+    "AL": "Alagoas",
+    "AM": "Amazonas",
+    "AP": "Amapa",
+    "BA": "Bahia",
+    "CE": "Ceara",
+    "DF": "Distrito Federal",
+    "ES": "Espirito Santo",
+    "GO": "Goias",
+    "MA": "Maranhao",
+    "MG": "Minas Gerais",
+    "MS": "Mato Grosso do Sul",
+    "MT": "Mato Grosso",
+    "PA": "Para",
+    "PB": "Paraiba",
+    "PE": "Pernambuco",
+    "PI": "Piaui",
+    "PR": "Parana",
+    "RJ": "Rio de Janeiro",
+    "RN": "Rio Grande do Norte",
+    "RO": "Rondonia",
+    "RR": "Roraima",
+    "RS": "Rio Grande do Sul",
+    "SC": "Santa Catarina",
+    "SE": "Sergipe",
+    "SP": "Sao Paulo",
+    "TO": "Tocantins",
 }
 
 
@@ -3760,6 +3792,62 @@ async def fetch_ibge_city_centroid(city: str | None, uf: str | None) -> tuple[fl
     return lonlat_geometry_centroid(features[0].get("geometry") if isinstance(features[0], dict) else None)
 
 
+async def geocode_city_with_nominatim(city: str | None, uf: str | None) -> tuple[float, float] | None:
+    if not city:
+        return None
+    state_name = UF_NAMES.get(str(uf or "").upper(), str(uf or ""))
+    query = ", ".join(part for part in [city, state_name, "Brasil"] if part)
+    await asyncio.sleep(max(0.0, CITY_GEOCODING_DELAY_SECONDS))
+    data = await get_json(
+        OSM_NOMINATIM_SEARCH_URL,
+        params={
+            "q": query,
+            "format": "jsonv2",
+            "limit": 5,
+            "countrycodes": "br",
+            "addressdetails": 1,
+        },
+    )
+    if not isinstance(data, list):
+        return None
+    normalized_city = normalize_text(city)
+    normalized_uf = str(uf or "").upper()
+    normalized_state = normalize_text(state_name)
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        address = row.get("address") if isinstance(row.get("address"), dict) else {}
+        row_city = (
+            address.get("city")
+            or address.get("town")
+            or address.get("village")
+            or address.get("municipality")
+            or address.get("county")
+            or row.get("name")
+            or ""
+        )
+        row_state = address.get("state") or ""
+        if normalized_state and normalize_text(row_state) != normalized_state:
+            continue
+        city_ratio = SequenceMatcher(None, normalized_city, normalize_text(row_city)).ratio()
+        if city_ratio < 0.78 and normalized_city not in normalize_text(row_city):
+            continue
+        lat = parse_decimal(row.get("lat"))
+        lng = parse_decimal(row.get("lon"))
+        if lat is None or lng is None:
+            continue
+        lat_float = float(lat)
+        lng_float = float(lng)
+        if not (-35 <= lat_float <= 7 and -75 <= lng_float <= -32):
+            continue
+        if normalized_uf and normalized_uf in UF_CAPITAL_COORDS:
+            capital_lat, capital_lng = UF_CAPITAL_COORDS[normalized_uf]
+            if abs(lat_float - capital_lat) < 0.01 and abs(lng_float - capital_lng) < 0.01 and normalize_text(row_city) != normalized_city:
+                continue
+        return lat_float, lng_float
+    return None
+
+
 async def coords_for_map_point(
     city: str | None,
     uf: str | None,
@@ -3793,6 +3881,21 @@ async def coords_for_map_point(
                 "updated_at": brasilia_now().isoformat(),
             }
             return lat, lng, "ibge_municipality_centroid", True
+        try:
+            geocoded = await geocode_city_with_nominatim(city, uf)
+        except HTTPException:
+            geocoded = None
+        if geocoded:
+            lat, lng = geocoded
+            cache[key] = {
+                "city": city,
+                "uf": uf,
+                "lat": lat,
+                "lng": lng,
+                "source": "osm_nominatim_city",
+                "updated_at": brasilia_now().isoformat(),
+            }
+            return lat, lng, "osm_nominatim_city", True
 
     if city and city.strip().upper() in CITY_COORDS:
         lat, lng = CITY_COORDS[city.strip().upper()]
@@ -7672,7 +7775,7 @@ async def monitoring_map(
     min_lng: float | None = Query(None, ge=-180, le=180),
     max_lng: float | None = Query(None, ge=-180, le=180),
 ) -> MonitoringMapResponse:
-    cache_key = f"monitoring-map:{page_size}:{q}:{uf}:{city}:{source}:{min_lat}:{max_lat}:{min_lng}:{max_lng}"
+    cache_key = f"monitoring-map:v{MAP_POINTS_CACHE_VERSION}:{page_size}:{q}:{uf}:{city}:{source}:{min_lat}:{max_lat}:{min_lng}:{max_lng}"
 
     async def build_response() -> MonitoringMapResponse:
         cache_status = "live"
