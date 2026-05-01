@@ -549,6 +549,26 @@ function numericValue(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function hasComparableFinancialData(alert) {
+  if (!alert) return false;
+  return numericValue(alert.value) > 0
+    || numericValue(alert.estimated_variation) > 0
+    || alertBaselineValue(alert) !== null;
+}
+
+function feedMoneyText(alert, field) {
+  if (!hasComparableFinancialData(alert)) return 'Registro sem valor financeiro';
+  if (field === 'value') {
+    const paidValue = numericValue(alert.value);
+    return paidValue > 0 ? compactValue(paidValue, 'value') : 'Sem valor informado';
+  }
+  if (field === 'variation') {
+    const variation = numericValue(alert.estimated_variation);
+    return variation > 0 ? compactValue(variation, 'estimated_variation') : 'Sem variacao estimada';
+  }
+  return 'n/d';
+}
+
 function isGenericPreventiveFlag(flag = {}) {
   const text = normalizeSearchText(`${flag.code || ''} ${flag.title || ''} ${flag.message || ''}`);
   return flag.code === 'RFBASE'
@@ -890,9 +910,15 @@ function alertComparisonMetrics(alert) {
     : null;
   const metrics = [];
 
-  metrics.push(['Pago/contratado', paidValue > 0 ? compactValue(paidValue, 'value') : alert.formatted_value || 'n/d']);
+  if (!hasComparableFinancialData(alert)) {
+    metrics.push(['Tipo de registro', alert?.report?.public_evidence?.[0]?.record_type || 'Fonte publica']);
+    metrics.push(['Origem', alert.location || alert.entity || 'Fonte publica']);
+    return metrics;
+  }
+
+  metrics.push(['Valor analisado', paidValue > 0 ? compactValue(paidValue, 'value') : 'Sem valor informado']);
   metrics.push(['Média comparável', baseline !== null ? compactValue(baseline, 'baseline') : 'Sem média confiável']);
-  metrics.push(['Acima da média', variation > 0 ? compactValue(variation, 'estimated_variation') : alert.formatted_variation || 'n/d']);
+  metrics.push(['Risco de valor', variation > 0 ? compactValue(variation, 'estimated_variation') : 'Sem variacao estimada']);
   if (percent !== null && Number.isFinite(percent)) metrics.push(['Percentual acima', compactValue(percent, 'percent_above_baseline')]);
 
   const firstEvidence = (alert.report?.red_flags || []).map((flag) => flag?.evidence || {}).find((evidence) => evidence.sample_size || evidence.category);
@@ -1645,6 +1671,99 @@ function queryFromResult(result) {
     }) || null;
   }
 
+  function politicalRecordTypeFromAlert(alert) {
+    return (alert?.report?.public_evidence || [])
+      .map((evidence) => evidence?.record_type)
+      .find((type) => type === 'political_people' || type === 'political_parties') || '';
+  }
+
+  function politicalTitleFromFeedAlert(alert) {
+    const rawTitle = String(alert?.title || '').replace(/\s+/g, ' ').trim();
+    if (!rawTitle) return '';
+    const headlineMatch = rawTitle.match(/\s+-\s+(?:R\$|\d+\s+(?:contrato|registro))/i);
+    if (headlineMatch?.index > 0) return rawTitle.slice(0, headlineMatch.index).trim();
+    return rawTitle;
+  }
+
+  function politicalSearchResultFromAlert(alert) {
+    const recordType = politicalRecordTypeFromAlert(alert);
+    if (!recordType) return null;
+    const title = politicalTitleFromFeedAlert(alert);
+    if (!title) return null;
+    const isParty = recordType === 'political_parties';
+    const partySigla = isParty ? title.split(' - ')[0]?.trim() : '';
+    return {
+      type: isParty ? 'partido_politico' : 'politico_relacionado',
+      title,
+      subtitle: alert.object || alert.report?.summary || '',
+      payload: isParty
+        ? { sigla: partySigla, nome: title, name: title }
+        : { nome: title, name: title }
+    };
+  }
+
+  async function openPoliticalAlertFromFeed(alert) {
+    const result = politicalSearchResultFromAlert(alert);
+    if (!result) {
+      setSelectedAlert(alert);
+      return;
+    }
+
+    const isParty = result.type === 'partido_politico';
+    const kind = isParty ? 'parties' : 'politicians';
+    const endpoint = isParty ? '/api/political/parties' : '/api/political/politicians';
+    const nextQuery = politicalQueryFromResult(result);
+    const currentItems = isParty ? politicalParties : politicalPeople;
+    const localMatch = findPoliticalItemMatch(result, currentItems);
+
+    setSelectedAlert(null);
+    setSelectedSearchResult(null);
+    setPoliticalDetailPage(1);
+    setSelectedPoliticalDetailIndex(0);
+    setPoliticalDetailRiskFilter('todos');
+    setPoliticalDetailSearch('');
+
+    if (localMatch) {
+      setSelectedPoliticalItem(localMatch);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        source: 'local',
+        q: nextQuery,
+        page: '1',
+        page_size: '12',
+        limit: isParty ? '24' : '36',
+        size_order: 'prioridade'
+      });
+      const data = await apiGet(`${endpoint}?${params}`, { force: true, cacheTtlMs: 15 * 1000 });
+      const nextItems = data.items || [];
+      if (isParty) setPoliticalParties(nextItems);
+      else setPoliticalPeople(nextItems);
+      loadedPoliticalTabsRef.current[kind] = true;
+      politicalDataStampRef.current[kind] = data.generated_at || politicalDataStampRef.current[kind];
+      setPoliticalPagination((current) => ({
+        ...current,
+        [kind]: { page: 1, hasMore: Boolean(data.has_more) }
+      }));
+      const cachedMatch = findPoliticalItemMatch(result, nextItems) || nextItems[0] || null;
+      if (cachedMatch) setSelectedPoliticalItem(cachedMatch);
+      else setSelectedAlert(alert);
+    } catch {
+      setError('Nao foi possivel abrir a analise politica cacheada agora.');
+      setSelectedAlert(alert);
+    }
+  }
+
+  function handleFeedAlertClick(alert) {
+    if (politicalRecordTypeFromAlert(alert)) {
+      openPoliticalAlertFromFeed(alert);
+      return;
+    }
+    setSelectedAlert(alert);
+  }
+
   async function openPoliticalResultFromSearch(result) {
     const isParty = result.type === 'partido_politico';
     const kind = isParty ? 'parties' : 'politicians';
@@ -1924,7 +2043,7 @@ function applySearchResult(result) {
   function updateMapZoom(nextZoom, anchorPoint = null) {
     setMapZoom((currentZoom) => {
       const nextValue = typeof nextZoom === 'function' ? nextZoom(currentZoom) : nextZoom;
-      const nextClampedZoom = Number(clampNumber(nextValue, 1, 4).toFixed(2));
+      const nextClampedZoom = Number(clampNumber(nextValue, 1, 4.5).toFixed(2));
       const anchor = anchorPoint || { x: mapBounds.width / 2, y: mapBounds.height / 2 };
       if (nextClampedZoom !== currentZoom) {
         setMapPan((currentPan) => {
@@ -2009,12 +2128,27 @@ function applySearchResult(result) {
       stateRisks[point.uf]?.state_name
     ].join(' ')).includes(mapSearchText));
   }, [mapPoints, mapSearchText, stateRisks]);
-  const mapPointLimit = mapZoom >= 1.6 ? 240 : 140;
-  const mapCityLabelLimit = mapZoom >= 2.6 ? 80 : mapZoom >= 2 ? 45 : mapZoom >= 1.55 ? 20 : 0;
+  const mapPointLimit = mapZoom >= 3 ? 520 : mapZoom >= 2.2 ? 420 : mapZoom >= 1.6 ? 300 : 160;
+  const mapCityLabelLimit = mapZoom >= 3.6 ? 520 : mapZoom >= 3 ? 260 : mapZoom >= 2.4 ? 140 : mapZoom >= 1.8 ? 70 : mapZoom >= 1.45 ? 28 : 0;
   const positionedMapPoints = useMemo(
     () => positionedMapPointsFromCoordinates(visibleMapPoints.slice(0, mapPointLimit)),
     [visibleMapPoints, mapPointLimit]
   );
+  const cityLabelPoints = useMemo(() => {
+    if (mapCityLabelLimit <= 0) return [];
+    return [...positionedMapPoints]
+      .sort((left, right) => {
+        const leftSelected = selectedState?.city === left.city && selectedState?.uf === left.uf ? 1 : 0;
+        const rightSelected = selectedState?.city === right.city && selectedState?.uf === right.uf ? 1 : 0;
+        if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+        const riskDiff = Number(right.risk_score || 0) - Number(left.risk_score || 0);
+        if (riskDiff !== 0) return riskDiff;
+        const alertsDiff = Number(right.alerts_count || 0) - Number(left.alerts_count || 0);
+        if (alertsDiff !== 0) return alertsDiff;
+        return Number(left.originalIndex || 0) - Number(right.originalIndex || 0);
+      })
+      .slice(0, mapCityLabelLimit);
+  }, [positionedMapPoints, mapCityLabelLimit, selectedState]);
 
   return (
     <div className="min-h-screen overflow-x-clip bg-neutral-950 text-neutral-100">
@@ -2381,10 +2515,11 @@ function applySearchResult(result) {
                 {items.map((alert) => {
                   const risk = riskCopy[alert.risk_level] || riskCopy.indeterminado;
                   const baselineValue = alertBaselineValue(alert);
+                  const hasFinancialData = hasComparableFinancialData(alert);
                   return (
                     <button
                       key={`${alert.id}-${alert.date}`}
-                      onClick={() => setSelectedAlert(alert)}
+                      onClick={() => handleFeedAlertClick(alert)}
                       title={alert.title}
                       className={`min-w-0 w-full overflow-hidden rounded-lg border bg-neutral-900 p-3 text-left transition hover:border-red-700 sm:p-5 ${selectedAlert?.id === alert.id ? 'border-red-900' : 'border-neutral-800'}`}
                     >
@@ -2406,16 +2541,16 @@ function applySearchResult(result) {
 
                       <div className="mt-3 grid min-w-0 items-start gap-2 rounded-lg border border-neutral-800 bg-neutral-950/70 p-2 sm:mt-4 sm:gap-3 sm:p-3 md:grid-cols-[1fr_1fr_1fr_auto]">
                         <div className="min-w-0 rounded border border-neutral-800 bg-neutral-900/60 px-2 py-2 md:border-0 md:bg-transparent md:p-0">
-                          <p className="text-xs text-neutral-400">Valor médio encontrado</p>
-                          <strong className="text-white">{baselineValue !== null ? compactValue(baselineValue, 'baseline') : 'Sem média confiável'}</strong>
+                          <p className="text-xs text-neutral-400">{hasFinancialData ? 'Valor médio encontrado' : 'Origem do dado'}</p>
+                          <strong className="text-white">{hasFinancialData ? (baselineValue !== null ? compactValue(baselineValue, 'baseline') : 'Sem média confiável') : compactText(alert.location || alert.entity || 'Fonte publica', 36)}</strong>
                         </div>
                         <div className="min-w-0 rounded border border-neutral-800 bg-neutral-900/60 px-2 py-2 md:border-0 md:bg-transparent md:p-0">
-                          <p className="text-[11px] text-neutral-400 sm:text-xs">Pago/contratado</p>
-                          <strong className="block break-words text-sm text-white sm:text-base">{alert.formatted_value}</strong>
+                          <p className="text-[11px] text-neutral-400 sm:text-xs">{hasFinancialData ? 'Valor analisado' : 'Tipo de registro'}</p>
+                          <strong className="block break-words text-sm text-white sm:text-base">{hasFinancialData ? feedMoneyText(alert, 'value') : compactText(alert.report?.public_evidence?.[0]?.record_type || 'Fonte publica', 36)}</strong>
                         </div>
                         <div className="min-w-0 rounded border border-red-900/50 bg-red-950/20 px-2 py-2 text-left md:border-0 md:bg-transparent md:p-0 md:text-right">
-                          <p className="text-xs font-bold text-red-400">Possível valor acima da média</p>
-                          <strong className="block break-words text-sm text-red-500 sm:text-base">{alert.formatted_variation}</strong>
+                          <p className="text-xs font-bold text-red-400">{hasFinancialData ? 'Risco de valor' : 'Status'}</p>
+                          <strong className="block break-words text-sm text-red-500 sm:text-base">{hasFinancialData ? feedMoneyText(alert, 'variation') : 'Triagem/contexto'}</strong>
                         </div>
                         <ChevronRight className="hidden h-5 w-5 text-neutral-500 sm:block" />
                       </div>
@@ -2579,9 +2714,9 @@ function applySearchResult(result) {
                             className="pointer-events-none select-none font-black"
                             fill={selected || (risk.risk_score || 0) >= 20 ? '#fff7ed' : '#d4d4d4'}
                             stroke="rgba(0,0,0,0.78)"
-                            strokeWidth={Math.max(0.8, 3 / Math.max(mapZoom, 1))}
+                            strokeWidth={Math.max(0.65, 2.4 / Math.max(mapZoom, 1))}
                             paintOrder="stroke"
-                            fontSize={Math.max(6, 18 / Math.max(mapZoom, 1))}
+                            fontSize={Math.max(5, 14 / Math.max(mapZoom, 1))}
                           >
                             {uf}
                             <title>{name}</title>
@@ -2625,25 +2760,27 @@ function applySearchResult(result) {
                           </g>
                         );
                       })}
-                      {mapCityLabelLimit > 0 && positionedMapPoints.slice(0, mapCityLabelLimit).map((point, index) => {
+                      {cityLabelPoints.map((point, index) => {
                         if (!Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lng))) return null;
                         const selected = selectedState?.city === point.city && selectedState?.uf === point.uf;
+                        const labelOffsetX = (selected ? 4.5 : 3.5) / Math.max(mapZoom, 1);
+                        const labelOffsetY = (selected ? -5 : -3.5) / Math.max(mapZoom, 1);
                         return (
                           <text
-                            key={`${point.city}-${point.uf}-city-label-${index}`}
-                            x={point.displayX + (6 / Math.max(mapZoom, 1))}
-                            y={point.displayY - (5 / Math.max(mapZoom, 1))}
+                            key={`${point.city}-${point.uf}-city-label-${point.originalIndex ?? index}`}
+                            x={point.displayX + labelOffsetX}
+                            y={point.displayY + labelOffsetY}
                             textAnchor="start"
                             dominantBaseline="central"
                             pointerEvents="none"
                             fill={selected ? '#ffffff' : '#fecaca'}
                             stroke="rgba(0,0,0,0.8)"
-                            strokeWidth={Math.max(0.65, 2.2 / Math.max(mapZoom, 1))}
+                            strokeWidth={Math.max(0.45, 1.55 / Math.max(mapZoom, 1))}
                             paintOrder="stroke"
-                            fontSize={Math.max(2.6, (selected ? 10 : 8) / Math.max(mapZoom, 1))}
+                            fontSize={Math.max(2.8, (selected ? 8.8 : 7.2) / Math.max(mapZoom, 1))}
                             fontWeight="800"
                           >
-                            {compactText(point.city, mapZoom >= 2 ? 18 : 12)}
+                            {compactText(point.city, mapZoom >= 3 ? 24 : mapZoom >= 2 ? 18 : 12)}
                           </text>
                         );
                       })}
@@ -2709,7 +2846,7 @@ function applySearchResult(result) {
                       <button
                         type="button"
                         onClick={() => updateMapZoom((current) => current + 0.25)}
-                        disabled={mapZoom >= 4}
+                        disabled={mapZoom >= 4.5}
                         className="flex h-9 w-9 items-center justify-center text-lg font-black text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
                         title="Aumentar zoom"
                         aria-label="Aumentar zoom"

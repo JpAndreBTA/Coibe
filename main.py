@@ -162,6 +162,22 @@ LOCAL_MONITOR_LATEST_PATH = Path(os.getenv("COIBE_MONITOR_LATEST_PATH", "data/pr
 LOCAL_MONITOR_DB_PATH = Path(os.getenv("COIBE_MONITOR_DB_PATH", "data/processed/monitoring_items.json"))
 LOCAL_PUBLIC_RECORDS_PATH = Path(os.getenv("COIBE_PUBLIC_RECORDS_PATH", "data/processed/public_api_records.json"))
 PUBLIC_RECORD_FEED_LIMIT = int(os.getenv("COIBE_PUBLIC_RECORD_FEED_LIMIT", "300"))
+PUBLIC_RECORD_FEED_REFERENCE_TYPES = {
+    "municipio",
+    "estado",
+    "localidade",
+    "ibge_localidade",
+    "ibge_municipio",
+}
+PUBLIC_RECORD_FEED_FINANCIAL_TYPES = {
+    "risco_superfaturamento",
+    "overprice_risk",
+    "price_risk",
+    "public_contract",
+    "contract",
+    "expense",
+    "empenho",
+}
 PLATFORM_LIBRARY_PATH = Path(os.getenv("COIBE_LIBRARY_PATH", "data/library/library_records.jsonl"))
 PLATFORM_LIBRARY_INDEX_PATH = Path(os.getenv("COIBE_LIBRARY_INDEX_PATH", "data/library/library_index.json"))
 PLATFORM_PUBLIC_CODES_PATH = Path(os.getenv("COIBE_PUBLIC_CODES_PATH", "data/library/public_codes.json"))
@@ -817,6 +833,8 @@ def is_strict_local_request(request: Request) -> bool:
 def check_rate_limit(request: Request) -> None:
     if not RATE_LIMIT_ENABLED:
         return
+    if is_strict_local_request(request) and request.headers.get("x-coibe-monitor") == "local-monitor":
+        return
 
     now = time.monotonic()
     window = max(RATE_LIMIT_WINDOW_SECONDS, 1)
@@ -1060,7 +1078,7 @@ async def rate_limit_middleware(request: Request, call_next):
     try:
         check_rate_limit(request)
     except HTTPException as exc:
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -1950,6 +1968,189 @@ def parse_iso_date(value: str | None) -> date:
     return brasilia_today()
 
 
+def first_public_record_text(payload: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def first_public_record_decimal(payload: dict[str, Any], *keys: str) -> Decimal | None:
+    for key in keys:
+        parsed = parse_decimal(payload.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def public_record_money_from_text(text: str) -> list[Decimal]:
+    values: list[Decimal] = []
+    for match in re.finditer(r"R\$\s*([0-9][0-9\.]*,\d{2})", text or ""):
+        parsed = parse_decimal(match.group(1))
+        if parsed is not None:
+            values.append(parsed)
+    return values
+
+
+def public_record_comparable_values(record: dict[str, Any], payload: dict[str, Any]) -> tuple[Decimal, Decimal, Decimal | None, int | None]:
+    value = first_public_record_decimal(
+        payload,
+        "value",
+        "valorGlobal",
+        "valor_global",
+        "valor",
+        "valorContrato",
+        "valor_contrato",
+        "valorInicial",
+        "contract_value",
+        "total_public_money",
+        "travel_public_money",
+        "paid_amount",
+        "amount",
+        "total_value",
+    ) or Decimal("0")
+    variation = first_public_record_decimal(
+        payload,
+        "estimated_variation",
+        "estimated_overprice",
+        "possible_overprice",
+        "valor_acima_media",
+        "above_average_value",
+        "overprice_value",
+    ) or Decimal("0")
+    baseline = first_public_record_decimal(
+        payload,
+        "baseline",
+        "average_amount",
+        "baseline_average",
+        "valor_medio",
+        "media_comparavel",
+        "reference_value",
+        "comparable_value",
+    )
+    sample_size_decimal = first_public_record_decimal(
+        payload,
+        "sample_size",
+        "comparison_sample_size",
+        "comparable_count",
+        "matching_records",
+        "records_count",
+    )
+    sample_size = int(sample_size_decimal) if sample_size_decimal is not None and sample_size_decimal >= 0 else None
+
+    subtitle_values = public_record_money_from_text(str(record.get("subtitle") or payload.get("summary") or ""))
+    if value <= 0 and subtitle_values:
+        value = subtitle_values[0]
+    if variation <= 0 and len(subtitle_values) >= 2:
+        variation = subtitle_values[1]
+    if baseline is None and value > 0 and variation > 0 and value > variation:
+        baseline = value - variation
+    if variation <= 0 and baseline is not None and value > baseline:
+        variation = value - baseline
+    return value, variation, baseline, sample_size
+
+
+def public_record_has_feed_signal(record_type: str, risk_score: int, value: Decimal, variation: Decimal, baseline: Decimal | None, title: str = "") -> bool:
+    normalized_type = normalize_text(record_type).lower()
+    normalized_title = normalize_text(title).lower()
+    has_financial_signal = value > 0 or variation > 0 or baseline is not None
+    if normalized_type in {"connector_source", "connector_status", "architecture_status", "state_risk"}:
+        return False
+    if normalized_type in PUBLIC_RECORD_FEED_REFERENCE_TYPES and not has_financial_signal and risk_score < 35:
+        return False
+    is_financial_risk = (
+        normalized_type in PUBLIC_RECORD_FEED_FINANCIAL_TYPES
+        or "superfaturamento" in normalized_title
+        or "valor acima" in normalized_title
+        or "preco" in normalized_title
+        or "preço" in normalized_title
+    )
+    if is_financial_risk and not has_financial_signal:
+        return False
+    return True
+
+
+def compact_public_record_title(text: str, limit: int = 150) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" -|•")
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip(" -|•,.;") + "..."
+
+
+def public_record_political_analysis_headline(record_type: str, payload: dict[str, Any]) -> str | None:
+    risks = payload.get("risks") if isinstance(payload.get("risks"), list) else []
+    weighted_risks: list[tuple[int, dict[str, Any]]] = []
+    risk_weight = {"alto": 3, "médio": 2, "medio": 2, "baixo": 1, "indeterminado": 0}
+    for index, risk in enumerate(risks):
+        if not isinstance(risk, dict):
+            continue
+        level = normalize_text(risk.get("level") or "").lower()
+        weighted_risks.append((risk_weight.get(level, 0) * 100 - index, risk))
+    weighted_risks.sort(key=lambda row: row[0], reverse=True)
+
+    for _, risk in weighted_risks:
+        evidence = risk.get("evidence") if isinstance(risk.get("evidence"), dict) else {}
+        matches = evidence.get("matches_count") or evidence.get("contracts_in_window") or evidence.get("related_contracts")
+        related_total = parse_decimal(evidence.get("total_related_value") or evidence.get("total_window_value") or evidence.get("window_total_value"))
+        if matches and related_total and related_total > 0:
+            return f"{matches} contrato(s) ligados ao recorte somam {money(related_total)}"
+
+        total_public_money = parse_decimal(evidence.get("total_public_money"))
+        travel_public_money = parse_decimal(evidence.get("travel_public_money"))
+        records_count = parse_decimal(evidence.get("records_count"))
+        if total_public_money and total_public_money > 0:
+            if travel_public_money and travel_public_money > 0:
+                return f"{money(total_public_money)} em despesas analisadas, com {money(travel_public_money)} em viagens/deslocamentos"
+            if records_count and records_count > 0:
+                return f"{money(total_public_money)} em despesas analisadas em {int(records_count)} registro(s)"
+            return f"{money(total_public_money)} em valores publicos analisados"
+
+        matching_records = parse_decimal(evidence.get("matching_records"))
+        if matching_records and matching_records > 0:
+            title = str(risk.get("title") or "registros publicos para checar").strip()
+            return f"{int(matching_records)} registro(s) relacionados - {title}"
+
+    total = parse_decimal(payload.get("total_public_money")) or Decimal("0")
+    travel = parse_decimal(payload.get("travel_public_money")) or Decimal("0")
+    records_count = parse_decimal(payload.get("records_count"))
+    if total > 0:
+        if record_type == "political_parties":
+            if travel > 0:
+                return f"{money(total)} em despesas de parlamentares, com {money(travel)} em viagens/deslocamentos"
+            return f"{money(total)} em despesas de parlamentares analisadas"
+        if records_count and records_count > 0:
+            return f"{money(total)} em contratos, pagamentos e registros ligados; {int(records_count)} fonte(s) cruzada(s)"
+        return f"{money(total)} em contratos, pagamentos e registros ligados"
+
+    summary = str(payload.get("summary") or "").strip()
+    return summary or None
+
+
+def public_record_political_display_title(record_type: str, title: str, payload: dict[str, Any], subtitle: str) -> str:
+    if record_type not in {"political_people", "political_parties"}:
+        return title
+
+    name = str(payload.get("name") or title or "").strip()
+    if not name:
+        return title
+
+    headline = public_record_political_analysis_headline(record_type, payload)
+    if headline and normalize_text(headline) != normalize_text(name):
+        return compact_public_record_title(f"{name} - {headline}")
+
+    priority_reason = str(payload.get("priority_reason") or "").strip()
+    if priority_reason and normalize_text(priority_reason) != normalize_text(name):
+        return compact_public_record_title(f"{name} - {priority_reason}")
+
+    subtitle_text = str(payload.get("subtitle") or subtitle or "").strip()
+    normalized_subtitle = normalize_text(subtitle_text).lower()
+    if subtitle_text and not normalized_subtitle.startswith("0 registro") and normalized_subtitle != normalize_text(name).lower():
+        return compact_public_record_title(f"{name} - {subtitle_text}")
+
+    return name
+
+
 def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringItem | None:
     collected_at = parse_iso_datetime(str(record.get("collected_at") or "")) or brasilia_now()
     payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
@@ -1958,11 +2159,30 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
     subtitle = str(record.get("subtitle") or payload.get("summary") or payload.get("text_excerpt") or title)
     url = str(record.get("url") or payload.get("url") or "")
     record_type = str(record.get("record_type") or "public_record")
+    title = public_record_political_display_title(record_type, title, payload, subtitle)
     record_key = str(record.get("record_key") or f"{record_type}:{source}:{title}:{index}")
     stable_id = hashlib.sha256(record_key.encode("utf-8", errors="ignore")).hexdigest()[:24]
     risk_level = str(record.get("risk_level") or payload.get("attention_level") or "baixo")
     normalized_level = normalize_text(risk_level).lower()
     risk_score = 60 if normalized_level == "alto" else 35 if normalized_level in {"medio", "médio"} else 12
+
+    value, variation, baseline, sample_size = public_record_comparable_values(record, payload)
+    if record_type in {"political_people", "political_parties"} and not public_record_political_analysis_headline(record_type, payload):
+        normalized_subtitle = normalize_text(subtitle).lower()
+        if normalized_subtitle.startswith("0 registro") or not payload:
+            return None
+    if not public_record_has_feed_signal(record_type, risk_score, value, variation, baseline, title):
+        return None
+
+    content_date = parse_iso_datetime(str(payload.get("date") or payload.get("data") or payload.get("published_at") or ""))
+    item_date = content_date.date() if content_date else collected_at.date()
+    entity = first_public_record_text(payload, "entity", "nomeUnidadeGestora", "nomeOrgao", "orgao", "orgao_nome") or source
+    supplier_name = first_public_record_text(payload, "supplier_name", "nomeFornecedor", "nomeRazaoSocialFornecedor", "fornecedor", "supplier")
+    supplier_cnpj = first_public_record_text(payload, "supplier_cnpj", "niFornecedor", "cnpj", "cnpjFornecedor")
+    uf = first_public_record_text(payload, "uf", "UF", "siglaUf")
+    city = first_public_record_text(payload, "city", "cidade", "municipio")
+    formatted_value = money(value) if value > 0 else "Sem valor informado"
+    formatted_variation = money(variation) if variation > 0 else "Sem variacao estimada"
     evidence = {
         "record_type": record_type,
         "source": source,
@@ -1970,22 +2190,29 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
         "url": url,
         "collected_at": collected_at.isoformat(),
         "payload_excerpt": subtitle[:1000],
+        "value": str(value),
+        "estimated_variation": str(variation),
+        "has_financial_value": value > 0,
     }
+    if baseline is not None:
+        evidence["baseline"] = str(baseline)
+    if sample_size is not None:
+        evidence["sample_size"] = sample_size
     try:
         return MonitoringItem(
             id=f"public-record-{stable_id}",
-            date=collected_at.date(),
+            date=item_date,
             title=title,
             location=source,
-            city=None,
-            uf=None,
-            entity=source,
-            supplier_name=None,
-            supplier_cnpj=None,
-            value=Decimal("0"),
-            formatted_value=money(Decimal("0")),
-            estimated_variation=Decimal("0"),
-            formatted_variation=money(Decimal("0")),
+            city=city,
+            uf=uf,
+            entity=entity,
+            supplier_name=supplier_name,
+            supplier_cnpj=supplier_cnpj,
+            value=value,
+            formatted_value=formatted_value,
+            estimated_variation=variation,
+            formatted_variation=formatted_variation,
             risk_score=risk_score,
             risk_level=risk_level if risk_level else "baixo",
             object=subtitle[:1200] or title,
@@ -1998,7 +2225,7 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
                     RedFlagResult(
                         code="PUBLIC-RECORD-UPDATE",
                         title="Fonte publica atualizada",
-                        has_risk=risk_score >= 35,
+                        has_risk=risk_score >= 35 or variation > 0,
                         risk_level=risk_level if risk_level else "baixo",
                         message="Registro recente entrou pela base de fontes publicas e deve ser usado como triagem/contexto.",
                         evidence=evidence,
@@ -2013,6 +2240,29 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
         )
     except Exception:
         return None
+
+
+def enrich_persisted_public_record_title(item: MonitoringItem) -> MonitoringItem:
+    evidence = next((flag.evidence for flag in item.report.red_flags or [] if isinstance(flag.evidence, dict)), {})
+    record_type = str(evidence.get("record_type") or "")
+    if record_type not in {"political_people", "political_parties"}:
+        return item
+
+    title = str(item.title or "").strip()
+    normalized_title = normalize_text(title).lower()
+    if "r$" in title.lower() or "despesa" in normalized_title or "contrato" in normalized_title or "registro(s)" in normalized_title:
+        return item
+
+    excerpt = str(evidence.get("payload_excerpt") or item.object or item.report.summary or "").strip()
+    normalized_excerpt = normalize_text(excerpt).lower()
+    if not excerpt or normalized_excerpt.startswith("0 registro") or normalize_text(title).lower() == normalized_excerpt:
+        return item
+
+    item.title = compact_public_record_title(f"{title} - {excerpt}")
+    for flag in item.report.red_flags or []:
+        if isinstance(flag.evidence, dict):
+            flag.evidence["title"] = item.title
+    return item
 
 
 def load_public_record_feed_items(limit: int = PUBLIC_RECORD_FEED_LIMIT) -> list[MonitoringItem]:
@@ -2299,6 +2549,9 @@ def compras_contract_url_from_item(item: MonitoringItem) -> str:
 
 
 def ensure_precise_compras_source(item: MonitoringItem) -> MonitoringItem:
+    if item.id.startswith("public-record-"):
+        return item
+
     precise_source = MonitoringSource(
         label=f"Compras.gov.br Dados Abertos - contrato {item.id}",
         url=compras_contract_url_from_item(item),
@@ -2406,12 +2659,21 @@ def monitoring_summary_for_item(item: MonitoringItem) -> str:
     comparisons: list[str] = []
     for flag in item.report.red_flags or []:
         evidence = flag.evidence or {}
+        baseline = evidence_number(evidence, "baseline")
+        estimated_variation = evidence_number(evidence, "estimated_variation")
+        if baseline is not None and baseline > 0 and item.value > 0:
+            comparisons.append(f"media comparavel de {money(Decimal(str(baseline)))} para valor analisado de {money(item.value)}")
+        if estimated_variation is not None and estimated_variation > 0:
+            comparisons.append(f"risco de valor acima da media em {money(Decimal(str(estimated_variation)))}")
+
         percent_above = evidence_number(evidence, "percent_above_baseline")
         sample_size = evidence_number(evidence, "sample_size")
         if percent_above is not None:
             comparisons.append(
-                f"valor {percent_text(percent_above)} acima da media de {number_text(sample_size) or 'varios'} contratos comparaveis"
+                f"valor {percent_text(percent_above)} acima da media de {number_text(sample_size) or 'varios'} registros comparaveis"
             )
+        elif sample_size is not None and sample_size > 0:
+            comparisons.append(f"comparacao feita contra {number_text(sample_size)} registro(s) publico(s)")
 
         cnpj_age = evidence_number(evidence, "cnpj_age_days")
         if cnpj_age is not None:
@@ -2419,7 +2681,7 @@ def monitoring_summary_for_item(item: MonitoringItem) -> str:
 
         ratio = evidence_number(evidence, "ratio_contract_to_capital")
         if ratio is not None:
-            comparisons.append(f"contrato equivale a {ratio:,.1f}x o capital social declarado".replace(",", "X").replace(".", ",").replace("X", "."))
+            comparisons.append(f"valor equivale a {ratio:,.1f}x o capital social declarado".replace(",", "X").replace(".", ",").replace("X", "."))
 
         distance = evidence_number(evidence, "distance_km")
         if distance is not None:
@@ -2428,7 +2690,7 @@ def monitoring_summary_for_item(item: MonitoringItem) -> str:
         related_contracts = evidence_number(evidence, "related_contracts") or evidence_number(evidence, "contracts_in_window")
         total_window = evidence_number(evidence, "total_window_value") or evidence_number(evidence, "window_total_value")
         if related_contracts is not None and total_window is not None:
-            comparisons.append(f"{number_text(related_contracts)} contratos proximos somam {money(Decimal(str(total_window)))}")
+            comparisons.append(f"{number_text(related_contracts)} registros proximos somam {money(Decimal(str(total_window)))}")
 
         matching_records = evidence_number(evidence, "matching_records")
         if matching_records is not None:
@@ -2440,10 +2702,16 @@ def monitoring_summary_for_item(item: MonitoringItem) -> str:
         if unique_comparisons
         else "Nenhum desvio forte apareceu nos dados comparaveis disponiveis; o item segue monitorado para novas bases publicas."
     )
+    value_sentence = (
+        f"valor analisado {money(item.value)}"
+        if item.value > 0
+        else "sem valor financeiro direto informado na fonte"
+    )
+    supplier_sentence = f"fornecedor/pessoa {item.supplier_name}" if item.supplier_name else "fornecedor/pessoa nao informado"
     return (
         f"Risco {item.risk_level}: prioridade de leitura definida por comparacoes publicas de valor, "
         f"historico de fornecedor, socios, empresa, localidade e orgao. Item analisado: {item.title}, "
-        f"fornecedor {item.supplier_name or 'nao informado'}, valor {item.formatted_value or money(item.value)}. "
+        f"{supplier_sentence}, {value_sentence}. "
         f"{comparison_sentence} A busca pode cruzar este contexto por produto, pessoa, CNPJ, empresa, partido, STF, cidade, estado ou orgao."
     )
 
@@ -2505,6 +2773,7 @@ def load_local_monitoring_items(
         item = ensure_precise_compras_source(item)
         item.report.red_flags = [normalize_attention_flag_text(flag) for flag in item.report.red_flags]
         item.report.summary = monitoring_summary_for_item(item)
+        item = enrich_persisted_public_record_title(item)
 
         if uf_filter and (item.uf or "").upper() != uf_filter:
             continue
@@ -2562,11 +2831,20 @@ def paginate_monitoring_items(items: list[MonitoringItem], page: int, page_size:
     return items[start:end], end < len(items)
 
 
-def monitoring_item_recent_order(item: MonitoringItem) -> tuple[bool, str, str, str]:
+def monitoring_item_recent_order(item: MonitoringItem) -> tuple[bool, str, bool, int, str, str]:
     # Future validity dates are real contract metadata, but they should not outrank already published recent feed content.
+    has_financial_signal = item.value > 0 or item.estimated_variation > 0
+    if not has_financial_signal:
+        for flag in item.report.red_flags or []:
+            evidence = flag.evidence or {}
+            if evidence_number(evidence, "baseline") is not None or evidence_number(evidence, "estimated_variation") is not None:
+                has_financial_signal = True
+                break
     return (
         item.date <= brasilia_today(),
         item.date.isoformat(),
+        has_financial_signal,
+        item.risk_score,
         item.report.generated_at.isoformat(),
         item.id,
     )
@@ -3108,6 +3386,65 @@ def monitor_model_quality_summary(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def monitor_evolution_memory_summary() -> dict[str, Any]:
+    summary = {
+        "events": 0,
+        "unique_terms": 0,
+        "unique_checks": 0,
+        "unique_targets": 0,
+        "total_observations": 0,
+        "latest_cycle": None,
+        "latest_updated_at": None,
+    }
+    if not MONITOR_MODEL_MEMORY_PATH.exists():
+        return summary
+    terms: set[str] = set()
+    checks: set[str] = set()
+    targets: set[str] = set()
+    observations = 0
+    try:
+        with MONITOR_MODEL_MEMORY_PATH.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                summary["events"] += 1
+                summary["latest_cycle"] = entry.get("cycle", summary["latest_cycle"])
+                summary["latest_updated_at"] = entry.get("updated_at") or summary["latest_updated_at"]
+                new_terms = entry.get("new_terms") if isinstance(entry.get("new_terms"), list) else []
+                top_checks = entry.get("top_checks") if isinstance(entry.get("top_checks"), list) else []
+                top_targets = entry.get("top_targets") if isinstance(entry.get("top_targets"), list) else []
+                observations += len(new_terms) + len(top_checks) + len(top_targets)
+                for item in new_terms:
+                    if isinstance(item, dict):
+                        key = normalize_text(item.get("normalized") or item.get("term"))
+                        if key:
+                            terms.add(key)
+                for item in top_checks:
+                    if isinstance(item, dict):
+                        key = normalize_text(item.get("id") or item.get("title"))
+                        if key:
+                            checks.add(key)
+                for item in top_targets:
+                    if isinstance(item, dict):
+                        key = normalize_text(item.get("id") or item.get("term"))
+                        if key:
+                            targets.add(key)
+    except Exception:
+        return summary
+    summary["unique_terms"] = len(terms)
+    summary["unique_checks"] = len(checks)
+    summary["unique_targets"] = len(targets)
+    summary["total_observations"] = observations
+    return summary
+
+
 def restart_backend_visible_terminal() -> None:
     time.sleep(1.0)
     script = Path("start-coibe-backend.ps1").resolve()
@@ -3143,17 +3480,19 @@ def monitor_model_status() -> dict[str, Any]:
                 training_lines = sum(1 for _ in handle)
         except Exception:
             training_lines = 0
-    memory_lines = 0
-    if MONITOR_MODEL_MEMORY_PATH.exists():
-        try:
-            with MONITOR_MODEL_MEMORY_PATH.open("r", encoding="utf-8") as handle:
-                memory_lines = sum(1 for _ in handle)
-        except Exception:
-            memory_lines = 0
+    memory_summary = monitor_evolution_memory_summary()
+    memory_lines = int(memory_summary.get("events") or 0)
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
     learned_total_count = len(learned_terms) + len(learned_checks) + len(learned_targets)
+    learned_accumulated_total_count = max(
+        learned_total_count,
+        int(memory_summary.get("total_observations") or 0),
+        int(memory_summary.get("unique_terms") or 0)
+        + int(memory_summary.get("unique_checks") or 0)
+        + int(memory_summary.get("unique_targets") or 0),
+    )
     model_quality = monitor_model_quality_summary(state)
     return {
         "models_dir": str(MODELS_DIR),
@@ -3171,6 +3510,8 @@ def monitor_model_status() -> dict[str, Any]:
         "updated_at": state.get("updated_at"),
         "cycles": int(state.get("cycles") or 0),
         "learned_total_count": learned_total_count,
+        "learned_active_total_count": learned_total_count,
+        "learned_accumulated_total_count": learned_accumulated_total_count,
         "learned_terms_count": len(learned_terms),
         "learned_terms": learned_terms[:25],
         "learned_checks_count": len(learned_checks),
@@ -3183,6 +3524,7 @@ def monitor_model_status() -> dict[str, Any]:
         "model_artifacts": state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {},
         "model_quality": model_quality,
         "evolution_memory": state.get("evolution_memory") if isinstance(state.get("evolution_memory"), dict) else {},
+        "evolution_memory_summary": memory_summary,
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
@@ -3356,6 +3698,8 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
     collected_at = brasilia_now().isoformat()
     source_label = "COIBE.IA/Camara/Senado - Politicos" if record_type == "political_people" else "COIBE.IA/Camara/TSE - Partidos"
     for item in items:
+        payload = item.model_dump(mode="json")
+        display_title = public_record_political_display_title(record_type, item.name, payload, item.subtitle or "")
         stable = record_fingerprint([record_type, item.id, item.name, item.party, item.role])
         record_key = f"{record_type}:{stable}"
         if record_key not in by_key:
@@ -3365,7 +3709,7 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
             "record_type": record_type,
             "source": source_label,
             "query": query,
-            "title": item.name,
+            "title": display_title,
             "subtitle": item.subtitle,
             "url": item.sources[0].url if item.sources else None,
             "risk_level": item.attention_level,
@@ -3373,8 +3717,8 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
             "monitor_status": "pending_analysis",
             "analysis_requested_at": collected_at,
             "cached_from": f"api/{record_type}",
-            "payload": item.model_dump(mode="json"),
-            "normalized_title": normalize_text(item.name),
+            "payload": payload,
+            "normalized_title": normalize_text(display_title),
             "normalized_source": normalize_text(source_label),
         }
 
@@ -7281,7 +7625,11 @@ async def backend_ui(request: Request) -> HTMLResponse:
         : 'aguardando primeiro treino com metricas';
       document.getElementById('cards').innerHTML = [
         card('Modelo', model.selected_model?.name || model.version || 'n/d', model.updated_at || 'aguardando treino'),
-        card('Aprendizados', `${model.learned_total_count || 0} itens`, `${model.learned_terms_count || 0} termos • ${model.learned_checks_count || 0} verificacoes • ${model.learned_targets_count || 0} alvos - ${model.models_dir}`),
+        card(
+          'Aprendizados',
+          `${model.learned_accumulated_total_count || model.learned_total_count || 0} itens`,
+          `${model.learned_terms_count || 0} termos ativos • ${model.learned_checks_count || 0} verificacoes • ${model.learned_targets_count || 0} alvos • ${model.evolution_memory_summary?.events || 0} ciclos`
+        ),
         card('IA/Quantização', model.model_artifacts?.deep_model_trained ? 'Deep pronta' : 'Manifesto pronto', model.model_artifacts?.quantization_mode || model.config?.quantization_mode || 'dynamic-int8'),
         card('Qualidade ML', qualityValue, qualityNote),
         card('Memória', `${model.evolution_memory_events || 0} ciclos`, model.evolution_memory_path || 'aguardando próximo ciclo'),

@@ -1543,9 +1543,12 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         existing["examples"] = [*(existing.get("examples") or []), *candidate["examples"]][-12:]
         learned_targets_by_id[target_id] = existing
 
-    learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
-    learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:80]
-    learned_targets = sorted(learned_targets_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:120]
+    learned_terms_memory_limit = max(200, learned_limit * 10)
+    learned_checks_memory_limit = max(80, learned_limit * 4)
+    learned_targets_memory_limit = max(120, learned_limit * 8)
+    learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:learned_terms_memory_limit]
+    learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:learned_checks_memory_limit]
+    learned_targets = sorted(learned_targets_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:learned_targets_memory_limit]
     model_artifacts = build_ai_model_artifacts(training_items[:training_sample_limit], learned_terms, config)
     date_window = collect_date_window(analysis.get("items"), analysis.get("alerts"), analysis.get("public_records"), snapshot.get("political_parties"), snapshot.get("political_people"))
     record_types: dict[str, int] = {}
@@ -1595,6 +1598,11 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "learned_terms_added": len(selected_candidates),
             "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
             "learned_targets_added": min(len(target_candidates), max(learned_limit * 2, 16)),
+            "active_memory_limits": {
+                "terms": learned_terms_memory_limit,
+                "checks": learned_checks_memory_limit,
+                "targets": learned_targets_memory_limit,
+            },
             "method_research_applied": True,
             "method_research_sources": [
                 "Open Contracting Partnership",
@@ -1931,10 +1939,11 @@ async def collect_snapshot(
     source_mode = str(public_api_source_mode or "hybrid").strip().lower()
     if source_mode not in {"live", "hybrid", "cache-first"}:
         source_mode = "hybrid"
-    feed_source = "auto" if source_mode == "cache-first" else "live"
+    feed_source = "live" if source_mode == "live" else "auto"
     derived_source = "live" if source_mode == "live" else "auto"
     public_api_concurrency = max(1, min(8, int(public_api_concurrency or 1), int(max_concurrent_requests or 1)))
-    async with httpx.AsyncClient(base_url=api_base, timeout=timeout) as client:
+    headers = {"X-COIBE-Monitor": "local-monitor"}
+    async with httpx.AsyncClient(base_url=api_base, timeout=timeout, headers=headers) as client:
         snapshot: dict[str, Any] = {
             "collected_at": brasilia_now().isoformat(),
             "api_base": api_base,
@@ -2080,7 +2089,7 @@ async def collect_snapshot(
                 }
                 for term in limited_search_terms
             ]
-            search_results = await collect_connector_batch(client, snapshot, search_requests, max_concurrent_requests)
+            search_results = await collect_connector_batch(client, snapshot, search_requests, public_api_concurrency)
             for request, search_result in search_results:
                 term = request["term"]
                 snapshot["searches"][term] = search_result if search_result is not None else {"error": "connector failed", "results": []}
