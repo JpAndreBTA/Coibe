@@ -329,20 +329,31 @@ O backend local tambem pode usar o modelo `coibe-deep-mlp`, treinado com `scikit
 
 Para nao depender somente das APIs oficiais, o ciclo de monitoramento tambem faz varredura HTML publica em paginas oficiais e URLs descobertas por buscas locais. Essa varredura valida DNS/IP para bloquear localhost, rede privada e redirecionamentos inseguros antes de baixar texto publico.
 
+Se o feed/API publica falhar ou vier vazio, o monitor usa essa varredura como fallback: cria itens `web_fallback_pending_review` no feed com evidencias publicas, registra `web_fallback_items_collected` no estado do coletor e mantem a pagina da API para nova tentativa no proximo ciclo. Assim a plataforma continua atualizando sem depender exclusivamente da API, mas os achados web entram como triagem para cruzamento e revisao humana.
+
 O estado do aprendizado fica em `Models/`:
 
 ```text
 Models/monitor_config.json
 Models/monitor_model_state.json
 Models/monitor_training_history.jsonl
+Models/coibe_adaptive_memory.jsonl
 Models/model_registry.json
 Models/coibe_adaptive_deep_model.joblib
+Models/coibe_adaptive_deep_model.ai.json
 Models/coibe_adaptive_deep_model.onnx.json
 Models/coibe_adaptive_deep_model.quant.json
 ```
 
 O monitor reaproveita termos aprendidos nos ciclos seguintes para buscar mais
-rápido. Se houver GPU NVIDIA e bibliotecas compatíveis (`cudf`/`cuml`), defina:
+rapido. O `.joblib` e o `.ai.json` sao artefatos de inferencia regravados a
+cada treino; a memoria evolutiva que cresce ciclo a ciclo fica em
+`Models/coibe_adaptive_memory.jsonl`, enquanto `monitor_model_state.json`
+mantem um resumo compacto dos melhores termos, verificacoes e alvos atuais.
+Os manifestos do modelo tambem registram distribuicao das classes e metricas
+simples de treino/validacao quando ha amostra suficiente, para diferenciar
+aprendizado real de simples regravacao de artefato.
+Se houver GPU NVIDIA e bibliotecas compativeis (`cudf`/`cuml`), defina:
 
 ```powershell
 $env:COIBE_ML_USE_GPU="true"
@@ -370,6 +381,44 @@ parar o backend, iniciar o backend em terminal visível e reiniciar o backend.
 No Windows, o treinamento abre uma janela própria do terminal com o que está
 sendo analisado, quantidade de registros lidos, tempo por fonte e velocidade
 aproximada da varredura.
+
+Para puxar mais do computador local, a configuração do monitor também aceita
+perfis de intensidade:
+
+```json
+{
+  "scan_profile": "no-delay-heavy",
+  "max_concurrent_requests": 12,
+  "public_api_concurrency": 4,
+  "public_api_source_mode": "hybrid",
+  "internet_sweep_concurrency": 12,
+  "gpu_acceleration_level": "aggressive",
+  "training_sample_limit": 3000,
+  "search_delay_seconds": 0.0
+}
+```
+
+`conservative` reduz concorrência e aumenta espera entre buscas, `balanced`
+mantém o comportamento padrão, `heavy` aumenta concorrência com pequena espera,
+e `no-delay-heavy` remove o delay interno e usa concorrência limitada. O monitor
+continua respeitando erros HTTP 429/rate limit das fontes públicas.
+
+Para evitar sobrecarga ou bloqueio das APIs públicas, o monitor separa a
+concorrência interna (`max_concurrent_requests`) da concorrência externa
+(`public_api_concurrency`). O modo `hybrid` mantém coleta live para o feed
+principal, mas usa cache/base local para mapa, recortes e varredura política;
+`cache-first` prioriza totalmente a base local; `live` força chamadas externas e
+deve ser usado apenas em ciclos pontuais. O backend também mantém cache, retorno
+stale e cooldown por host quando uma fonte pública responde 429/403/5xx ou
+timeout.
+
+Sobre agentes: o monitor local atua como orquestrador do ciclo coleta ->
+analise -> agentes -> treino -> memoria. A primeira camada de agentes
+autonomos ja roda de forma deterministica: qualidade de dados, grafo relacional,
+lacunas de evidencia e descoberta de fontes. Eles nao concluem irregularidade;
+geram hipoteses e proximas buscas para revisao humana. O alvo recomendado para
+producao e separar esses agentes em workers com fila de tarefas, politicas de
+prioridade e avaliacao offline antes de promover um novo modelo.
 
 ### Risco espacial/logistico
 

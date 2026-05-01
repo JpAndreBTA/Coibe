@@ -76,6 +76,7 @@ POLITICAL_HIGH_VALUE_PERSON_THRESHOLD = Decimal(os.getenv("COIBE_POLITICAL_HIGH_
 MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+MONITOR_MODEL_MEMORY_PATH = MODELS_DIR / "coibe_adaptive_memory.jsonl"
 MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
 MONITOR_MODEL_REGISTRY_PATH = MODELS_DIR / "model_registry.json"
 MONITOR_SELECTED_MODEL_ID = os.getenv("COIBE_MONITOR_SELECTED_MODEL_ID", "coibe-adaptive-default")
@@ -160,6 +161,7 @@ IBGE_CITIES_CACHE_TTL_SECONDS = int(os.getenv("COIBE_IBGE_CITIES_CACHE_TTL_SECON
 LOCAL_MONITOR_LATEST_PATH = Path(os.getenv("COIBE_MONITOR_LATEST_PATH", "data/processed/latest_analysis.json"))
 LOCAL_MONITOR_DB_PATH = Path(os.getenv("COIBE_MONITOR_DB_PATH", "data/processed/monitoring_items.json"))
 LOCAL_PUBLIC_RECORDS_PATH = Path(os.getenv("COIBE_PUBLIC_RECORDS_PATH", "data/processed/public_api_records.json"))
+PUBLIC_RECORD_FEED_LIMIT = int(os.getenv("COIBE_PUBLIC_RECORD_FEED_LIMIT", "300"))
 PLATFORM_LIBRARY_PATH = Path(os.getenv("COIBE_LIBRARY_PATH", "data/library/library_records.jsonl"))
 PLATFORM_LIBRARY_INDEX_PATH = Path(os.getenv("COIBE_LIBRARY_INDEX_PATH", "data/library/library_index.json"))
 PLATFORM_PUBLIC_CODES_PATH = Path(os.getenv("COIBE_PUBLIC_CODES_PATH", "data/library/public_codes.json"))
@@ -174,6 +176,10 @@ CITY_COORDINATES_LOOKUP_LIMIT = int(os.getenv("COIBE_CITY_COORDINATES_LOOKUP_LIM
 CITY_GEOCODING_DELAY_SECONDS = float(os.getenv("COIBE_CITY_GEOCODING_DELAY_SECONDS", "0.25"))
 API_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("COIBE_API_RESPONSE_CACHE_TTL_SECONDS", "20"))
 API_RESPONSE_CACHE_MAX_ENTRIES = int(os.getenv("COIBE_API_RESPONSE_CACHE_MAX_ENTRIES", "512"))
+PUBLIC_API_CACHE_TTL_SECONDS = int(os.getenv("COIBE_PUBLIC_API_CACHE_TTL_SECONDS", "180"))
+PUBLIC_API_STALE_TTL_SECONDS = int(os.getenv("COIBE_PUBLIC_API_STALE_TTL_SECONDS", "86400"))
+PUBLIC_API_ERROR_COOLDOWN_SECONDS = int(os.getenv("COIBE_PUBLIC_API_ERROR_COOLDOWN_SECONDS", "120"))
+PUBLIC_API_MIN_INTERVAL_SECONDS = float(os.getenv("COIBE_PUBLIC_API_MIN_INTERVAL_SECONDS", "0.25"))
 RATE_LIMIT_BUCKET_MAX_KEYS = int(os.getenv("COIBE_RATE_LIMIT_BUCKET_MAX_KEYS", "5000"))
 MAX_REQUEST_BODY_BYTES = int(os.getenv("COIBE_MAX_REQUEST_BODY_BYTES", str(256 * 1024)))
 MAX_QUERY_STRING_BYTES = int(os.getenv("COIBE_MAX_QUERY_STRING_BYTES", "2048"))
@@ -592,6 +598,7 @@ class LocalMonitorStatus(BaseModel):
     monitored_entities_count: int = 0
     collector_state: dict[str, Any] = Field(default_factory=dict)
     model_status: dict[str, Any] = Field(default_factory=dict)
+    autonomous_agents: dict[str, Any] = Field(default_factory=dict)
     acquisition_first: bool = True
     message: str
 
@@ -619,11 +626,21 @@ class MonitorModelConfig(BaseModel):
     gpu_memory_limit_mb: int = Field(default=2048, ge=256, le=49152)
     use_shared_memory: bool = True
     shared_memory_limit_mb: int = Field(default=4096, ge=512, le=131072)
+    scan_profile: str = Field(default="balanced", pattern="^(conservative|balanced|heavy|no-delay-heavy)$")
+    max_concurrent_requests: int = Field(default=4, ge=1, le=24)
+    public_api_concurrency: int = Field(default=3, ge=1, le=8)
+    public_api_source_mode: str = Field(default="hybrid", pattern="^(live|hybrid|cache-first)$")
+    internet_sweep_concurrency: int = Field(default=4, ge=1, le=24)
+    gpu_acceleration_level: str = Field(default="balanced", pattern="^(off|balanced|aggressive)$")
+    training_sample_limit: int = Field(default=1000, ge=100, le=10000)
+    analysis_batch_size: int = Field(default=256, ge=16, le=5000)
+    learning_batch_size: int = Field(default=512, ge=16, le=10000)
     selected_model_id: str = "coibe-adaptive-default"
     deep_learning_enabled: bool = True
     quantization_mode: str = "dynamic-int8"
     model_format: str = "joblib+onnx-manifest+quant-manifest"
     internet_sweep_enabled: bool = True
+    web_fallback_enabled: bool = True
     internet_sweep_pages_per_cycle: int = Field(default=6, ge=0, le=50)
     internet_sweep_timeout_seconds: int = Field(default=12, ge=3, le=120)
     research_timeout_seconds: int = Field(default=90, ge=15, le=900)
@@ -742,6 +759,11 @@ class PoliticalScanResponse(BaseModel):
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], list[float]] = {}
 API_RESPONSE_CACHE: dict[str, tuple[float, Any]] = {}
 API_RESPONSE_LOCKS: dict[str, asyncio.Lock] = {}
+PUBLIC_API_CACHE: dict[str, tuple[float, float, Any]] = {}
+PUBLIC_API_LOCKS: dict[str, asyncio.Lock] = {}
+PUBLIC_API_HOST_LOCKS: dict[str, asyncio.Lock] = {}
+PUBLIC_API_HOST_LAST_CALL: dict[str, float] = {}
+PUBLIC_API_HOST_COOLDOWN: dict[str, float] = {}
 POLITICAL_LOCAL_ITEMS_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
 POLITICAL_BACKGROUND_REFRESHES: set[str] = set()
 SENATORS_PUBLIC_CACHE: dict[str, Any] = {"loaded_at": 0.0, "items": []}
@@ -1053,10 +1075,22 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 def process_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            return str(pid) in result.stdout
+        except Exception:
+            return False
     try:
         os.kill(pid, 0)
         return True
-    except OSError:
+    except Exception:
         return False
 
 
@@ -1234,6 +1268,7 @@ def start_auto_monitor() -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     stdout = (logs_dir / "monitor.out.log").open("a", encoding="utf-8")
     stderr = (logs_dir / "monitor.err.log").open("a", encoding="utf-8")
+    config = read_monitor_model_config()
     command = [
         sys.executable,
         "local_monitor.py",
@@ -1242,14 +1277,14 @@ def start_auto_monitor() -> None:
         "--interval-minutes",
         str(AUTO_MONITOR_INTERVAL_MINUTES),
         "--pages",
-        str(AUTO_MONITOR_PAGES),
+        str(config.research_rounds),
         "--page-size",
-        str(AUTO_MONITOR_PAGE_SIZE),
+        str(config.feed_page_size),
         "--startup-delay-seconds",
         "8",
     ]
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    process = subprocess.Popen(command, stdout=stdout, stderr=stderr, creationflags=creationflags)
+    process = subprocess.Popen(command, stdout=stdout, stderr=stderr, creationflags=creationflags, env=monitor_process_env(config))
     AUTO_MONITOR_PID_PATH.write_text(str(process.pid), encoding="utf-8")
 
 
@@ -1344,23 +1379,95 @@ def contract_date_windows(content_date_from: date | None = None, content_date_to
     return windows
 
 
+def public_api_cache_key(url: str, params: dict[str, Any] | None = None) -> str:
+    normalized_params = urlencode(sorted((params or {}).items()))
+    return f"{url}?{normalized_params}"
+
+
+def public_api_retry_after(response: httpx.Response | None) -> float:
+    if response is None:
+        return float(PUBLIC_API_ERROR_COOLDOWN_SECONDS)
+    retry_after = response.headers.get("retry-after")
+    try:
+        return max(float(retry_after or 0), 1.0)
+    except ValueError:
+        return float(PUBLIC_API_ERROR_COOLDOWN_SECONDS)
+
+
 async def get_json(url: str, params: dict[str, Any] | None = None) -> Any:
-    timeout = httpx.Timeout(15.0, connect=5.0)
-    headers = {"User-Agent": "COIBE.IA public-data-risk-engine/0.2"}
+    now = time.monotonic()
+    cache_key = public_api_cache_key(url, params)
+    host = urlparse(url).hostname or "public-api"
+    cached = PUBLIC_API_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[2]
 
-    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+    lock = PUBLIC_API_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        now = time.monotonic()
+        cached = PUBLIC_API_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[2]
+        cooldown_until = PUBLIC_API_HOST_COOLDOWN.get(host, 0.0)
+        if cooldown_until > now and cached and cached[1] > now:
+            return cached[2]
+        if cooldown_until > now:
             raise HTTPException(
-                status_code=502,
-                detail=f"Fonte pública retornou HTTP {exc.response.status_code}: {url}",
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Falha ao consultar fonte pública: {url}") from exc
+                status_code=429,
+                detail=f"Fonte pública em cooldown por proteção/rate limit: {host}",
+                headers={"Retry-After": str(int(max(1, cooldown_until - now)))},
+            )
 
-    return response.json()
+        host_lock = PUBLIC_API_HOST_LOCKS.setdefault(host, asyncio.Lock())
+        async with host_lock:
+            last_call = PUBLIC_API_HOST_LAST_CALL.get(host, 0.0)
+            wait_seconds = PUBLIC_API_MIN_INTERVAL_SECONDS - (time.monotonic() - last_call)
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+            PUBLIC_API_HOST_LAST_CALL[host] = time.monotonic()
+
+            timeout = httpx.Timeout(12.0, connect=5.0)
+            headers = {"User-Agent": "COIBE.IA public-data-risk-engine/0.4 (+cache; public-interest-monitoring)"}
+            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+                try:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code in {403, 408, 409, 425, 429, 500, 502, 503, 504}:
+                        retry_after = public_api_retry_after(exc.response)
+                        PUBLIC_API_HOST_COOLDOWN[host] = time.monotonic() + max(retry_after, PUBLIC_API_ERROR_COOLDOWN_SECONDS)
+                        if cached and cached[1] > time.monotonic():
+                            return cached[2]
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Fonte pública retornou HTTP {exc.response.status_code}: {url}",
+                    ) from exc
+                except httpx.TimeoutException as exc:
+                    PUBLIC_API_HOST_COOLDOWN[host] = time.monotonic() + max(15, PUBLIC_API_ERROR_COOLDOWN_SECONDS // 2)
+                    if cached and cached[1] > time.monotonic():
+                        return cached[2]
+                    raise HTTPException(status_code=504, detail=f"Timeout ao consultar fonte pública: {url}") from exc
+                except httpx.HTTPError as exc:
+                    PUBLIC_API_HOST_COOLDOWN[host] = time.monotonic() + max(15, PUBLIC_API_ERROR_COOLDOWN_SECONDS // 2)
+                    if cached and cached[1] > time.monotonic():
+                        return cached[2]
+                    raise HTTPException(status_code=502, detail=f"Falha ao consultar fonte pública: {url}") from exc
+
+            payload = response.json()
+            fresh_until = time.monotonic() + max(1, PUBLIC_API_CACHE_TTL_SECONDS)
+            stale_until = time.monotonic() + max(PUBLIC_API_STALE_TTL_SECONDS, PUBLIC_API_CACHE_TTL_SECONDS)
+            PUBLIC_API_CACHE[cache_key] = (fresh_until, stale_until, payload)
+            if len(PUBLIC_API_CACHE) > API_RESPONSE_CACHE_MAX_ENTRIES:
+                current = time.monotonic()
+                expired = [key for key, (_, stale_until_value, _) in PUBLIC_API_CACHE.items() if stale_until_value <= current]
+                for key in expired:
+                    PUBLIC_API_CACHE.pop(key, None)
+                    PUBLIC_API_LOCKS.pop(key, None)
+                while len(PUBLIC_API_CACHE) > API_RESPONSE_CACHE_MAX_ENTRIES:
+                    key = next(iter(PUBLIC_API_CACHE))
+                    PUBLIC_API_CACHE.pop(key, None)
+                    PUBLIC_API_LOCKS.pop(key, None)
+            return payload
 
 
 def sanitize_portal_transparencia_path(path: str) -> str:
@@ -1843,6 +1950,97 @@ def parse_iso_date(value: str | None) -> date:
     return brasilia_today()
 
 
+def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringItem | None:
+    collected_at = parse_iso_datetime(str(record.get("collected_at") or "")) or brasilia_now()
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    title = str(record.get("title") or payload.get("title") or record.get("source") or "Fonte publica atualizada")
+    source = str(record.get("source") or "Fonte publica")
+    subtitle = str(record.get("subtitle") or payload.get("summary") or payload.get("text_excerpt") or title)
+    url = str(record.get("url") or payload.get("url") or "")
+    record_type = str(record.get("record_type") or "public_record")
+    record_key = str(record.get("record_key") or f"{record_type}:{source}:{title}:{index}")
+    stable_id = hashlib.sha256(record_key.encode("utf-8", errors="ignore")).hexdigest()[:24]
+    risk_level = str(record.get("risk_level") or payload.get("attention_level") or "baixo")
+    normalized_level = normalize_text(risk_level).lower()
+    risk_score = 60 if normalized_level == "alto" else 35 if normalized_level in {"medio", "médio"} else 12
+    evidence = {
+        "record_type": record_type,
+        "source": source,
+        "title": title,
+        "url": url,
+        "collected_at": collected_at.isoformat(),
+        "payload_excerpt": subtitle[:1000],
+    }
+    try:
+        return MonitoringItem(
+            id=f"public-record-{stable_id}",
+            date=collected_at.date(),
+            title=title,
+            location=source,
+            city=None,
+            uf=None,
+            entity=source,
+            supplier_name=None,
+            supplier_cnpj=None,
+            value=Decimal("0"),
+            formatted_value=money(Decimal("0")),
+            estimated_variation=Decimal("0"),
+            formatted_variation=money(Decimal("0")),
+            risk_score=risk_score,
+            risk_level=risk_level if risk_level else "baixo",
+            object=subtitle[:1200] or title,
+            report=MonitoringReport(
+                id=f"public-record-report-{stable_id}",
+                summary="Registro publico recente coletado pelo monitor para manter o feed atualizado.",
+                risk_score=risk_score,
+                risk_level=risk_level if risk_level else "baixo",
+                red_flags=[
+                    RedFlagResult(
+                        code="PUBLIC-RECORD-UPDATE",
+                        title="Fonte publica atualizada",
+                        has_risk=risk_score >= 35,
+                        risk_level=risk_level if risk_level else "baixo",
+                        message="Registro recente entrou pela base de fontes publicas e deve ser usado como triagem/contexto.",
+                        evidence=evidence,
+                        criteria={"rule": "registro publico coletado/atualizado pelo monitor"},
+                    )
+                ],
+                official_sources=[MonitoringSource(label=source, url=url, kind=record_type)] if url else [],
+                public_evidence=[evidence],
+                generated_at=collected_at,
+                ml_model="coibe-public-record-feed",
+            ),
+        )
+    except Exception:
+        return None
+
+
+def load_public_record_feed_items(limit: int = PUBLIC_RECORD_FEED_LIMIT) -> list[MonitoringItem]:
+    if limit <= 0 or not data_path_exists(LOCAL_PUBLIC_RECORDS_PATH):
+        return []
+    raw_records = read_data_json(LOCAL_PUBLIC_RECORDS_PATH, [])
+    if not isinstance(raw_records, list):
+        return []
+    records = [record for record in raw_records if isinstance(record, dict)]
+    records.sort(key=lambda record: str(record.get("collected_at") or ""), reverse=True)
+    items: list[MonitoringItem] = []
+    seen: set[str] = set()
+    for record in records:
+        record_type = str(record.get("record_type") or "")
+        if record_type in {"connector_source", "connector_status", "architecture_status", "state_risk"}:
+            continue
+        key = str(record.get("record_key") or record.get("url") or record.get("title") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        item = public_record_feed_item(record, len(items))
+        if item is not None:
+            items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
 def contract_content_date(contract: dict[str, Any]) -> date:
     return parse_iso_date(
         contract.get("dataVigenciaInicial")
@@ -2279,6 +2477,19 @@ def load_local_monitoring_items(
     if not isinstance(raw_items, list):
         return []
 
+    public_record_items = load_public_record_feed_items()
+    if public_record_items:
+        existing_keys = {
+            f"{raw_item.get('id')}:{raw_item.get('date')}"
+            for raw_item in raw_items
+            if isinstance(raw_item, dict)
+        }
+        for public_item in public_record_items:
+            key = f"{public_item.id}:{public_item.date.isoformat()}"
+            if key not in existing_keys:
+                raw_items.append(public_item.model_dump(mode="json"))
+                existing_keys.add(key)
+
     query_parts = split_related_query(q)
     normalized_queries = [normalize_text(part) for part in query_parts]
     query_digits_parts = ["".join(ch for ch in part if ch.isdigit()) for part in query_parts]
@@ -2576,11 +2787,21 @@ def default_monitor_model_config() -> MonitorModelConfig:
         gpu_memory_limit_mb=COIBE_GPU_MEMORY_LIMIT_MB,
         use_shared_memory=COIBE_ML_USE_SHARED_MEMORY,
         shared_memory_limit_mb=COIBE_SHARED_MEMORY_LIMIT_MB,
+        scan_profile=os.getenv("COIBE_MONITOR_SCAN_PROFILE", "balanced"),
+        max_concurrent_requests=int(os.getenv("COIBE_MONITOR_MAX_CONCURRENT_REQUESTS", "4")),
+        public_api_concurrency=int(os.getenv("COIBE_MONITOR_PUBLIC_API_CONCURRENCY", "3")),
+        public_api_source_mode=os.getenv("COIBE_MONITOR_PUBLIC_API_SOURCE_MODE", "hybrid"),
+        internet_sweep_concurrency=int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_CONCURRENCY", "4")),
+        gpu_acceleration_level=os.getenv("COIBE_MONITOR_GPU_ACCELERATION_LEVEL", "balanced"),
+        training_sample_limit=int(os.getenv("COIBE_MONITOR_TRAINING_SAMPLE_LIMIT", "1000")),
+        analysis_batch_size=int(os.getenv("COIBE_MONITOR_ANALYSIS_BATCH_SIZE", "256")),
+        learning_batch_size=int(os.getenv("COIBE_MONITOR_LEARNING_BATCH_SIZE", "512")),
         selected_model_id=MONITOR_SELECTED_MODEL_ID,
         deep_learning_enabled=True,
         quantization_mode="dynamic-int8",
         model_format="joblib+onnx-manifest+quant-manifest",
         internet_sweep_enabled=True,
+        web_fallback_enabled=os.getenv("COIBE_MONITOR_WEB_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"},
         internet_sweep_pages_per_cycle=int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE", "6")),
         internet_sweep_timeout_seconds=int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS", "12")),
         research_timeout_seconds=int(os.getenv("COIBE_RESEARCH_TIMEOUT_SECONDS", "90")),
@@ -2615,13 +2836,49 @@ def write_monitor_model_config(config: MonitorModelConfig) -> MonitorModelConfig
     return config
 
 
+def monitor_process_env(config: MonitorModelConfig) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "COIBE_ML_USE_GPU": "true" if config.use_gpu else "false",
+            "COIBE_GPU_MEMORY_LIMIT_MB": str(config.gpu_memory_limit_mb),
+            "COIBE_ML_USE_SHARED_MEMORY": "true" if config.use_shared_memory else "false",
+            "COIBE_SHARED_MEMORY_LIMIT_MB": str(config.shared_memory_limit_mb),
+            "COIBE_MONITOR_SCAN_PROFILE": config.scan_profile,
+            "COIBE_MONITOR_MAX_CONCURRENT_REQUESTS": str(config.max_concurrent_requests),
+            "COIBE_MONITOR_PUBLIC_API_CONCURRENCY": str(config.public_api_concurrency),
+            "COIBE_MONITOR_PUBLIC_API_SOURCE_MODE": config.public_api_source_mode,
+            "COIBE_MONITOR_INTERNET_SWEEP_CONCURRENCY": str(config.internet_sweep_concurrency),
+            "COIBE_MONITOR_GPU_ACCELERATION_LEVEL": config.gpu_acceleration_level,
+            "COIBE_MONITOR_TRAINING_SAMPLE_LIMIT": str(config.training_sample_limit),
+            "COIBE_MONITOR_ANALYSIS_BATCH_SIZE": str(config.analysis_batch_size),
+            "COIBE_MONITOR_LEARNING_BATCH_SIZE": str(config.learning_batch_size),
+            "COIBE_MONITOR_INTERNET_SWEEP_ENABLED": "true" if config.internet_sweep_enabled else "false",
+            "COIBE_MONITOR_WEB_FALLBACK_ENABLED": "true" if config.web_fallback_enabled else "false",
+            "COIBE_MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE": str(config.internet_sweep_pages_per_cycle),
+            "COIBE_MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS": str(config.internet_sweep_timeout_seconds),
+            "COIBE_RESEARCH_TIMEOUT_SECONDS": str(config.research_timeout_seconds),
+            "COIBE_MODEL_LEARNED_TERMS_PER_CYCLE": str(config.learned_terms_per_cycle),
+            "COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE": str(config.search_terms_per_cycle),
+            "COIBE_MONITOR_SEARCH_DELAY_SECONDS": str(config.search_delay_seconds),
+            "COIBE_MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE": str(config.priority_feed_queries_per_cycle),
+            "COIBE_MONITOR_SELECTED_MODEL_ID": config.selected_model_id,
+            "COIBE_MONITOR_DEEP_LEARNING_ENABLED": "true" if config.deep_learning_enabled else "false",
+            "COIBE_MONITOR_QUANTIZATION_MODE": config.quantization_mode,
+            "COIBE_POLITICAL_PARTY_SCAN_LIMIT": str(config.political_party_scan_limit),
+            "COIBE_POLITICAL_PEOPLE_SCAN_LIMIT": str(config.political_people_scan_limit),
+        }
+    )
+    return env
+
+
 def gpu_status() -> dict[str, Any]:
     config = read_monitor_model_config()
     prepare_cuda_dll_paths()
     status = {
         "enabled_by_env": COIBE_ML_USE_GPU,
         "enabled_by_config": config.use_gpu,
-        "enabled": bool(COIBE_ML_USE_GPU and config.use_gpu),
+        "enabled": bool(config.use_gpu),
         "memory_limit_mb": config.gpu_memory_limit_mb,
         "shared_memory_enabled": config.use_shared_memory,
         "shared_memory_limit_mb": config.shared_memory_limit_mb,
@@ -2630,7 +2887,7 @@ def gpu_status() -> dict[str, Any]:
         "memory_total_mb": None,
         "gpu_library": None,
         "gpu_runtime_ready": False,
-        "note": "GPU usada somente se COIBE_ML_USE_GPU=true, configuracao local use_gpu=true e bibliotecas compativeis estiverem instaladas.",
+        "note": "GPU solicitada pela configuracao local; processos de monitor recebem COIBE_ML_USE_GPU automaticamente ao iniciar.",
     }
     try:
         result = subprocess.run(
@@ -2721,6 +2978,7 @@ def start_monitor_training_process() -> dict[str, Any]:
             cwd=str(Path.cwd()),
             close_fds=True,
             creationflags=creationflags,
+            env=monitor_process_env(config),
         )
     finally:
         if stdout_target is not None:
@@ -2753,6 +3011,7 @@ def default_model_registry(selected_model_id: str | None = None) -> dict[str, An
                 "name": "COIBE Adaptativo Padrao",
                 "kind": "rules+statistics+learning",
                 "path": str(MONITOR_MODEL_STATE_PATH),
+                "memory_path": str(MONITOR_MODEL_MEMORY_PATH),
                 "selected": selected == "coibe-adaptive-default",
                 "available": True,
                 "quantization_compatible": True,
@@ -2812,6 +3071,43 @@ def read_model_registry(config: MonitorModelConfig | None = None, state: dict[st
     return registry
 
 
+def monitor_model_quality_summary(state: dict[str, Any]) -> dict[str, Any]:
+    artifacts = state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {}
+    cache_profile = state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {}
+    last_training = state.get("last_training") if isinstance(state.get("last_training"), dict) else {}
+    dataset_profile = artifacts.get("dataset_profile") if isinstance(artifacts.get("dataset_profile"), dict) else {}
+    validation_metrics = artifacts.get("validation_metrics") if isinstance(artifacts.get("validation_metrics"), dict) else None
+    training_metrics = artifacts.get("training_metrics") if isinstance(artifacts.get("training_metrics"), dict) else None
+    sample_size = (
+        int(dataset_profile.get("sample_size") or 0)
+        or int(last_training.get("model_training_sample") or 0)
+        or int(cache_profile.get("model_training_sample_seen") or 0)
+        or int(cache_profile.get("cached_training_items_seen") or 0)
+    )
+    class_count = int(dataset_profile.get("class_count") or 0)
+    metric_source = "validation" if validation_metrics else "training" if training_metrics else None
+    metrics = validation_metrics or training_metrics or {}
+    accuracy = metrics.get("accuracy") if isinstance(metrics, dict) else None
+    macro_f1 = metrics.get("macro_f1") if isinstance(metrics, dict) else None
+    if accuracy is None and sample_size:
+        status = "aguardando novo treino com metricas"
+    elif accuracy is None:
+        status = "sem amostra de treino registrada"
+    else:
+        status = "ok"
+    return {
+        "status": status,
+        "accuracy": accuracy,
+        "macro_f1": macro_f1,
+        "metric_source": metric_source,
+        "sample_size": sample_size,
+        "class_count": class_count,
+        "dataset_profile": dataset_profile,
+        "validation_metrics": validation_metrics,
+        "training_metrics": training_metrics,
+    }
+
+
 def restart_backend_visible_terminal() -> None:
     time.sleep(1.0)
     script = Path("start-coibe-backend.ps1").resolve()
@@ -2847,19 +3143,30 @@ def monitor_model_status() -> dict[str, Any]:
                 training_lines = sum(1 for _ in handle)
         except Exception:
             training_lines = 0
+    memory_lines = 0
+    if MONITOR_MODEL_MEMORY_PATH.exists():
+        try:
+            with MONITOR_MODEL_MEMORY_PATH.open("r", encoding="utf-8") as handle:
+                memory_lines = sum(1 for _ in handle)
+        except Exception:
+            memory_lines = 0
     learned_terms = state.get("learned_terms") if isinstance(state.get("learned_terms"), list) else []
     learned_checks = state.get("learned_checks") if isinstance(state.get("learned_checks"), list) else []
     learned_targets = state.get("learned_targets") if isinstance(state.get("learned_targets"), list) else []
     learned_total_count = len(learned_terms) + len(learned_checks) + len(learned_targets)
+    model_quality = monitor_model_quality_summary(state)
     return {
         "models_dir": str(MODELS_DIR),
         "state_path": str(MONITOR_MODEL_STATE_PATH),
         "training_path": str(MONITOR_MODEL_TRAINING_PATH),
+        "evolution_memory_path": str(MONITOR_MODEL_MEMORY_PATH),
         "config_path": str(MONITOR_MODEL_CONFIG_PATH),
         "state_exists": MONITOR_MODEL_STATE_PATH.exists(),
         "training_history_exists": MONITOR_MODEL_TRAINING_PATH.exists(),
+        "evolution_memory_exists": MONITOR_MODEL_MEMORY_PATH.exists(),
         "config": config.model_dump(),
         "training_events": training_lines,
+        "evolution_memory_events": memory_lines,
         "version": state.get("version") or "coibe-monitor-v1",
         "updated_at": state.get("updated_at"),
         "cycles": int(state.get("cycles") or 0),
@@ -2874,6 +3181,8 @@ def monitor_model_status() -> dict[str, Any]:
         "available_models": registry.get("models", []),
         "model_registry_path": str(MONITOR_MODEL_REGISTRY_PATH),
         "model_artifacts": state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {},
+        "model_quality": model_quality,
+        "evolution_memory": state.get("evolution_memory") if isinstance(state.get("evolution_memory"), dict) else {},
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training"),
         "gpu": gpu_status(),
@@ -2900,6 +3209,8 @@ def public_monitor_model_summary() -> dict[str, Any]:
         "selected_model": next((model for model in registry.get("models", []) if model.get("selected")), None),
         "available_models_count": len(registry.get("models", [])),
         "model_artifacts": state.get("model_artifacts") if isinstance(state.get("model_artifacts"), dict) else {},
+        "model_quality": monitor_model_quality_summary(state),
+        "evolution_memory": state.get("evolution_memory") if isinstance(state.get("evolution_memory"), dict) else {},
         "cache_profile": state.get("cache_profile") if isinstance(state.get("cache_profile"), dict) else {},
         "last_training": state.get("last_training") if isinstance(state.get("last_training"), dict) else {},
         "status": "ativo" if state.get("updated_at") else "aguardando primeiro ciclo",
@@ -6857,17 +7168,23 @@ async def backend_ui(request: Request) -> HTMLResponse:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>COIBE.IA Backend</title>
   <style>
-    body{margin:0;background:#070707;color:#f5f5f5;font-family:Inter,system-ui,sans-serif}
-    main{width:min(1080px,calc(100% - 32px));margin:0 auto;padding:28px 0}
-    h1{font-size:26px;margin:0 0 4px}.muted{color:#a3a3a3}
-    .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:18px}
-    .card, form{border:1px solid #2a2a2a;background:#171717;border-radius:8px;padding:16px}
-    strong{display:block;font-size:24px;margin-top:8px}.red{color:#ef4444}.ok{color:#22c55e}
-    label{display:block;margin:10px 0;color:#d4d4d4;font-weight:700} input{width:100%;margin-top:6px;border:1px solid #333;background:#0b0b0b;color:#fff;border-radius:6px;padding:10px}
-    input[type=checkbox]{width:auto;margin-right:8px} button{border:1px solid #ef4444;background:#ef4444;color:white;border-radius:6px;padding:10px 14px;font-weight:800;cursor:pointer;margin:4px 6px 4px 0}
-    button.secondary{background:#171717;border-color:#525252} button.danger{background:#991b1b;border-color:#dc2626}
-    pre{white-space:pre-wrap;word-break:break-word;background:#101010;border:1px solid #2a2a2a;border-radius:8px;padding:14px;max-height:360px;overflow:auto}
-    a{color:#f87171} small{color:#a3a3a3}
+    :root{color-scheme:dark;--bg:#08090b;--panel:#111318;--panel2:#171a21;--line:#262b35;--text:#f5f7fb;--muted:#9aa3b2;--red:#ef4444;--green:#22c55e}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:13px}
+    main{width:min(1240px,calc(100% - 28px));margin:0 auto;padding:18px 0 26px}
+    h1{font-size:22px;line-height:1;margin:0 0 5px;letter-spacing:0} h2{margin:18px 0 8px;font-size:12px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.08em}.muted{color:var(--muted)}
+    .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:14px}
+    .card,form{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel2),var(--panel));border-radius:8px;box-shadow:0 12px 34px rgba(0,0,0,.28)}
+    .card{min-height:86px;padding:12px} strong{display:block;font-size:19px;line-height:1.1;margin-top:6px;word-break:break-word}.red{color:var(--red)}.ok{color:var(--green)}
+    form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;padding:12px}
+    label{display:block;min-width:0;margin:0;color:#d9dee8;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+    input,select{width:100%;margin-top:5px;border:1px solid #303642;background:#090b0f;color:#fff;border-radius:6px;padding:8px 9px;outline:none}
+    input:focus,select:focus{border-color:#ef4444;box-shadow:0 0 0 2px rgba(239,68,68,.18)}
+    input[type=checkbox]{width:auto;margin:0 7px 0 0;vertical-align:middle} label:has(input[type=checkbox]){display:flex;align-items:center;min-height:34px;border:1px solid #303642;background:#090b0f;border-radius:6px;padding:8px 9px}
+    button{border:1px solid var(--red);background:var(--red);color:white;border-radius:6px;padding:9px 12px;font-weight:900;cursor:pointer;margin:3px 5px 3px 0}
+    form button[type=submit]{align-self:end}
+    button.secondary{background:#171a21;border-color:#475569} button.danger{background:#991b1b;border-color:#dc2626}
+    pre{white-space:pre-wrap;word-break:break-word;background:#090b0f;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:280px;overflow:auto;font-size:12px}
+    a{color:#f87171} small{color:var(--muted);line-height:1.5}
   </style>
 </head>
 <body>
@@ -6882,12 +7199,22 @@ async def backend_ui(request: Request) -> HTMLResponse:
       <label>Modo de quantização<select name="quantization_mode"><option value="dynamic-int8">dynamic-int8</option><option value="static-int8">static-int8</option><option value="none">sem quantização</option></select></label>
       <label>Formato do modelo<input name="model_format" type="text" /></label>
       <label><input type="checkbox" name="internet_sweep_enabled" /> Fazer varredura HTML pública sem depender só de APIs</label>
+      <label><input type="checkbox" name="web_fallback_enabled" /> Usar varredura web como fallback quando API/feed falhar</label>
       <label>Páginas públicas por ciclo<input name="internet_sweep_pages_per_cycle" type="number" min="0" max="50" /></label>
       <label>Timeout por página pública (segundos)<input name="internet_sweep_timeout_seconds" type="number" min="3" max="120" /></label>
       <label><input type="checkbox" name="use_gpu" /> Usar GPU quando disponível</label>
       <label>Limite de memória da GPU (MB)<input name="gpu_memory_limit_mb" type="number" min="256" max="49152" /></label>
       <label><input type="checkbox" name="use_shared_memory" /> Permitir memória compartilhada/RAM do PC quando GPU não bastar</label>
       <label>Limite de memória compartilhada/RAM (MB)<input name="shared_memory_limit_mb" type="number" min="512" max="131072" /></label>
+      <label>Perfil de treinamento/varredura<select name="scan_profile"><option value="conservative">conservador</option><option value="balanced">equilibrado</option><option value="heavy">pesado</option><option value="no-delay-heavy">pesado sem delay</option></select></label>
+      <label>Concorrência máxima de fontes/API<input name="max_concurrent_requests" type="number" min="1" max="24" /></label>
+      <label>Concorrência em APIs públicas<input name="public_api_concurrency" type="number" min="1" max="8" /></label>
+      <label>Modo das APIs públicas<select name="public_api_source_mode"><option value="hybrid">híbrido</option><option value="cache-first">cache primeiro</option><option value="live">sempre live</option></select></label>
+      <label>Concorrência da varredura HTML<input name="internet_sweep_concurrency" type="number" min="1" max="24" /></label>
+      <label>Uso da GPU no analisador<select name="gpu_acceleration_level"><option value="off">desligado</option><option value="balanced">equilibrado</option><option value="aggressive">agressivo</option></select></label>
+      <label>Amostra máxima de treino por ciclo<input name="training_sample_limit" type="number" min="100" max="10000" /></label>
+      <label>Lote de análise<input name="analysis_batch_size" type="number" min="16" max="5000" /></label>
+      <label>Lote de aprendizagem<input name="learning_batch_size" type="number" min="16" max="10000" /></label>
       <label>Tempo máximo de pesquisa por ciclo (segundos)<input name="research_timeout_seconds" type="number" min="15" max="900" /></label>
       <label>Rodadas/páginas por ciclo<input name="research_rounds" type="number" min="1" max="100" /></label>
       <label>Itens por rodada<input name="feed_page_size" type="number" min="10" max="100" /></label>
@@ -6947,11 +7274,20 @@ async def backend_ui(request: Request) -> HTMLResponse:
       const [model, monitor] = await Promise.all([getJson('/api/models/status'), getJson('/api/monitoring/status')]);
       fillModelOptions(model.available_models, model.config?.selected_model_id || model.selected_model?.id);
       fillConfig(model.config);
+      const quality = model.model_quality || {};
+      const qualityValue = quality.accuracy ?? quality.macro_f1 ?? (quality.sample_size ? 'novo treino' : 'n/d');
+      const qualityNote = quality.sample_size
+        ? `amostra ${quality.sample_size} • classes ${quality.class_count || 'n/d'} • ${quality.metric_source || quality.status || 'sem metrica'}`
+        : 'aguardando primeiro treino com metricas';
       document.getElementById('cards').innerHTML = [
         card('Modelo', model.selected_model?.name || model.version || 'n/d', model.updated_at || 'aguardando treino'),
         card('Aprendizados', `${model.learned_total_count || 0} itens`, `${model.learned_terms_count || 0} termos • ${model.learned_checks_count || 0} verificacoes • ${model.learned_targets_count || 0} alvos - ${model.models_dir}`),
         card('IA/Quantização', model.model_artifacts?.deep_model_trained ? 'Deep pronta' : 'Manifesto pronto', model.model_artifacts?.quantization_mode || model.config?.quantization_mode || 'dynamic-int8'),
-        card('Internet', monitor.collector_state?.internet_items_collected || model.cache_profile?.internet_pages_seen || 0, model.config?.internet_sweep_enabled ? 'varredura HTML ativa' : 'desativada'),
+        card('Qualidade ML', qualityValue, qualityNote),
+        card('Memória', `${model.evolution_memory_events || 0} ciclos`, model.evolution_memory_path || 'aguardando próximo ciclo'),
+        card('Perfil', model.config?.scan_profile || 'balanced', `concorrência ${model.config?.max_concurrent_requests || 4} • API pública ${model.config?.public_api_source_mode || 'hybrid'}/${model.config?.public_api_concurrency || 3} • lotes ${model.config?.analysis_batch_size || 256}/${model.config?.learning_batch_size || 512}`),
+        card('Agentes', `${monitor.autonomous_agents?.summary?.insights_count || 0} insights`, `${monitor.autonomous_agents?.summary?.item_flags_count || 0} flags em itens`),
+        card('Internet', monitor.collector_state?.internet_items_collected || model.cache_profile?.internet_pages_seen || 0, model.config?.internet_sweep_enabled ? `HTML ativa • fallback ${model.config?.web_fallback_enabled ? 'ativo' : 'off'} • usados ${monitor.collector_state?.web_fallback_items_collected || 0}` : 'desativada'),
         card('GPU', model.gpu.available ? model.gpu.name : 'Não detectada', model.gpu.enabled ? 'ativada na configuração' : 'desativada na configuração', model.gpu.available ? 'ok' : ''),
         card('Treinamento', model.training_process?.running ? 'Rodando' : 'Parado', model.training_process?.pid ? 'PID '+model.training_process.pid : 'sem processo'),
         card('Itens analisados', monitor.items_analyzed || 0, monitor.generated_at || 'sem ciclo'),
@@ -7256,6 +7592,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         "contracts_items_count": database_items_count,
         "public_records_count": public_records_count,
     }
+    autonomous_agents = data.get("agents") if isinstance(data.get("agents"), dict) else {}
     return LocalMonitorStatus(
         running=running,
         latest_file_exists=True,
@@ -7272,6 +7609,7 @@ async def local_monitor_status() -> LocalMonitorStatus:
         public_codes_count=library_status.public_codes_count,
         collector_state=collector_state,
         model_status=model_status,
+        autonomous_agents=autonomous_agents,
         **platform_metrics,
         message="Análise contínua atualizada recentemente." if running else "Análise contínua aguardando nova atualização.",
     )
@@ -8119,7 +8457,14 @@ async def pipeline_readiness() -> PipelineReadinessResponse:
     return PipelineReadinessResponse(
         storage_mode="platform-index",
         zero_file_storage=True,
-        pipeline_order=["connectors_and_scrapers", "internet_html_sweep", "raw_database_merge", "risk_rules_and_ml", "ai_artifact_training"],
+        pipeline_order=[
+            "connectors_and_scrapers",
+            "internet_html_sweep",
+            "raw_database_merge",
+            "risk_rules_and_ml",
+            "autonomous_agents",
+            "ai_artifact_training",
+        ],
         implemented_now=[
             "coleta sem salvar arquivos baixados",
             "varredura HTML publica independente de APIs",
@@ -8129,6 +8474,10 @@ async def pipeline_readiness() -> PipelineReadinessResponse:
             "z-score sobre base acumulada",
             "calculo espacial por Haversine para alerta logistico",
             "deep learning local com manifesto ONNX e compatibilidade de quantizacao",
+            "diagnostico de dataset e metricas de treino/validacao do classificador local",
+            "memoria evolutiva JSONL append-only para aprendizado ciclo a ciclo",
+            "monitor local como orquestrador de coleta, analise, treino e memoria",
+            "agentes autonomos deterministicos para grafo relacional, lacunas de evidencia, fontes e qualidade de dados",
         ],
         production_targets=[
             "PostgreSQL com particionamento por ano/UF",
@@ -8136,6 +8485,8 @@ async def pipeline_readiness() -> PipelineReadinessResponse:
             "distancia geografica no PostGIS com ST_DistanceSphere",
             "OpenSearch/Elasticsearch para indice invertido em producao",
             "worker Celery/RabbitMQ para sincronizacao incremental",
+            "agentes especializados para coleta, triagem, verificacao documental e explicacao",
+            "avaliacao offline com conjunto rotulado e comparacao de modelos antes de promover artefatos",
         ],
     )
 

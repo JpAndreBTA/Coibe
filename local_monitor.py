@@ -51,6 +51,7 @@ DEFAULT_SEARCH_TERMS = [
 MODELS_DIR = Path(os.getenv("COIBE_MODELS_DIR", "Models"))
 MONITOR_MODEL_STATE_PATH = MODELS_DIR / "monitor_model_state.json"
 MONITOR_MODEL_TRAINING_PATH = MODELS_DIR / "monitor_training_history.jsonl"
+MONITOR_MODEL_MEMORY_PATH = MODELS_DIR / "coibe_adaptive_memory.jsonl"
 MONITOR_MODEL_CONFIG_PATH = MODELS_DIR / "monitor_config.json"
 MONITOR_MODEL_REGISTRY_PATH = MODELS_DIR / "model_registry.json"
 MONITOR_DEEP_MODEL_PATH = MODELS_DIR / "coibe_adaptive_deep_model.joblib"
@@ -67,8 +68,18 @@ MONITOR_SEARCH_TERMS_PER_CYCLE = int(os.getenv("COIBE_MONITOR_SEARCH_TERMS_PER_C
 MONITOR_SEARCH_DELAY_SECONDS = float(os.getenv("COIBE_MONITOR_SEARCH_DELAY_SECONDS", "2.0"))
 MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE", "4"))
 MONITOR_INTERNET_SWEEP_ENABLED = os.getenv("COIBE_MONITOR_INTERNET_SWEEP_ENABLED", "true").lower() in {"1", "true", "yes"}
+MONITOR_WEB_FALLBACK_ENABLED = os.getenv("COIBE_MONITOR_WEB_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
 MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE = int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE", "6"))
 MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS = int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS", "12"))
+MONITOR_SCAN_PROFILE = os.getenv("COIBE_MONITOR_SCAN_PROFILE", "balanced")
+MONITOR_MAX_CONCURRENT_REQUESTS = int(os.getenv("COIBE_MONITOR_MAX_CONCURRENT_REQUESTS", "4"))
+MONITOR_PUBLIC_API_CONCURRENCY = int(os.getenv("COIBE_MONITOR_PUBLIC_API_CONCURRENCY", "3"))
+MONITOR_PUBLIC_API_SOURCE_MODE = os.getenv("COIBE_MONITOR_PUBLIC_API_SOURCE_MODE", "hybrid")
+MONITOR_INTERNET_SWEEP_CONCURRENCY = int(os.getenv("COIBE_MONITOR_INTERNET_SWEEP_CONCURRENCY", "4"))
+MONITOR_GPU_ACCELERATION_LEVEL = os.getenv("COIBE_MONITOR_GPU_ACCELERATION_LEVEL", "balanced")
+MONITOR_TRAINING_SAMPLE_LIMIT = int(os.getenv("COIBE_MONITOR_TRAINING_SAMPLE_LIMIT", "1000"))
+MONITOR_ANALYSIS_BATCH_SIZE = int(os.getenv("COIBE_MONITOR_ANALYSIS_BATCH_SIZE", "256"))
+MONITOR_LEARNING_BATCH_SIZE = int(os.getenv("COIBE_MONITOR_LEARNING_BATCH_SIZE", "512"))
 MONITOR_SELECTED_MODEL_ID = os.getenv("COIBE_MONITOR_SELECTED_MODEL_ID", "coibe-adaptive-default")
 MONITOR_DEEP_LEARNING_ENABLED = os.getenv("COIBE_MONITOR_DEEP_LEARNING_ENABLED", "true").lower() in {"1", "true", "yes"}
 MONITOR_QUANTIZATION_MODE = os.getenv("COIBE_MONITOR_QUANTIZATION_MODE", "dynamic-int8")
@@ -134,6 +145,11 @@ def rotate_list(values: list[str], offset: int) -> list[str]:
         return []
     start = max(int(offset or 0), 0) % len(values)
     return [*values[start:], *values[:start]]
+
+
+def batched(values: list[Any], batch_size: int) -> list[list[Any]]:
+    size = max(1, int(batch_size or 1))
+    return [values[index:index + size] for index in range(0, len(values), size)]
 
 
 def now_slug() -> str:
@@ -236,6 +252,15 @@ def load_monitor_config() -> dict[str, Any]:
         "gpu_memory_limit_mb": GPU_MEMORY_LIMIT_MB,
         "use_shared_memory": USE_SHARED_MEMORY,
         "shared_memory_limit_mb": SHARED_MEMORY_LIMIT_MB,
+        "scan_profile": MONITOR_SCAN_PROFILE,
+        "max_concurrent_requests": MONITOR_MAX_CONCURRENT_REQUESTS,
+        "public_api_concurrency": MONITOR_PUBLIC_API_CONCURRENCY,
+        "public_api_source_mode": MONITOR_PUBLIC_API_SOURCE_MODE,
+        "internet_sweep_concurrency": MONITOR_INTERNET_SWEEP_CONCURRENCY,
+        "gpu_acceleration_level": MONITOR_GPU_ACCELERATION_LEVEL,
+        "training_sample_limit": MONITOR_TRAINING_SAMPLE_LIMIT,
+        "analysis_batch_size": MONITOR_ANALYSIS_BATCH_SIZE,
+        "learning_batch_size": MONITOR_LEARNING_BATCH_SIZE,
         "research_timeout_seconds": RESEARCH_TIMEOUT_SECONDS,
         "research_rounds": None,
         "feed_page_size": None,
@@ -246,6 +271,7 @@ def load_monitor_config() -> dict[str, Any]:
         "search_delay_seconds": MONITOR_SEARCH_DELAY_SECONDS,
         "priority_feed_queries_per_cycle": MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
         "internet_sweep_enabled": MONITOR_INTERNET_SWEEP_ENABLED,
+        "web_fallback_enabled": MONITOR_WEB_FALLBACK_ENABLED,
         "internet_sweep_pages_per_cycle": MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE,
         "internet_sweep_timeout_seconds": MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS,
         "selected_model_id": MONITOR_SELECTED_MODEL_ID,
@@ -263,13 +289,79 @@ def load_monitor_config() -> dict[str, Any]:
     return config
 
 
+def effective_monitor_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    effective = dict(config or load_monitor_config())
+    profile = str(effective.get("scan_profile") or "balanced").strip().lower()
+    if profile not in {"conservative", "balanced", "heavy", "no-delay-heavy"}:
+        profile = "balanced"
+    effective["scan_profile"] = profile
+
+    def int_value(name: str, fallback: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(effective.get(name) if effective.get(name) is not None else fallback)
+        except Exception:
+            value = fallback
+        return max(minimum, min(maximum, value))
+
+    def float_value(name: str, fallback: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(effective.get(name) if effective.get(name) is not None else fallback)
+        except Exception:
+            value = fallback
+        return max(minimum, min(maximum, value))
+
+    effective["max_concurrent_requests"] = int_value("max_concurrent_requests", MONITOR_MAX_CONCURRENT_REQUESTS, 1, 24)
+    effective["public_api_concurrency"] = int_value("public_api_concurrency", MONITOR_PUBLIC_API_CONCURRENCY, 1, 8)
+    effective["internet_sweep_concurrency"] = int_value("internet_sweep_concurrency", MONITOR_INTERNET_SWEEP_CONCURRENCY, 1, 24)
+    effective["training_sample_limit"] = int_value("training_sample_limit", MONITOR_TRAINING_SAMPLE_LIMIT, 100, 10000)
+    effective["analysis_batch_size"] = int_value("analysis_batch_size", MONITOR_ANALYSIS_BATCH_SIZE, 16, 5000)
+    effective["learning_batch_size"] = int_value("learning_batch_size", MONITOR_LEARNING_BATCH_SIZE, 16, 10000)
+    effective["search_delay_seconds"] = float_value("search_delay_seconds", MONITOR_SEARCH_DELAY_SECONDS, 0.0, 60.0)
+    effective["priority_feed_delay_seconds"] = 0.5
+
+    if profile == "conservative":
+        effective["max_concurrent_requests"] = min(effective["max_concurrent_requests"], 2)
+        effective["public_api_concurrency"] = min(effective["public_api_concurrency"], 1)
+        effective["internet_sweep_concurrency"] = min(effective["internet_sweep_concurrency"], 2)
+        effective["search_delay_seconds"] = max(effective["search_delay_seconds"], 3.0)
+        effective["priority_feed_delay_seconds"] = 0.75
+    elif profile == "heavy":
+        effective["max_concurrent_requests"] = max(effective["max_concurrent_requests"], 8)
+        effective["public_api_concurrency"] = min(max(effective["public_api_concurrency"], 3), 6)
+        effective["internet_sweep_concurrency"] = max(effective["internet_sweep_concurrency"], 8)
+        effective["search_delay_seconds"] = min(effective["search_delay_seconds"], 0.25)
+        effective["priority_feed_delay_seconds"] = 0.1
+        effective["training_sample_limit"] = max(effective["training_sample_limit"], 2000)
+        effective["analysis_batch_size"] = max(effective["analysis_batch_size"], 512)
+        effective["learning_batch_size"] = max(effective["learning_batch_size"], 1024)
+    elif profile == "no-delay-heavy":
+        effective["max_concurrent_requests"] = max(effective["max_concurrent_requests"], 12)
+        effective["public_api_concurrency"] = min(max(effective["public_api_concurrency"], 4), 6)
+        effective["internet_sweep_concurrency"] = max(effective["internet_sweep_concurrency"], 12)
+        effective["search_delay_seconds"] = 0.0
+        effective["priority_feed_delay_seconds"] = 0.0
+        effective["training_sample_limit"] = max(effective["training_sample_limit"], 3000)
+        effective["analysis_batch_size"] = max(effective["analysis_batch_size"], 1024)
+        effective["learning_batch_size"] = max(effective["learning_batch_size"], 2048)
+
+    gpu_level = str(effective.get("gpu_acceleration_level") or "balanced").strip().lower()
+    if gpu_level not in {"off", "balanced", "aggressive"}:
+        gpu_level = "balanced"
+    effective["gpu_acceleration_level"] = gpu_level
+    source_mode = str(effective.get("public_api_source_mode") or MONITOR_PUBLIC_API_SOURCE_MODE or "hybrid").strip().lower()
+    if source_mode not in {"live", "hybrid", "cache-first"}:
+        source_mode = "hybrid"
+    effective["public_api_source_mode"] = source_mode
+    return effective
+
+
 def gpu_runtime_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or load_monitor_config()
     prepare_cuda_dll_paths()
     status = {
         "enabled_by_env": ML_USE_GPU,
         "enabled_by_config": bool(config.get("use_gpu")),
-        "enabled": bool(ML_USE_GPU and config.get("use_gpu")),
+        "enabled": bool(config.get("use_gpu")),
         "memory_limit_mb": int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB),
         "shared_memory_enabled": bool(config.get("use_shared_memory")),
         "shared_memory_limit_mb": int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB),
@@ -315,7 +407,7 @@ def configure_gpu_runtime(config: dict[str, Any] | None = None) -> dict[str, Any
     os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true")
     gpu_limit = int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
     shared_limit = int(config.get("shared_memory_limit_mb") or SHARED_MEMORY_LIMIT_MB)
-    if bool(ML_USE_GPU and config.get("use_gpu")) and gpu_limit > 0:
+    if bool(config.get("use_gpu")) and gpu_limit > 0:
         os.environ["COIBE_GPU_MEMORY_LIMIT_MB"] = str(gpu_limit)
         os.environ["RAPIDS_MEMORY_LIMIT"] = str(gpu_limit * 1024 * 1024)
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"max_split_size_mb:{min(gpu_limit, 1024)}"
@@ -752,6 +844,63 @@ def model_label(item: dict[str, Any]) -> int:
     return 0
 
 
+def training_dataset_profile(texts: list[str], labels: list[int]) -> dict[str, Any]:
+    label_counts: dict[str, int] = {}
+    token_counts = []
+    non_empty = 0
+    for text, label in zip(texts, labels):
+        label_key = str(label)
+        label_counts[label_key] = label_counts.get(label_key, 0) + 1
+        tokens = [token for token in normalize_text(text).lower().split() if len(token) >= 3]
+        token_counts.append(len(tokens))
+        if tokens:
+            non_empty += 1
+    sample_size = len(texts)
+    minority_count = min(label_counts.values()) if label_counts else 0
+    majority_count = max(label_counts.values()) if label_counts else 0
+    return {
+        "sample_size": sample_size,
+        "non_empty_texts": non_empty,
+        "label_distribution": label_counts,
+        "class_count": len(label_counts),
+        "minority_class_count": minority_count,
+        "majority_class_count": majority_count,
+        "imbalance_ratio": round(majority_count / minority_count, 4) if minority_count else None,
+        "avg_tokens": round(sum(token_counts) / sample_size, 2) if sample_size else 0,
+        "max_tokens": max(token_counts) if token_counts else 0,
+        "ready_for_deep_learning": sample_size >= 12 and len(label_counts) >= 2 and non_empty >= 12,
+    }
+
+
+def simple_classification_metrics(expected: list[int], predicted: list[int]) -> dict[str, Any]:
+    if not expected or not predicted or len(expected) != len(predicted):
+        return {"accuracy": None, "samples": 0}
+    labels = sorted(set(expected) | set(predicted))
+    correct = sum(1 for left, right in zip(expected, predicted) if int(left) == int(right))
+    per_class: dict[str, dict[str, float | int]] = {}
+    f1_values = []
+    for label in labels:
+        tp = sum(1 for left, right in zip(expected, predicted) if left == label and right == label)
+        fp = sum(1 for left, right in zip(expected, predicted) if left != label and right == label)
+        fn = sum(1 for left, right in zip(expected, predicted) if left == label and right != label)
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+        f1_values.append(f1)
+        per_class[str(label)] = {
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1": round(f1, 4),
+            "support": sum(1 for value in expected if value == label),
+        }
+    return {
+        "accuracy": round(correct / len(expected), 4),
+        "macro_f1": round(sum(f1_values) / len(f1_values), 4) if f1_values else 0.0,
+        "samples": len(expected),
+        "per_class": per_class,
+    }
+
+
 def write_model_registry(selected_model_id: str, artifacts: dict[str, Any]) -> dict[str, Any]:
     registry = {
         "default_model_id": selected_model_id or "coibe-adaptive-default",
@@ -762,6 +911,7 @@ def write_model_registry(selected_model_id: str, artifacts: dict[str, Any]) -> d
                 "name": "COIBE Adaptativo Padrao",
                 "kind": "rules+statistics+learning",
                 "path": str(MONITOR_MODEL_STATE_PATH),
+                "memory_path": str(MONITOR_MODEL_MEMORY_PATH),
                 "selected": (selected_model_id or "coibe-adaptive-default") == "coibe-adaptive-default",
                 "available": True,
                 "quantization_compatible": True,
@@ -781,6 +931,71 @@ def write_model_registry(selected_model_id: str, artifacts: dict[str, Any]) -> d
     }
     MONITOR_MODEL_REGISTRY_PATH.write_text(json.dumps(registry, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
     return registry
+
+
+def append_model_evolution_memory(
+    model_state: dict[str, Any],
+    selected_terms: list[tuple[str, dict[str, Any]]],
+    check_candidates: dict[str, dict[str, Any]],
+    target_candidates: dict[str, dict[str, Any]],
+    learned_limit: int,
+) -> dict[str, Any]:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    cycle = int(model_state.get("cycles") or 0)
+    memory_entry = {
+        "schema": "coibe-model-memory-v1",
+        "cycle": cycle,
+        "updated_at": model_state.get("updated_at"),
+        "selected_model_id": (model_state.get("selected_model") or {}).get("id"),
+        "learned_counts": {
+            "terms": len(model_state.get("learned_terms") or []),
+            "checks": len(model_state.get("learned_checks") or []),
+            "targets": len(model_state.get("learned_targets") or []),
+        },
+        "new_terms": [
+            {
+                "normalized": normalized,
+                "term": candidate.get("term"),
+                "score": round(float(candidate.get("score") or 0), 4),
+                "sources": candidate.get("sources") or [],
+            }
+            for normalized, candidate in selected_terms[:learned_limit]
+        ],
+        "top_checks": [
+            {
+                "id": check_id,
+                "title": candidate.get("title"),
+                "score": round(float(candidate.get("score") or 0), 4),
+                "signals": candidate.get("signals") or [],
+            }
+            for check_id, candidate in sorted(check_candidates.items(), key=lambda row: row[1]["score"], reverse=True)[: max(learned_limit, 8)]
+        ],
+        "top_targets": [
+            {
+                "id": target_id,
+                "type": candidate.get("type"),
+                "term": candidate.get("term"),
+                "score": round(float(candidate.get("score") or 0), 4),
+                "sources": candidate.get("sources") or [],
+            }
+            for target_id, candidate in sorted(target_candidates.items(), key=lambda row: row[1]["score"], reverse=True)[: max(learned_limit * 2, 16)]
+        ],
+        "artifacts": {
+            "state_path": str(MONITOR_MODEL_STATE_PATH),
+            "deep_model_path": (model_state.get("selected_model") or {}).get("deep_model_path"),
+            "registry_path": (model_state.get("selected_model") or {}).get("registry_path"),
+        },
+    }
+    with MONITOR_MODEL_MEMORY_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(memory_entry, ensure_ascii=False, default=json_default) + "\n")
+    return {
+        "path": str(MONITOR_MODEL_MEMORY_PATH),
+        "schema": memory_entry["schema"],
+        "latest_cycle": cycle,
+        "latest_entry_terms": len(memory_entry["new_terms"]),
+        "latest_entry_checks": len(memory_entry["top_checks"]),
+        "latest_entry_targets": len(memory_entry["top_targets"]),
+    }
 
 
 def train_pure_python_deep_model(texts: list[str], labels: list[int]) -> dict[str, Any]:
@@ -829,6 +1044,11 @@ def train_pure_python_deep_model(texts: list[str], labels: list[int]) -> dict[st
             for index, value in enumerate(h):
                 w2[label][index] += lr * value
                 w2[prediction][index] -= lr * value
+    predictions: list[int] = []
+    for tokens in tokenized:
+        h = hidden(features(tokens))
+        logits = [sum(weight * value for weight, value in zip(row, h)) for row in w2]
+        predictions.append(int(max(range(3), key=lambda index: logits[index])))
 
     return {
         "model_id": "coibe-deep-mlp",
@@ -842,8 +1062,129 @@ def train_pure_python_deep_model(texts: list[str], labels: list[int]) -> dict[st
         "w2": [[round(value, 8) for value in row] for row in w2],
         "epochs": 8,
         "samples": len(texts),
+        "training_metrics": simple_classification_metrics(labels, predictions),
         "quantization_compatible": True,
     }
+
+
+def train_cupy_deep_model(texts: list[str], labels: list[int], config: dict[str, Any]) -> dict[str, Any]:
+    import cupy
+
+    gpu_limit = int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
+    if gpu_limit > 0:
+        cupy.get_default_memory_pool().set_limit(size=gpu_limit * 1024 * 1024)
+
+    token_counts: dict[str, int] = {}
+    tokenized: list[list[str]] = []
+    for text in texts:
+        tokens = [token for token in normalize_text(text).lower().split() if len(token) >= 3][:240]
+        tokenized.append(tokens)
+        for token in set(tokens):
+            token_counts[token] = token_counts.get(token, 0) + 1
+
+    gpu_level = str(config.get("gpu_acceleration_level") or "balanced").lower()
+    vocab_limit = 4096 if gpu_level == "aggressive" else 2048
+    hidden_size = 128 if gpu_level == "aggressive" else 64
+    vocab = [token for token, _ in sorted(token_counts.items(), key=lambda row: row[1], reverse=True)[:vocab_limit]]
+    vocab_index = {token: index for index, token in enumerate(vocab)}
+    if not vocab:
+        raise ValueError("empty_vocabulary")
+
+    feature_rows: list[list[float]] = []
+    for tokens in tokenized:
+        vector = [0.0 for _ in vocab]
+        for token in tokens:
+            index = vocab_index.get(token)
+            if index is not None:
+                vector[index] += 1.0
+        total = sum(vector) or 1.0
+        feature_rows.append([value / total for value in vector])
+
+    def seed_weight(hidden_index: int, token_index: int) -> float:
+        raw = hashlib.sha256(f"{hidden_index}:{token_index}:coibe".encode("utf-8")).digest()[0]
+        return (raw / 255.0 - 0.5) * 0.22
+
+    x = cupy.asarray(feature_rows, dtype=cupy.float32)
+    w1 = cupy.asarray(
+        [[seed_weight(hidden, token_index) for hidden in range(hidden_size)] for token_index in range(len(vocab))],
+        dtype=cupy.float32,
+    )
+    hidden = cupy.maximum(x @ w1, 0)
+    hidden = cupy.concatenate([hidden, cupy.ones((hidden.shape[0], 1), dtype=cupy.float32)], axis=1)
+    y = cupy.zeros((len(labels), 3), dtype=cupy.float32)
+    y[cupy.arange(len(labels)), cupy.asarray(labels, dtype=cupy.int32)] = 1.0
+    regularization = cupy.eye(hidden.shape[1], dtype=cupy.float32) * 0.08
+    w2 = cupy.linalg.solve(hidden.T @ hidden + regularization, hidden.T @ y).T
+    predictions = cupy.asnumpy(cupy.argmax(hidden @ w2.T, axis=1)).tolist()
+    w2_cpu = cupy.asnumpy(w2[:, :-1])
+    bias_cpu = cupy.asnumpy(w2[:, -1])
+
+    return {
+        "model_id": "coibe-deep-mlp",
+        "architecture": "cupy-random-features-ridge-classifier",
+        "trained_at": brasilia_now().isoformat(),
+        "labels": {"0": "baixo", "1": "medio", "2": "alto"},
+        "vocab": vocab,
+        "hidden_size": hidden_size,
+        "w1_seed": "sha256(hidden:token:coibe)",
+        "w1_scale": 0.22,
+        "w2": [[round(float(value), 8) for value in row] for row in w2_cpu],
+        "bias": [round(float(value), 8) for value in bias_cpu],
+        "samples": len(texts),
+        "training_metrics": simple_classification_metrics(labels, [int(prediction) for prediction in predictions]),
+        "gpu_accelerated": True,
+        "gpu_library": f"cupy {cupy.__version__}",
+        "gpu_acceleration_level": gpu_level,
+        "quantization_compatible": True,
+    }
+
+
+def predict_json_deep_model_gpu(model: dict[str, Any], texts: list[str], config: dict[str, Any]) -> list[tuple[int, float]] | None:
+    if not bool(config.get("use_gpu")):
+        return None
+    if str(config.get("gpu_acceleration_level") or "balanced").lower() == "off":
+        return None
+    try:
+        import cupy
+
+        gpu_limit = int(config.get("gpu_memory_limit_mb") or GPU_MEMORY_LIMIT_MB)
+        if gpu_limit > 0:
+            cupy.get_default_memory_pool().set_limit(size=gpu_limit * 1024 * 1024)
+        vocab = model.get("vocab") if isinstance(model.get("vocab"), list) else []
+        vocab_index = {str(token): index for index, token in enumerate(vocab)}
+        hidden_size = int(model.get("hidden_size") or 0)
+        w2 = model.get("w2") if isinstance(model.get("w2"), list) else []
+        if not vocab or hidden_size <= 0 or not w2:
+            return None
+
+        rows: list[list[float]] = []
+        for text in texts:
+            vector = [0.0 for _ in vocab]
+            for token in [token for token in normalize_text(text).lower().split() if token in vocab_index][:240]:
+                vector[vocab_index[token]] += 1.0
+            total = sum(vector) or 1.0
+            rows.append([value / total for value in vector])
+
+        def seed_weight(hidden_index: int, token_index: int) -> float:
+            raw = hashlib.sha256(f"{hidden_index}:{token_index}:coibe".encode("utf-8")).digest()[0]
+            return (raw / 255.0 - 0.5) * float(model.get("w1_scale") or 0.22)
+
+        x = cupy.asarray(rows, dtype=cupy.float32)
+        w1 = cupy.asarray(
+            [[seed_weight(hidden, token_index) for hidden in range(hidden_size)] for token_index in range(len(vocab))],
+            dtype=cupy.float32,
+        )
+        hidden = cupy.maximum(x @ w1, 0)
+        logits = hidden @ cupy.asarray(w2, dtype=cupy.float32).T
+        bias = model.get("bias") if isinstance(model.get("bias"), list) else None
+        if bias and len(bias) == logits.shape[1]:
+            logits = logits + cupy.asarray(bias, dtype=cupy.float32)
+        sorted_logits = cupy.sort(logits, axis=1)
+        predictions = cupy.asnumpy(cupy.argmax(logits, axis=1)).tolist()
+        spreads = cupy.asnumpy(sorted_logits[:, -1] - sorted_logits[:, -2]).tolist() if logits.shape[1] > 1 else [0.0] * len(texts)
+        return [(int(prediction), float(spread)) for prediction, spread in zip(predictions, spreads)]
+    except Exception:
+        return None
 
 
 def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
@@ -864,9 +1205,26 @@ def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms
     }
     labels = [model_label(item) for item in training_items]
     texts = [model_training_text(item) for item in training_items]
+    dataset_profile = training_dataset_profile(texts, labels)
+    artifacts["dataset_profile"] = dataset_profile
     if bool(config.get("deep_learning_enabled", True)) and len(texts) >= 12 and len(set(labels)) >= 2:
+        if bool(config.get("use_gpu")) and str(config.get("gpu_acceleration_level") or "balanced").lower() != "off":
+            try:
+                gpu_model = train_cupy_deep_model(texts, labels, config)
+                MONITOR_DEEP_JSON_MODEL_PATH.write_text(json.dumps(gpu_model, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+                artifacts["deep_model_trained"] = True
+                artifacts["deep_model_path"] = str(MONITOR_DEEP_JSON_MODEL_PATH)
+                artifacts["serializer"] = "json"
+                artifacts["gpu_accelerated"] = True
+                artifacts["gpu_library"] = gpu_model.get("gpu_library")
+                artifacts["training_metrics"] = gpu_model.get("training_metrics")
+            except Exception as exc:
+                artifacts["gpu_training_fallback_reason"] = str(exc)[:240]
         try:
+            if artifacts["deep_model_trained"]:
+                raise RuntimeError("gpu_model_already_trained")
             import pickle
+            from sklearn.model_selection import train_test_split
             from sklearn.feature_extraction.text import TfidfVectorizer
             from sklearn.neural_network import MLPClassifier
             from sklearn.pipeline import Pipeline
@@ -874,16 +1232,48 @@ def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms
             pipeline = Pipeline(
                 [
                     ("tfidf", TfidfVectorizer(max_features=4096, ngram_range=(1, 2), min_df=1)),
-                    ("mlp", MLPClassifier(hidden_layer_sizes=(96, 32), activation="relu", max_iter=120, random_state=42)),
+                    (
+                        "mlp",
+                        MLPClassifier(
+                            hidden_layer_sizes=(96, 32),
+                            activation="relu",
+                            alpha=0.0008,
+                            learning_rate="adaptive",
+                            max_iter=180,
+                            n_iter_no_change=12,
+                            random_state=42,
+                        ),
+                    ),
                 ]
             )
-            pipeline.fit(texts, labels)
+            validation_metrics: dict[str, Any] | None = None
+            train_texts = texts
+            train_labels = labels
+            if len(texts) >= 40 and dataset_profile.get("minority_class_count", 0) >= 2:
+                stratify = labels if dataset_profile.get("minority_class_count", 0) >= 2 else None
+                train_texts, validation_texts, train_labels, validation_labels = train_test_split(
+                    texts,
+                    labels,
+                    test_size=0.2,
+                    random_state=42,
+                    stratify=stratify,
+                )
+                pipeline.fit(train_texts, train_labels)
+                validation_predictions = [int(value) for value in pipeline.predict(validation_texts)]
+                validation_metrics = simple_classification_metrics(validation_labels, validation_predictions)
+            else:
+                pipeline.fit(train_texts, train_labels)
+            train_predictions = [int(value) for value in pipeline.predict(train_texts)]
+            training_metrics = simple_classification_metrics(train_labels, train_predictions)
             payload = {
                 "model_id": "coibe-deep-mlp",
                 "pipeline": pipeline,
                 "labels": {"0": "baixo", "1": "medio", "2": "alto"},
                 "selected_model_id": selected_model_id,
                 "trained_at": brasilia_now().isoformat(),
+                "dataset_profile": dataset_profile,
+                "training_metrics": training_metrics,
+                "validation_metrics": validation_metrics,
             }
             try:
                 import joblib
@@ -895,13 +1285,19 @@ def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms
                     pickle.dump(payload, model_file)
                 artifacts["serializer"] = "pickle"
             artifacts["deep_model_trained"] = True
+            artifacts["training_metrics"] = training_metrics
+            artifacts["validation_metrics"] = validation_metrics
+            artifacts["train_sample_size"] = len(train_texts)
+            artifacts["validation_sample_size"] = validation_metrics.get("samples") if validation_metrics else 0
         except Exception as exc:
-            fallback_model = train_pure_python_deep_model(texts, labels)
-            MONITOR_DEEP_JSON_MODEL_PATH.write_text(json.dumps(fallback_model, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
-            artifacts["deep_model_trained"] = True
-            artifacts["deep_model_path"] = str(MONITOR_DEEP_JSON_MODEL_PATH)
-            artifacts["serializer"] = "json"
-            artifacts["deep_model_fallback_reason"] = str(exc)[:240]
+            if not artifacts["deep_model_trained"]:
+                fallback_model = train_pure_python_deep_model(texts, labels)
+                MONITOR_DEEP_JSON_MODEL_PATH.write_text(json.dumps(fallback_model, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
+                artifacts["deep_model_trained"] = True
+                artifacts["deep_model_path"] = str(MONITOR_DEEP_JSON_MODEL_PATH)
+                artifacts["serializer"] = "json"
+                artifacts["deep_model_fallback_reason"] = str(exc)[:240]
+                artifacts["training_metrics"] = fallback_model.get("training_metrics")
 
     score_values = [float(term.get("score") or 0) for term in learned_terms if isinstance(term, dict)]
     max_score = max(score_values) if score_values else 1.0
@@ -923,6 +1319,9 @@ def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms
         "mode": quantization_mode,
         "schema": "int8_dynamic_manifest",
         "calibration_sample_size": len(training_items),
+        "dataset_profile": dataset_profile,
+        "training_metrics": artifacts.get("training_metrics"),
+        "validation_metrics": artifacts.get("validation_metrics"),
         "quantized_terms": quantized_terms,
     }
     onnx_manifest = {
@@ -932,6 +1331,9 @@ def build_ai_model_artifacts(training_items: list[dict[str, Any]], learned_terms
         "output": {"name": "risk_label", "dtype": "int64", "labels": ["baixo", "medio", "alto"]},
         "export_note": "Exportacao ONNX real sera criada automaticamente quando skl2onnx/onnx estiverem instalados; este manifesto preserva contrato de inferencia.",
         "joblib_model_path": str(MONITOR_DEEP_MODEL_PATH),
+        "dataset_profile": dataset_profile,
+        "training_metrics": artifacts.get("training_metrics"),
+        "validation_metrics": artifacts.get("validation_metrics"),
     }
     MONITOR_QUANT_MANIFEST_PATH.write_text(json.dumps(quant_manifest, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
     MONITOR_ONNX_MANIFEST_PATH.write_text(json.dumps(onnx_manifest, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
@@ -981,6 +1383,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
     candidates: dict[str, dict[str, Any]] = {}
     check_candidates: dict[str, dict[str, Any]] = {}
     target_candidates: dict[str, dict[str, Any]] = {}
+    learning_batch_size = int(config.get("learning_batch_size") or MONITOR_LEARNING_BATCH_SIZE)
     for term in BOOTSTRAP_MODEL_TERMS:
         seed_model_candidate(candidates, term, 1.5, "public_method_research")
     for check_id in VERIFICATION_CHECK_LIBRARY:
@@ -991,59 +1394,60 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "public_method_research",
             {"title": VERIFICATION_CHECK_LIBRARY[check_id]["title"], "type": "metodologia_publica"},
         )
-    for alert in analysis.get("alerts", [])[:80]:
-        if not isinstance(alert, dict):
-            continue
-        weight = 3 if str(alert.get("risk_level") or "").lower() == "alto" else 1
-        alert_evidence = {
-            "title": alert.get("title"),
-            "entity": alert.get("entity"),
-            "supplier": alert.get("supplier_name"),
-            "value": alert.get("value"),
-            "risk_level": alert.get("risk_level"),
-        }
-        infer_verification_checks_from_text(check_candidates, json.dumps(alert, ensure_ascii=False), weight, "alerts", alert_evidence)
-        for source_value in [alert.get("title"), alert.get("entity"), alert.get("supplier_name")]:
-            add_model_candidates(candidates, source_value, weight, "alerts")
-        add_investigation_target(target_candidates, "contrato", alert.get("title"), weight, "alerts", alert_evidence)
-        add_investigation_target(target_candidates, "fornecedor", alert.get("supplier_name"), weight + 1, "alerts", alert_evidence)
-        add_investigation_target(target_candidates, "orgao", alert.get("entity"), weight, "alerts", alert_evidence)
-        for flag in alert.get("red_flags", []) or []:
-            if isinstance(flag, dict):
-                add_model_candidates(candidates, flag.get("title") or flag.get("message"), weight, "risk_flags")
-                infer_verification_checks_from_text(check_candidates, flag.get("title") or flag.get("message"), weight + 1, "risk_flags", alert_evidence)
+    for alert_batch in batched([alert for alert in analysis.get("alerts", [])[:80] if isinstance(alert, dict)], learning_batch_size):
+        for alert in alert_batch:
+            weight = 3 if str(alert.get("risk_level") or "").lower() == "alto" else 1
+            alert_evidence = {
+                "title": alert.get("title"),
+                "entity": alert.get("entity"),
+                "supplier": alert.get("supplier_name"),
+                "value": alert.get("value"),
+                "risk_level": alert.get("risk_level"),
+            }
+            infer_verification_checks_from_text(check_candidates, json.dumps(alert, ensure_ascii=False), weight, "alerts", alert_evidence)
+            for source_value in [alert.get("title"), alert.get("entity"), alert.get("supplier_name")]:
+                add_model_candidates(candidates, source_value, weight, "alerts")
+            add_investigation_target(target_candidates, "contrato", alert.get("title"), weight, "alerts", alert_evidence)
+            add_investigation_target(target_candidates, "fornecedor", alert.get("supplier_name"), weight + 1, "alerts", alert_evidence)
+            add_investigation_target(target_candidates, "orgao", alert.get("entity"), weight, "alerts", alert_evidence)
+            for flag in alert.get("red_flags", []) or []:
+                if isinstance(flag, dict):
+                    add_model_candidates(candidates, flag.get("title") or flag.get("message"), weight, "risk_flags")
+                    infer_verification_checks_from_text(check_candidates, flag.get("title") or flag.get("message"), weight + 1, "risk_flags", alert_evidence)
 
-    for record in analysis.get("public_records", [])[:120]:
-        if not isinstance(record, dict):
-            continue
-        add_model_candidates(candidates, record.get("title") or record.get("query"), 1, "public_records")
-        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
-        add_model_candidates(candidates, payload.get("nomeFornecedor") or payload.get("objeto") or payload.get("nome"), 1, "public_records")
-        record_type = str(record.get("record_type") or "registro")
-        add_investigation_target(target_candidates, record_type, record.get("title") or record.get("query"), 1, "public_records", {"title": record.get("title"), "type": record_type})
-        add_investigation_target(target_candidates, "fornecedor", payload.get("nomeFornecedor") or payload.get("supplier_name"), 2, "public_records", {"title": record.get("title"), "type": record_type})
-        infer_verification_checks_from_text(
-            check_candidates,
-            json.dumps(record, ensure_ascii=False),
-            1,
-            "public_records",
-            {"title": record.get("title"), "type": record.get("record_type")},
-        )
+    public_record_sample = [record for record in analysis.get("public_records", [])[:120] if isinstance(record, dict)]
+    for record_batch in batched(public_record_sample, learning_batch_size):
+        for record in record_batch:
+            add_model_candidates(candidates, record.get("title") or record.get("query"), 1, "public_records")
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            add_model_candidates(candidates, payload.get("nomeFornecedor") or payload.get("objeto") or payload.get("nome"), 1, "public_records")
+            record_type = str(record.get("record_type") or "registro")
+            add_investigation_target(target_candidates, record_type, record.get("title") or record.get("query"), 1, "public_records", {"title": record.get("title"), "type": record_type})
+            add_investigation_target(target_candidates, "fornecedor", payload.get("nomeFornecedor") or payload.get("supplier_name"), 2, "public_records", {"title": record.get("title"), "type": record_type})
+            infer_verification_checks_from_text(
+                check_candidates,
+                json.dumps(record, ensure_ascii=False),
+                1,
+                "public_records",
+                {"title": record.get("title"), "type": record.get("record_type")},
+            )
 
-    for item in training_items[:500]:
-        weight = 4 if str(item.get("risk_level") or "").lower() == "alto" else 2
-        item_evidence = {
-            "title": item.get("title"),
-            "entity": item.get("entity"),
-            "supplier": item.get("supplier_name"),
-            "value": item.get("value"),
-            "risk_level": item.get("risk_level"),
-        }
-        for source_value in [item.get("title"), item.get("entity"), item.get("supplier_name"), item.get("object")]:
-            add_model_candidates(candidates, source_value, weight, "monitoring_items")
-        add_investigation_target(target_candidates, "contrato", item.get("title") or item.get("object"), weight, "monitoring_items", item_evidence)
-        add_investigation_target(target_candidates, "fornecedor", item.get("supplier_name"), weight + 1, "monitoring_items", item_evidence)
-        infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, "monitoring_items", item_evidence)
+    training_sample_limit = int(config.get("training_sample_limit") or MONITOR_TRAINING_SAMPLE_LIMIT)
+    for item_batch in batched(training_items[:training_sample_limit], learning_batch_size):
+        for item in item_batch:
+            weight = 4 if str(item.get("risk_level") or "").lower() == "alto" else 2
+            item_evidence = {
+                "title": item.get("title"),
+                "entity": item.get("entity"),
+                "supplier": item.get("supplier_name"),
+                "value": item.get("value"),
+                "risk_level": item.get("risk_level"),
+            }
+            for source_value in [item.get("title"), item.get("entity"), item.get("supplier_name"), item.get("object")]:
+                add_model_candidates(candidates, source_value, weight, "monitoring_items")
+            add_investigation_target(target_candidates, "contrato", item.get("title") or item.get("object"), weight, "monitoring_items", item_evidence)
+            add_investigation_target(target_candidates, "fornecedor", item.get("supplier_name"), weight + 1, "monitoring_items", item_evidence)
+            infer_verification_checks_from_text(check_candidates, json.dumps(item, ensure_ascii=False), weight, "monitoring_items", item_evidence)
 
     for block_name in ("political_parties", "political_people"):
         block = snapshot.get(block_name) if isinstance(snapshot.get(block_name), dict) else {}
@@ -1084,14 +1488,15 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
         if len(selected_candidates) >= learned_limit * 2:
             break
 
-    for normalized, candidate in selected_candidates:
-        existing = learned_by_key.get(normalized, {"term": candidate["term"], "hits": 0, "score": 0, "first_seen_at": now})
-        existing["term"] = existing.get("term") or candidate["term"]
-        existing["hits"] = int(existing.get("hits") or 0) + 1
-        existing["score"] = float(existing.get("score") or 0) + float(candidate["score"])
-        existing["latest_seen_at"] = now
-        existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
-        learned_by_key[normalized] = existing
+    for candidate_batch in batched(selected_candidates, learning_batch_size):
+        for normalized, candidate in candidate_batch:
+            existing = learned_by_key.get(normalized, {"term": candidate["term"], "hits": 0, "score": 0, "first_seen_at": now})
+            existing["term"] = existing.get("term") or candidate["term"]
+            existing["hits"] = int(existing.get("hits") or 0) + 1
+            existing["score"] = float(existing.get("score") or 0) + float(candidate["score"])
+            existing["latest_seen_at"] = now
+            existing["sources"] = sorted(set(existing.get("sources", [])) | set(candidate["sources"]))
+            learned_by_key[normalized] = existing
 
     for check_id, candidate in sorted(check_candidates.items(), key=lambda row: row[1]["score"], reverse=True)[: max(learned_limit, 8)]:
         existing = learned_checks_by_id.get(
@@ -1141,7 +1546,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
     learned_terms = sorted(learned_by_key.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:200]
     learned_checks = sorted(learned_checks_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:80]
     learned_targets = sorted(learned_targets_by_id.values(), key=lambda item: (float(item.get("score") or 0), int(item.get("hits") or 0)), reverse=True)[:120]
-    model_artifacts = build_ai_model_artifacts(training_items[:500], learned_terms, config)
+    model_artifacts = build_ai_model_artifacts(training_items[:training_sample_limit], learned_terms, config)
     date_window = collect_date_window(analysis.get("items"), analysis.get("alerts"), analysis.get("public_records"), snapshot.get("political_parties"), snapshot.get("political_people"))
     record_types: dict[str, int] = {}
     for record in analysis.get("public_records", []) if isinstance(analysis.get("public_records"), list) else []:
@@ -1169,7 +1574,7 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "items_seen": accumulated_items_seen,
             "cycle_items_seen": len(cycle_items),
             "cached_training_items_seen": len(cached_training_items),
-            "model_training_sample_seen": min(len(training_items), 500),
+            "model_training_sample_seen": min(len(training_items), training_sample_limit),
             "internet_pages_seen": len((snapshot.get("internet_sweep") or {}).get("items", []) if isinstance(snapshot.get("internet_sweep"), dict) else []),
             "method_research_sources": [
                 "Open Contracting Partnership - Red Flags in Public Procurement / OCDS",
@@ -1184,7 +1589,8 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "items_analyzed": accumulated_items_seen,
             "cycle_items_analyzed": len(cycle_items),
             "model_training_items": len(cached_training_items),
-            "model_training_sample": min(len(training_items), 500),
+            "model_training_sample": min(len(training_items), training_sample_limit),
+            "learning_batch_size": learning_batch_size,
             "alerts_count": analysis.get("alerts_count"),
             "learned_terms_added": len(selected_candidates),
             "learned_checks_added": min(len(check_candidates), max(learned_limit, 8)),
@@ -1209,6 +1615,15 @@ def update_monitor_model_state(analysis: dict[str, Any], snapshot: dict[str, Any
             "legal_safety": "Aprendizado usado para priorizar busca, estrategias de verificacao e triagem; nao conclui crime, culpa ou vinculo familiar.",
         },
     }
+    memory_status = append_model_evolution_memory(
+        model_state,
+        selected_candidates,
+        check_candidates,
+        target_candidates,
+        learned_limit,
+    )
+    model_state["evolution_memory"] = memory_status
+    model_state["last_training"]["evolution_memory"] = memory_status
     MONITOR_MODEL_STATE_PATH.write_text(json.dumps(model_state, ensure_ascii=False, indent=2, default=json_default), encoding="utf-8")
     with MONITOR_MODEL_TRAINING_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(model_state["last_training"], ensure_ascii=False, default=json_default) + "\n")
@@ -1274,25 +1689,52 @@ async def collect_connector(
     except Exception as exc:
         elapsed = asyncio.get_running_loop().time() - start_perf
         retry_after = rate_limit_retry_after(exc)
+        is_timeout = isinstance(exc, (httpx.TimeoutException, TimeoutError, asyncio.TimeoutError))
+        detail = str(exc) or exc.__class__.__name__
         snapshot["connectors"].append(
             {
                 "name": name,
                 "kind": kind,
                 "path": path,
-                "status": "rate_limited" if retry_after else "error",
+                "status": "rate_limited" if retry_after else "timeout" if is_timeout else "error",
                 "record_count": 0,
-                "error": str(exc),
+                "error": detail,
+                "error_type": exc.__class__.__name__,
                 "retry_after_seconds": retry_after,
                 "started_at": started_at.isoformat(),
                 "finished_at": brasilia_now().isoformat(),
             }
         )
-        snapshot["errors"].append({"connector": name, "error": str(exc)})
+        snapshot["errors"].append({"connector": name, "error": detail, "error_type": exc.__class__.__name__})
         if retry_after:
-            monitor_print(f"LIMITE {name} | tempo={elapsed:.2f}s | aguardando {retry_after:.0f}s antes de novas buscas | detalhe={exc}")
+            monitor_print(f"LIMITE {name} | tempo={elapsed:.2f}s | aguardando {retry_after:.0f}s antes de novas buscas | detalhe={detail}")
+        elif is_timeout:
+            monitor_print(f"TIMEOUT {name} | tempo={elapsed:.2f}s | detalhe={detail}")
         else:
-            monitor_print(f"ERRO {name} | tempo={elapsed:.2f}s | detalhe={exc}")
+            monitor_print(f"ERRO {name} | tempo={elapsed:.2f}s | detalhe={detail}")
         return None
+
+
+async def collect_connector_batch(
+    client: httpx.AsyncClient,
+    snapshot: dict[str, Any],
+    requests: list[dict[str, str]],
+    max_concurrent: int,
+) -> list[tuple[dict[str, str], Any]]:
+    semaphore = asyncio.Semaphore(max(1, int(max_concurrent or 1)))
+
+    async def run(request: dict[str, str]) -> tuple[dict[str, str], Any]:
+        async with semaphore:
+            payload = await collect_connector(
+                client,
+                snapshot,
+                request["name"],
+                request["path"],
+                request["kind"],
+            )
+            return request, payload
+
+    return await asyncio.gather(*(run(request) for request in requests))
 
 
 def blocked_public_ip_address(value: str) -> bool:
@@ -1378,6 +1820,7 @@ async def collect_internet_sweep(snapshot: dict[str, Any], search_terms: list[st
 
     limit = max(0, int(config.get("internet_sweep_pages_per_cycle") or MONITOR_INTERNET_SWEEP_PAGES_PER_CYCLE))
     timeout_seconds = max(3, int(config.get("internet_sweep_timeout_seconds") or MONITOR_INTERNET_SWEEP_TIMEOUT_SECONDS))
+    concurrency = max(1, min(24, int(config.get("internet_sweep_concurrency") or MONITOR_INTERNET_SWEEP_CONCURRENCY)))
     keywords = list(dict.fromkeys([*search_terms[:12], *BOOTSTRAP_MODEL_TERMS[:12]]))
     selected_candidates = internet_url_candidates(snapshot)[:limit]
     records: list[dict[str, Any]] = []
@@ -1386,30 +1829,33 @@ async def collect_internet_sweep(snapshot: dict[str, Any], search_terms: list[st
     headers = {"User-Agent": "COIBE.IA internet-sweep/0.3 (+public-risk-research)"}
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=False) as client:
-        for candidate in selected_candidates:
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def fetch_candidate(candidate: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
             safe_url = await safe_public_url(candidate["url"])
             if not safe_url:
-                continue
+                return None, None
             try:
-                current_url = safe_url
-                response_text = ""
-                for _ in range(4):
-                    checked = await safe_public_url(current_url)
-                    if not checked:
-                        raise ValueError("blocked_redirect")
-                    response = await client.get(checked)
-                    if 300 <= response.status_code < 400 and response.headers.get("location"):
-                        current_url = urljoin(checked, response.headers["location"])
-                        continue
-                    response.raise_for_status()
-                    content_type = response.headers.get("content-type", "").lower()
-                    if content_type and not any(kind in content_type for kind in ("text/", "html", "json", "xml")):
-                        raise ValueError("non_text_content")
-                    response_text = response.text[:300000]
-                    current_url = str(response.url)
-                    break
+                async with semaphore:
+                    current_url = safe_url
+                    response_text = ""
+                    for _ in range(4):
+                        checked = await safe_public_url(current_url)
+                        if not checked:
+                            raise ValueError("blocked_redirect")
+                        response = await client.get(checked)
+                        if 300 <= response.status_code < 400 and response.headers.get("location"):
+                            current_url = urljoin(checked, response.headers["location"])
+                            continue
+                        response.raise_for_status()
+                        content_type = response.headers.get("content-type", "").lower()
+                        if content_type and not any(kind in content_type for kind in ("text/", "html", "json", "xml")):
+                            raise ValueError("non_text_content")
+                        response_text = response.text[:300000]
+                        current_url = str(response.url)
+                        break
                 if not response_text:
-                    continue
+                    return None, None
                 title, text = text_from_html(response_text)
                 lowered = normalize_text(text).lower()
                 hits = {
@@ -1419,7 +1865,7 @@ async def collect_internet_sweep(snapshot: dict[str, Any], search_terms: list[st
                 }
                 parsed = urlparse(current_url)
                 host = parsed.hostname or "internet"
-                records.append(
+                return (
                     {
                         "record_key": f"internet:{hashlib.sha256(current_url.encode('utf-8')).hexdigest()[:24]}",
                         "record_type": "internet_public_page",
@@ -1438,15 +1884,23 @@ async def collect_internet_sweep(snapshot: dict[str, Any], search_terms: list[st
                             "selected_model_id": config.get("selected_model_id"),
                             "deep_learning_enabled": bool(config.get("deep_learning_enabled")),
                         },
-                    }
+                    },
+                    None,
                 )
             except Exception as exc:
-                errors.append({"url": safe_url, "error": str(exc)[:160]})
+                return None, {"url": safe_url, "error": str(exc)[:160]}
+
+        for record, error in await asyncio.gather(*(fetch_candidate(candidate) for candidate in selected_candidates)):
+            if record is not None:
+                records.append(record)
+            if error is not None:
+                errors.append(error)
 
     return {
         "enabled": True,
         "generated_at": brasilia_now().isoformat(),
         "candidates": len(selected_candidates),
+        "concurrency": concurrency,
         "items_count": len(records),
         "items": records,
         "errors": errors[:10],
@@ -1467,9 +1921,19 @@ async def collect_snapshot(
     search_term_offset: int = 0,
     search_delay_seconds: float = MONITOR_SEARCH_DELAY_SECONDS,
     priority_feed_queries_per_cycle: int = MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE,
+    priority_feed_delay_seconds: float = 0.5,
+    max_concurrent_requests: int = MONITOR_MAX_CONCURRENT_REQUESTS,
+    public_api_concurrency: int = MONITOR_PUBLIC_API_CONCURRENCY,
+    public_api_source_mode: str = MONITOR_PUBLIC_API_SOURCE_MODE,
 ) -> dict[str, Any]:
     timeout_value = max(15, int(timeout_seconds))
     timeout = httpx.Timeout(float(timeout_value), connect=min(10.0, float(timeout_value)))
+    source_mode = str(public_api_source_mode or "hybrid").strip().lower()
+    if source_mode not in {"live", "hybrid", "cache-first"}:
+        source_mode = "hybrid"
+    feed_source = "auto" if source_mode == "cache-first" else "live"
+    derived_source = "live" if source_mode == "live" else "auto"
+    public_api_concurrency = max(1, min(8, int(public_api_concurrency or 1), int(max_concurrent_requests or 1)))
     async with httpx.AsyncClient(base_url=api_base, timeout=timeout) as client:
         snapshot: dict[str, Any] = {
             "collected_at": brasilia_now().isoformat(),
@@ -1517,7 +1981,7 @@ async def collect_snapshot(
             client,
             snapshot,
             "state_map_live",
-            "/api/monitoring/state-map?page_size=80&source=live",
+            f"/api/monitoring/state-map?page_size=80&source={derived_source}",
             "public_api_aggregation",
         )
         if state_map is not None:
@@ -1527,7 +1991,7 @@ async def collect_snapshot(
             client,
             snapshot,
             "political_parties_scan",
-            f"/api/political/parties?limit={political_party_limit}&source=live",
+            f"/api/political/parties?limit={political_party_limit}&source={derived_source}",
             "public_political_risk_scan",
         )
         if political_parties is not None:
@@ -1537,7 +2001,7 @@ async def collect_snapshot(
             client,
             snapshot,
             "political_people_scan",
-            f"/api/political/politicians?limit={political_people_limit}&source=live&offset={max(int(political_people_offset or 0), 0)}",
+            f"/api/political/politicians?limit={political_people_limit}&source={derived_source}&offset={max(int(political_people_offset or 0), 0)}",
             "public_political_risk_scan",
         )
         if political_people is not None:
@@ -1547,7 +2011,7 @@ async def collect_snapshot(
             client,
             snapshot,
             "public_contracts_feed_latest_page",
-            f"/api/monitoring/feed?page=1&page_size={page_size}&source=live",
+            f"/api/monitoring/feed?page=1&page_size={page_size}&source={derived_source}",
             "public_api_feed_latest",
         )
         if latest_feed_page is not None:
@@ -1556,13 +2020,13 @@ async def collect_snapshot(
         priority_queries = priority_feed_queries(search_terms, priority_feed_queries_per_cycle)
         snapshot["priority_feed_queries"] = priority_queries
         for index, query in enumerate(priority_queries):
-            if index > 0:
-                await asyncio.sleep(0.5)
+            if priority_feed_delay_seconds and index > 0:
+                await asyncio.sleep(priority_feed_delay_seconds)
             encoded = httpx.QueryParams(
                 {
                     "page": 1,
                     "page_size": min(page_size, 50),
-                    "source": "live",
+                    "source": derived_source,
                     "q": query,
                     "risk_level": "alto",
                     "size_order": "desc",
@@ -1583,18 +2047,19 @@ async def collect_snapshot(
 
         start_page = max(start_page, 1)
         end_page = start_page + pages
-        for page in range(start_page, end_page):
-            feed_page = await collect_connector(
-                client,
-                snapshot,
-                f"public_contracts_feed_page_{page}",
-                f"/api/monitoring/feed?page={page}&page_size={page_size}&source=live",
-                "public_api_feed",
-            )
+        feed_requests = [
+            {
+                "name": f"public_contracts_feed_page_{page}",
+                "path": f"/api/monitoring/feed?page={page}&page_size={page_size}&source={feed_source}",
+                "kind": "public_api_feed",
+                "page": str(page),
+            }
+            for page in range(start_page, end_page)
+        ]
+        feed_results = await collect_connector_batch(client, snapshot, feed_requests, public_api_concurrency)
+        for request, feed_page in sorted(feed_results, key=lambda row: int(row[0].get("page") or 0)):
             if feed_page is not None:
                 snapshot["feed_pages"].append(feed_page)
-            else:
-                break
 
         search_limit = max(0, int(search_terms_per_cycle))
         search_delay = max(0.0, float(search_delay_seconds))
@@ -1605,28 +2070,189 @@ async def collect_snapshot(
                 f"Busca universal limitada neste ciclo | termos_usados={len(limited_search_terms)} "
                 f"de {len(search_terms)} | offset={search_term_offset} | ajuste COIBE_MONITOR_SEARCH_TERMS_PER_CYCLE se precisar"
             )
-        for index, term in enumerate(limited_search_terms):
-            if search_delay and index > 0:
-                await asyncio.sleep(search_delay)
-            encoded = httpx.QueryParams({"q": term})
-            search_result = await collect_connector(
-                client,
-                snapshot,
-                f"universal_search:{term}",
-                f"/api/search?{encoded}",
-                "public_api_search",
-            )
-            snapshot["searches"][term] = search_result if search_result is not None else {"error": "connector failed", "results": []}
-            latest_connector = snapshot["connectors"][-1] if snapshot.get("connectors") else {}
-            if latest_connector.get("status") == "rate_limited":
-                retry_after = float(latest_connector.get("retry_after_seconds") or 30)
-                monitor_print(
-                    f"Busca universal pausada por limite HTTP 429 | retomara no proximo ciclo | "
-                    f"retry_after={retry_after:.0f}s"
+        if search_delay == 0 and max_concurrent_requests > 1:
+            search_requests = [
+                {
+                    "name": f"universal_search:{term}",
+                    "path": f"/api/search?{httpx.QueryParams({'q': term})}",
+                    "kind": "public_api_search",
+                    "term": term,
+                }
+                for term in limited_search_terms
+            ]
+            search_results = await collect_connector_batch(client, snapshot, search_requests, max_concurrent_requests)
+            for request, search_result in search_results:
+                term = request["term"]
+                snapshot["searches"][term] = search_result if search_result is not None else {"error": "connector failed", "results": []}
+        else:
+            for index, term in enumerate(limited_search_terms):
+                if search_delay and index > 0:
+                    await asyncio.sleep(search_delay)
+                encoded = httpx.QueryParams({"q": term})
+                search_result = await collect_connector(
+                    client,
+                    snapshot,
+                    f"universal_search:{term}",
+                    f"/api/search?{encoded}",
+                    "public_api_search",
                 )
-                break
+                snapshot["searches"][term] = search_result if search_result is not None else {"error": "connector failed", "results": []}
+                latest_connector = snapshot["connectors"][-1] if snapshot.get("connectors") else {}
+                if latest_connector.get("status") == "rate_limited":
+                    retry_after = float(latest_connector.get("retry_after_seconds") or 30)
+                    monitor_print(
+                        f"Busca universal pausada por limite HTTP 429 | retomara no proximo ciclo | "
+                        f"retry_after={retry_after:.0f}s"
+                    )
+                    break
 
     return snapshot
+
+
+def count_failed_feed_pages(snapshot: dict[str, Any]) -> int:
+    return sum(
+        1
+        for connector in snapshot.get("connectors", [])
+        if isinstance(connector, dict)
+        and "_feed_page_" in str(connector.get("name") or "")
+        and connector.get("status") != "ok"
+    )
+
+
+def count_api_feed_items(snapshot: dict[str, Any]) -> int:
+    return sum(
+        len(page.get("items") or [])
+        for page in snapshot.get("feed_pages", [])
+        if isinstance(page, dict) and page.get("source_kind") != "web_fallback"
+    )
+
+
+def web_fallback_item_from_record(record: dict[str, Any], index: int, feed_pages_failed: int) -> dict[str, Any]:
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    url = str(record.get("url") or payload.get("url") or "")
+    title = str(record.get("title") or payload.get("title") or record.get("source") or "Pagina publica")
+    excerpt = str(payload.get("text_excerpt") or "")[:3000]
+    keyword_hits = payload.get("keyword_hits") if isinstance(payload.get("keyword_hits"), dict) else {}
+    total_hits = sum(int(value or 0) for value in keyword_hits.values())
+    collected_at = str(record.get("collected_at") or brasilia_now().isoformat())
+    item_date = collected_at[:10] if len(collected_at) >= 10 else brasilia_now().date().isoformat()
+    source = str(record.get("source") or urlparse(url).hostname or "web_publica")
+    stable_basis = "|".join(
+        [
+            str(record.get("record_key") or ""),
+            url,
+            title,
+            item_date,
+        ]
+    )
+    stable_id = hashlib.sha256(stable_basis.encode("utf-8", errors="ignore")).hexdigest()[:24]
+    risk_score = min(75, 12 + (10 if feed_pages_failed else 0) + min(total_hits, 8) * 6)
+    risk_level = "médio" if risk_score >= 30 else "baixo"
+    evidence = {
+        "record_type": "internet_public_page",
+        "source": source,
+        "title": title,
+        "url": url,
+        "query": record.get("query") or payload.get("query") or "",
+        "matches_count": total_hits,
+        "keyword_hits": keyword_hits,
+        "text_excerpt": excerpt[:1000],
+    }
+    return {
+        "id": f"web-fallback-{stable_id}",
+        "date": item_date,
+        "title": title,
+        "object": excerpt or title,
+        "entity": source,
+        "supplier_name": "",
+        "supplier_cnpj": "",
+        "value": 0,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "source": source,
+        "source_kind": "web_fallback",
+        "url": url,
+        "monitor_status": "web_fallback_pending_review",
+        "report": {
+            "summary": "Item criado por varredura web automatica porque o feed/API publica falhou ou retornou vazio.",
+            "red_flags": [
+                {
+                    "code": "WEB-FALLBACK-PUBLICATION",
+                    "title": "Varredura web por falha de API publica",
+                    "has_risk": risk_score >= 30,
+                    "risk_level": risk_level,
+                    "message": "A plataforma manteve a coleta ativa usando pagina publica rastreada na web; exige revisao/cruzamento antes de conclusao.",
+                    "evidence": {
+                        "url": url,
+                        "source": source,
+                        "keyword_hits": keyword_hits,
+                        "feed_pages_failed": feed_pages_failed,
+                    },
+                    "criteria": {"rule": "feed/API sem itens confiaveis no ciclo e pagina publica disponivel na varredura"},
+                }
+            ],
+            "official_sources": [],
+            "public_evidence": [evidence],
+        },
+        "public_evidence": [evidence],
+        "web_fallback": {
+            "enabled": True,
+            "reason": "public_api_failed_or_empty",
+            "feed_pages_failed": feed_pages_failed,
+            "source_record_key": record.get("record_key"),
+            "rank": index + 1,
+        },
+    }
+
+
+def build_web_fallback_feed_items(
+    snapshot: dict[str, Any],
+    config: dict[str, Any],
+    api_feed_items_collected: int,
+    feed_pages_failed: int,
+) -> list[dict[str, Any]]:
+    if not bool(config.get("web_fallback_enabled", True)):
+        return []
+    if api_feed_items_collected > 0 and feed_pages_failed == 0:
+        return []
+    internet_sweep = snapshot.get("internet_sweep") if isinstance(snapshot.get("internet_sweep"), dict) else {}
+    records = [record for record in internet_sweep.get("items", []) or [] if isinstance(record, dict)]
+    if not records:
+        return []
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for record in records:
+        key = str(record.get("record_key") or record.get("url") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(web_fallback_item_from_record(record, len(items), feed_pages_failed))
+    return items
+
+
+def attach_web_fallback_feed(snapshot: dict[str, Any], items: list[dict[str, Any]], enabled: bool = True) -> None:
+    if not items:
+        snapshot["web_fallback"] = {
+            "enabled": enabled,
+            "active": False,
+            "items_count": 0,
+            "reason": None,
+        }
+        return
+    snapshot.setdefault("feed_pages", []).append(
+        {
+            "page": "web_fallback",
+            "source_kind": "web_fallback",
+            "items": items,
+            "generated_at": brasilia_now().isoformat(),
+        }
+    )
+    snapshot["web_fallback"] = {
+        "enabled": enabled,
+        "active": True,
+        "items_count": len(items),
+        "reason": "feed/API publica falhou ou veio vazia; usando varredura web",
+    }
 
 
 def flatten_feed(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1793,7 +2419,7 @@ def ml_value_anomalies(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
 
     try:
         monitor_config = load_monitor_config()
-        if bool(ML_USE_GPU and monitor_config.get("use_gpu")):
+        if bool(monitor_config.get("use_gpu")):
             prepare_cuda_dll_paths()
             try:
                 import cudf
@@ -2093,7 +2719,8 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
         return output
 
     try:
-        if MONITOR_DEEP_MODEL_PATH.exists():
+        prefer_json_model = bool(config.get("use_gpu")) and MONITOR_DEEP_JSON_MODEL_PATH.exists()
+        if MONITOR_DEEP_MODEL_PATH.exists() and not prefer_json_model:
             import joblib
 
             payload = joblib.load(MONITOR_DEEP_MODEL_PATH)
@@ -2138,29 +2765,36 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
             vocab_index = {str(token): index for index, token in enumerate(vocab)}
             hidden_size = int(model.get("hidden_size") or 0)
             w2 = model.get("w2") if isinstance(model.get("w2"), list) else []
+            gpu_predictions = predict_json_deep_model_gpu(model, texts, config)
 
             def seed_weight(hidden_index: int, token_index: int) -> float:
                 raw = hashlib.sha256(f"{hidden_index}:{token_index}:coibe".encode("utf-8")).digest()[0]
                 return (raw / 255.0 - 0.5) * float(model.get("w1_scale") or 0.22)
 
-            for item, text in zip(items, texts):
-                tokens = [token for token in normalize_text(text).lower().split() if token in vocab_index][:180]
-                if not tokens:
-                    continue
-                vector = [0.0 for _ in vocab]
-                for token in tokens:
-                    vector[vocab_index[token]] += 1.0
-                total = sum(vector) or 1.0
-                vector = [value / total for value in vector]
-                hidden = []
-                for hidden_index in range(hidden_size):
-                    score = sum(seed_weight(hidden_index, token_index) * value for token_index, value in enumerate(vector))
-                    hidden.append(max(0.0, score))
-                logits = [sum(float(weight) * value for weight, value in zip(row, hidden)) for row in w2 if isinstance(row, list)]
-                if not logits:
-                    continue
-                prediction = int(max(range(len(logits)), key=lambda index: logits[index]))
-                spread = max(logits) - (sorted(logits)[-2] if len(logits) > 1 else 0)
+            for index, (item, text) in enumerate(zip(items, texts)):
+                if gpu_predictions is not None:
+                    prediction, spread = gpu_predictions[index]
+                else:
+                    tokens = [token for token in normalize_text(text).lower().split() if token in vocab_index][:180]
+                    if not tokens:
+                        continue
+                    vector = [0.0 for _ in vocab]
+                    for token in tokens:
+                        vector[vocab_index[token]] += 1.0
+                    total = sum(vector) or 1.0
+                    vector = [value / total for value in vector]
+                    hidden = []
+                    for hidden_index in range(hidden_size):
+                        score = sum(seed_weight(hidden_index, token_index) * value for token_index, value in enumerate(vector))
+                        hidden.append(max(0.0, score))
+                    logits = [sum(float(weight) * value for weight, value in zip(row, hidden)) for row in w2 if isinstance(row, list)]
+                    bias = model.get("bias") if isinstance(model.get("bias"), list) else None
+                    if bias and len(bias) == len(logits):
+                        logits = [value + float(bias[bias_index]) for bias_index, value in enumerate(logits)]
+                    if not logits:
+                        continue
+                    prediction = int(max(range(len(logits)), key=lambda index: logits[index]))
+                    spread = max(logits) - (sorted(logits)[-2] if len(logits) > 1 else 0)
                 if prediction >= 2 and spread >= 0.02:
                     level = "alto"
                 elif prediction == 1 and spread >= 0.03:
@@ -2180,6 +2814,7 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
                             "predicted_label": prediction,
                             "selected_model_id": config.get("selected_model_id"),
                             "serializer": "json",
+                            "gpu_accelerated": gpu_predictions is not None,
                             "verification_checks": deep_verification_checks_for_item(item),
                         },
                         "criteria": {"rule": "modelo selecionado coibe-deep-mlp + margem minima por classe"},
@@ -2188,6 +2823,244 @@ def deep_model_attention_flags(items: list[dict[str, Any]], config: dict[str, An
     except Exception:
         return output
     return output
+
+
+def record_search_text(record: dict[str, Any]) -> str:
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    return normalize_text(
+        " ".join(
+            str(value or "")
+            for value in [
+                record.get("title"),
+                record.get("subtitle"),
+                record.get("source"),
+                record.get("query"),
+                record.get("record_type"),
+                payload.get("nome") if isinstance(payload, dict) else "",
+                payload.get("nomeFornecedor") if isinstance(payload, dict) else "",
+                payload.get("objeto") if isinstance(payload, dict) else "",
+            ]
+        )
+    )
+
+
+def item_supplier_key(item: dict[str, Any]) -> str:
+    digits = "".join(char for char in str(item.get("supplier_cnpj") or "") if char.isdigit())
+    return digits or normalize_text(item.get("supplier_name"))
+
+
+def public_source_queries_for_item(item: dict[str, Any]) -> list[str]:
+    supplier = str(item.get("supplier_name") or "").strip()
+    supplier_cnpj = "".join(char for char in str(item.get("supplier_cnpj") or "") if char.isdigit())
+    entity = str(item.get("entity") or "").strip()
+    title = str(item.get("title") or item.get("object") or "").strip()
+    terms = [
+        supplier_cnpj,
+        supplier,
+        entity,
+        title[:120],
+        f"{supplier} contrato",
+        f"{supplier} CEIS CNEP",
+        f"{entity} {supplier}",
+    ]
+    return [term for term in dict.fromkeys(term.strip() for term in terms) if term]
+
+
+def run_autonomous_agents(
+    snapshot: dict[str, Any],
+    items: list[dict[str, Any]],
+    connector_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    item_flags: dict[str, list[dict[str, Any]]] = {item_key(item): [] for item in items}
+    item_insights: dict[str, list[dict[str, Any]]] = {item_key(item): [] for item in items}
+    insights: list[dict[str, Any]] = []
+
+    connector_errors = [
+        connector
+        for connector in snapshot.get("connectors", [])
+        if isinstance(connector, dict) and connector.get("status") != "ok"
+    ]
+    rate_limited = [connector for connector in connector_errors if connector.get("status") == "rate_limited"]
+    insights.append(
+        {
+            "agent": "data_quality_agent",
+            "title": "Saude das fontes publicas",
+            "risk_level": "médio" if connector_errors else "baixo",
+            "summary": f"{len(connector_errors)} fonte(s) com erro; {len(rate_limited)} por limite/rate limit.",
+            "evidence": {
+                "connectors_total": len(snapshot.get("connectors", []) or []),
+                "connectors_failed": len(connector_errors),
+                "rate_limited": len(rate_limited),
+                "failed_sources": [connector.get("name") for connector in connector_errors[:8]],
+            },
+            "recommended_action": "Repetir ciclo, reduzir concorrencia se houver muitos 429, ou priorizar cache local.",
+        }
+    )
+
+    supplier_groups: dict[str, list[dict[str, Any]]] = {}
+    entity_supplier_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in items:
+        supplier_key = item_supplier_key(item)
+        if not supplier_key:
+            continue
+        entity_key = normalize_text(item.get("entity"))
+        supplier_groups.setdefault(supplier_key, []).append(item)
+        entity_supplier_groups.setdefault((entity_key, supplier_key), []).append(item)
+
+    for supplier_key, related in supplier_groups.items():
+        entities = {normalize_text(item.get("entity")) for item in related if normalize_text(item.get("entity"))}
+        total_value = sum(float(item.get("value") or 0) for item in related)
+        if len(related) >= 4 and (len(entities) >= 2 or total_value >= 1_000_000):
+            supplier_name = next((item.get("supplier_name") for item in related if item.get("supplier_name")), supplier_key)
+            insight = {
+                "agent": "relationship_graph_agent",
+                "title": "Padrao relacional indireto por fornecedor",
+                "risk_level": "médio",
+                "summary": f"Fornecedor aparece em {len(related)} contratos e {len(entities)} orgao(s)/entidade(s).",
+                "evidence": {
+                    "supplier": supplier_name,
+                    "supplier_key": supplier_key,
+                    "contracts": len(related),
+                    "entities": len(entities),
+                    "total_value": round(total_value, 2),
+                },
+                "recommended_action": "Cruzar fornecedor com CEIS/CNEP, quadro societario, contratos por orgao e notas fiscais publicas.",
+            }
+            insights.append(insight)
+            for item in related[:20]:
+                key = item_key(item)
+                item_flags[key].append(
+                    {
+                        "code": "AA-GRAPH-SUPPLIER-PATTERN",
+                        "title": "Agente de Grafo: padrão indireto por fornecedor",
+                        "has_risk": True,
+                        "risk_level": "médio",
+                        "message": "Agente autônomo encontrou concentração ou espalhamento relevante do fornecedor na base pública.",
+                        "evidence": insight["evidence"],
+                        "criteria": {"rule": ">=4 contratos do fornecedor e múltiplos órgãos ou valor total elevado"},
+                    }
+                )
+                item_insights[key].append(insight)
+
+    for (entity_key, supplier_key), related in entity_supplier_groups.items():
+        total_value = sum(float(item.get("value") or 0) for item in related)
+        if len(related) >= 3 and total_value >= 250_000:
+            insights.append(
+                {
+                    "agent": "relationship_graph_agent",
+                    "title": "Recorrência órgão-fornecedor",
+                    "risk_level": "médio",
+                    "summary": f"Mesmo órgão e fornecedor aparecem em {len(related)} registros somando R$ {total_value:,.2f}.",
+                    "evidence": {
+                        "entity": entity_key,
+                        "supplier_key": supplier_key,
+                        "contracts": len(related),
+                        "total_value": round(total_value, 2),
+                    },
+                    "recommended_action": "Verificar objeto, datas, modalidade, aditivos e possível fracionamento.",
+                }
+            )
+
+    records_by_text = [(record, record_search_text(record)) for record in connector_records[:5000]]
+    for item in items:
+        key = item_key(item)
+        report = item.get("report") if isinstance(item.get("report"), dict) else {}
+        public_evidence = report.get("public_evidence") if isinstance(report.get("public_evidence"), list) else []
+        official_sources = report.get("official_sources") if isinstance(report.get("official_sources"), list) else []
+        value = float(item.get("value") or 0)
+        risk_score = int(item.get("risk_score") or 0)
+        if (risk_score >= 35 or value >= 500_000) and (not public_evidence or len(official_sources) < 1):
+            queries = public_source_queries_for_item(item)[:8]
+            flag = {
+                "code": "AA-EVIDENCE-GAP",
+                "title": "Agente de Evidência: lacuna de comprovação pública",
+                "has_risk": True,
+                "risk_level": "médio",
+                "message": "Item priorizado ainda tem poucas evidências cruzadas anexadas; exige busca documental adicional.",
+                "evidence": {
+                    "risk_score": risk_score,
+                    "value": round(value, 2),
+                    "public_evidence_count": len(public_evidence),
+                    "official_sources_count": len(official_sources),
+                    "suggested_queries": queries,
+                },
+                "criteria": {"rule": "risco/valor alto com poucas evidencias publicas anexadas"},
+            }
+            item_flags[key].append(flag)
+            item_insights[key].append(
+                {
+                    "agent": "evidence_gap_agent",
+                    "title": "Buscar fontes adicionais",
+                    "risk_level": "médio",
+                    "summary": "Lacuna de evidência para item priorizado.",
+                    "evidence": flag["evidence"],
+                    "recommended_action": "Executar busca por CNPJ, fornecedor, orgao e objeto em PNCP, Compras.gov.br, CEIS/CNEP e Portal da Transparencia.",
+                }
+            )
+
+        terms = [normalize_text(item.get("supplier_name")), normalize_text(item.get("entity"))]
+        terms = [term for term in terms if term and len(term) >= 5]
+        matching_records = []
+        for record, search_text in records_by_text:
+            if any(term in search_text for term in terms):
+                matching_records.append(record)
+            if len(matching_records) >= 8:
+                break
+        if matching_records:
+            item_insights[key].append(
+                {
+                    "agent": "source_discovery_agent",
+                    "title": "Fontes relacionadas encontradas",
+                    "risk_level": "baixo",
+                    "summary": f"{len(matching_records)} registro(s) publico(s) relacionados por termo forte.",
+                    "evidence": {
+                        "matched_records": len(matching_records),
+                        "record_types": sorted({str(record.get("record_type") or "") for record in matching_records})[:8],
+                        "sources": sorted({str(record.get("source") or "") for record in matching_records if record.get("source")})[:8],
+                    },
+                    "recommended_action": "Usar os registros relacionados para ampliar o contexto antes da conclusao humana.",
+                }
+            )
+
+    suggested_queries = []
+    for item in [
+        item
+        for item in items
+        if int(item.get("risk_score") or 0) >= 35 or float(item.get("value") or 0) >= 500_000
+    ][:30]:
+        suggested_queries.extend(public_source_queries_for_item(item)[:4])
+    insights.append(
+        {
+            "agent": "source_discovery_agent",
+            "title": "Fila autônoma de próximas buscas",
+            "risk_level": "baixo",
+            "summary": f"{len(dict.fromkeys(suggested_queries))} consulta(s) sugerida(s) para aprofundar fontes públicas.",
+            "evidence": {"suggested_queries": list(dict.fromkeys(suggested_queries))[:40]},
+            "recommended_action": "Usar estas consultas para ampliar varredura pública no próximo ciclo.",
+        }
+    )
+
+    return {
+        "enabled": True,
+        "generated_at": brasilia_now().isoformat(),
+        "agents": [
+            "data_quality_agent",
+            "relationship_graph_agent",
+            "evidence_gap_agent",
+            "source_discovery_agent",
+        ],
+        "summary": {
+            "items_reviewed": len(items),
+            "public_records_reviewed": len(connector_records),
+            "insights_count": len(insights),
+            "item_flags_count": sum(len(flags) for flags in item_flags.values()),
+            "items_with_agent_insights": sum(1 for values in item_insights.values() if values),
+            "safety": "Agentes usam apenas dados publicos/localmente coletados e geram hipoteses para verificacao humana.",
+        },
+        "insights": insights[:80],
+        "item_flags": item_flags,
+        "item_insights": item_insights,
+    }
 
 
 def parse_date_safe(value: Any):
@@ -2199,40 +3072,46 @@ def parse_date_safe(value: Any):
 
 def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connector_records: list[dict[str, Any]]) -> dict[str, Any]:
     anomalies = ml_value_anomalies(items)
-    monitor_config = load_monitor_config()
+    monitor_config = effective_monitor_config(load_monitor_config())
+    analysis_batch_size = int(monitor_config.get("analysis_batch_size") or MONITOR_ANALYSIS_BATCH_SIZE)
     adaptive_flags = adaptive_ml_attention_flags(items)
     deep_flags = deep_model_attention_flags(items, monitor_config)
+    agent_report = run_autonomous_agents(snapshot, items, connector_records)
     alerts = []
 
-    for item in items:
-        filter_legacy_generic_flags(item)
-        red_flags = item.get("report", {}).get("red_flags", [])
-        for flag in adaptive_flags.get(item_key(item), []):
-            append_attention_flag(item, flag)
-        for flag in deep_flags.get(item_key(item), []):
-            append_attention_flag(item, flag)
-        red_flags = item.get("report", {}).get("red_flags", [])
-        high_flags = [flag for flag in red_flags if flag.get("risk_level") == "alto"]
-        anomaly = anomalies.get(item.get("id"))
-        is_anomaly = bool(anomaly and anomaly.get("is_anomaly"))
-        if high_flags or is_anomaly or item.get("risk_score", 0) >= 35:
-            alerts.append(
-                {
-                    "id": item.get("id"),
-                    "date": item.get("date"),
-                    "title": item.get("title"),
-                    "entity": item.get("entity"),
-                    "supplier_name": item.get("supplier_name"),
-                    "supplier_cnpj": item.get("supplier_cnpj"),
-                    "value": item.get("value"),
-                    "risk_score": item.get("risk_score"),
-                    "risk_level": item.get("risk_level"),
-                    "red_flags": red_flags,
-                    "ml_analysis": anomaly,
-                    "official_sources": item.get("report", {}).get("official_sources", []),
-                    "public_evidence": item.get("report", {}).get("public_evidence", []),
-                }
-            )
+    for item_batch in batched(items, analysis_batch_size):
+        for item in item_batch:
+            filter_legacy_generic_flags(item)
+            red_flags = item.get("report", {}).get("red_flags", [])
+            for flag in adaptive_flags.get(item_key(item), []):
+                append_attention_flag(item, flag)
+            for flag in deep_flags.get(item_key(item), []):
+                append_attention_flag(item, flag)
+            for flag in agent_report.get("item_flags", {}).get(item_key(item), []):
+                append_attention_flag(item, flag)
+            red_flags = item.get("report", {}).get("red_flags", [])
+            high_flags = [flag for flag in red_flags if flag.get("risk_level") == "alto"]
+            anomaly = anomalies.get(item.get("id"))
+            is_anomaly = bool(anomaly and anomaly.get("is_anomaly"))
+            if high_flags or is_anomaly or item.get("risk_score", 0) >= 35:
+                alerts.append(
+                    {
+                        "id": item.get("id"),
+                        "date": item.get("date"),
+                        "title": item.get("title"),
+                        "entity": item.get("entity"),
+                        "supplier_name": item.get("supplier_name"),
+                        "supplier_cnpj": item.get("supplier_cnpj"),
+                        "value": item.get("value"),
+                        "risk_score": item.get("risk_score"),
+                        "risk_level": item.get("risk_level"),
+                        "red_flags": red_flags,
+                        "ml_analysis": anomaly,
+                        "agent_insights": agent_report.get("item_insights", {}).get(item_key(item), []),
+                        "official_sources": item.get("report", {}).get("official_sources", []),
+                        "public_evidence": item.get("report", {}).get("public_evidence", []),
+                    }
+                )
 
     return {
         "generated_at": brasilia_now().isoformat(),
@@ -2241,9 +3120,19 @@ def analyze_items(snapshot: dict[str, Any], items: list[dict[str, Any]], connect
         "connector_records_count": len(connector_records),
         "items_analyzed": len(items),
         "alerts_count": len(alerts),
+        "analysis_batch": {
+            "batch_size": analysis_batch_size,
+            "batches": len(batched(items, analysis_batch_size)),
+            "mode": "batched_vectorized",
+        },
         "alerts": alerts,
         "items": items,
         "public_records": connector_records,
+        "agents": {
+            key: value
+            for key, value in agent_report.items()
+            if key not in {"item_flags", "item_insights"}
+        },
         "state_map": snapshot.get("state_map"),
         "collection_errors": snapshot.get("errors", []),
     }
@@ -2591,7 +3480,7 @@ def append_platform_library(paths: dict[str, Path], library_records: list[dict[s
 async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     cycle_started = asyncio.get_running_loop().time()
     stamp = now_slug()
-    monitor_config = load_monitor_config()
+    monitor_config = effective_monitor_config(load_monitor_config())
     gpu = configure_gpu_runtime(monitor_config)
     collection_state = load_collection_state(paths)
     model_state = load_monitor_model_state()
@@ -2602,7 +3491,20 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     political_party_limit = int(monitor_config.get("political_party_scan_limit") or POLITICAL_PARTY_SCAN_LIMIT)
     political_people_limit = int(monitor_config.get("political_people_scan_limit") or POLITICAL_PEOPLE_SCAN_LIMIT)
     search_terms_per_cycle = int(monitor_config.get("search_terms_per_cycle") or MONITOR_SEARCH_TERMS_PER_CYCLE)
-    search_delay_seconds = float(monitor_config.get("search_delay_seconds") or MONITOR_SEARCH_DELAY_SECONDS)
+    search_delay_seconds = float(
+        monitor_config.get("search_delay_seconds")
+        if monitor_config.get("search_delay_seconds") is not None
+        else MONITOR_SEARCH_DELAY_SECONDS
+    )
+    priority_feed_delay_seconds = float(
+        monitor_config.get("priority_feed_delay_seconds")
+        if monitor_config.get("priority_feed_delay_seconds") is not None
+        else 0
+    )
+    max_concurrent_requests = int(monitor_config.get("max_concurrent_requests") or MONITOR_MAX_CONCURRENT_REQUESTS)
+    public_api_concurrency = int(monitor_config.get("public_api_concurrency") or MONITOR_PUBLIC_API_CONCURRENCY)
+    public_api_source_mode = str(monitor_config.get("public_api_source_mode") or MONITOR_PUBLIC_API_SOURCE_MODE)
+    training_sample_limit = int(monitor_config.get("training_sample_limit") or MONITOR_TRAINING_SAMPLE_LIMIT)
     priority_feed_queries_per_cycle = int(monitor_config.get("priority_feed_queries_per_cycle") or MONITOR_PRIORITY_FEED_QUERIES_PER_CYCLE)
     start_page = max(int(collection_state.get("next_feed_page") or 1), 1)
     political_people_offset = max(int(collection_state.get("political_people_offset") or 0), 0)
@@ -2611,6 +3513,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "Iniciando ciclo de monitoramento | "
         f"paginas={pages} | itens_por_pagina={page_size} | pagina_inicial={start_page} | "
         f"partidos={political_party_limit} | politicos={political_people_limit} | offset_politicos={political_people_offset} | "
+        f"perfil={monitor_config.get('scan_profile')} | concorrencia={max_concurrent_requests} | delay_busca={search_delay_seconds}s | "
+        f"api_publica={public_api_source_mode}/{public_api_concurrency} | "
         f"modelo={monitor_config.get('selected_model_id')} | internet={'ativa' if monitor_config.get('internet_sweep_enabled') else 'desativada'} | "
         f"gpu={'ativa' if gpu.get('enabled') else 'desativada'} | "
         f"memoria_compartilhada={'ativa' if gpu.get('shared_memory_enabled') else 'desativada'}"
@@ -2629,8 +3533,21 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         search_term_offset=search_term_offset,
         search_delay_seconds=search_delay_seconds,
         priority_feed_queries_per_cycle=priority_feed_queries_per_cycle,
+        priority_feed_delay_seconds=priority_feed_delay_seconds,
+        max_concurrent_requests=max_concurrent_requests,
+        public_api_concurrency=public_api_concurrency,
+        public_api_source_mode=public_api_source_mode,
     )
     snapshot["internet_sweep"] = await collect_internet_sweep(snapshot, search_terms, monitor_config)
+    api_feed_items_collected = count_api_feed_items(snapshot)
+    feed_pages_failed = count_failed_feed_pages(snapshot)
+    web_fallback_items = build_web_fallback_feed_items(
+        snapshot,
+        monitor_config,
+        api_feed_items_collected,
+        feed_pages_failed,
+    )
+    attach_web_fallback_feed(snapshot, web_fallback_items, bool(monitor_config.get("web_fallback_enabled", True)))
     raw_path = paths["raw"] / f"snapshot-{stamp}.json"
     write_json(raw_path, snapshot)
 
@@ -2683,27 +3600,23 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         for page in snapshot.get("feed_pages", [])
         if isinstance(page, dict)
     )
+    api_feed_items_collected = count_api_feed_items(snapshot)
+    web_fallback_items_collected = len(web_fallback_items)
     priority_feed_items_collected = sum(
         int(connector.get("record_count") or 0)
         for connector in snapshot.get("connectors", [])
         if connector.get("kind") == "priority_high_risk_feed"
     )
     internet_items_collected = len((snapshot.get("internet_sweep") or {}).get("items", []) if isinstance(snapshot.get("internet_sweep"), dict) else [])
-    feed_pages_failed = sum(
-        1
-        for connector in snapshot.get("connectors", [])
-        if "_feed_page_" in str(connector.get("name") or "")
-        and connector.get("status") != "ok"
-    )
     next_feed_page = start_page + pages
     reset_reason = None
-    if feed_items_collected == 0:
+    if api_feed_items_collected == 0:
         if feed_pages_failed > 0:
             next_feed_page = start_page
-            reset_reason = "feed publico falhou neste ciclo; mantendo pagina para nova tentativa"
+            reset_reason = "feed publico falhou neste ciclo; usando fallback web e mantendo pagina para nova tentativa"
         else:
             next_feed_page = start_page + pages
-            reset_reason = "feed publico sem itens neste ciclo; avancando janela para nao ficar preso na pagina 1"
+            reset_reason = "feed publico sem itens neste ciclo; fallback web ativo se houver evidencias e avancando janela"
     next_political_people_offset = (political_people_offset + max(political_people_limit, 1)) % 240
     next_search_term_offset = (search_term_offset + max(search_terms_per_cycle, 1)) % max(len(search_terms), 1)
     analysis["database_items_count"] = database_count
@@ -2721,6 +3634,9 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "feed_page_end": start_page + pages - 1,
         "next_feed_page": next_feed_page,
         "feed_items_collected": feed_items_collected,
+        "api_feed_items_collected": api_feed_items_collected,
+        "web_fallback_items_collected": web_fallback_items_collected,
+        "web_fallback_active": web_fallback_items_collected > 0,
         "priority_feed_items_collected": priority_feed_items_collected,
         "internet_items_collected": internet_items_collected,
         "priority_feed_queries": snapshot.get("priority_feed_queries", []),
@@ -2734,7 +3650,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "search_term_offset": search_term_offset,
         "next_search_term_offset": next_search_term_offset,
     }
-    model_training_analysis = {**analysis, "model_training_items": accumulated_items[:500]}
+    model_training_analysis = {**analysis, "model_training_items": accumulated_items[:training_sample_limit]}
     analysis["model"] = update_monitor_model_state(model_training_analysis, snapshot, search_terms, gpu, monitor_config)
     processed_path = paths["processed"] / f"analysis-{stamp}.json"
     write_json(processed_path, analysis)
@@ -2754,7 +3670,8 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         f"{brasilia_now().isoformat()} "
         f"snapshot={raw_path.name} connectors={len(analysis['connectors'])} items={analysis['items_analyzed']} "
         f"db_items={database_count} public_records={public_records_count} "
-        f"feed_items={feed_items_collected} internet_items={internet_items_collected} analyzed_feed={len(analysis_feed_items)} new_items={len(new_feed_items)} cached={len(existing_items)} "
+        f"feed_items={feed_items_collected} api_feed={api_feed_items_collected} web_fallback={web_fallback_items_collected} "
+        f"internet_items={internet_items_collected} analyzed_feed={len(analysis_feed_items)} new_items={len(new_feed_items)} cached={len(existing_items)} "
         f"feed_errors={feed_pages_failed} next_page={next_feed_page} "
         f"library={library_status['library_records_count']} added={library_status['library_records_added']} "
         f"alerts={analysis['alerts_count']}\n"
@@ -2767,7 +3684,7 @@ async def run_once(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     monitor_print(
         "Ciclo concluido | "
         f"tempo={elapsed:.2f}s | velocidade={records_per_second(scanned_total, elapsed)} reg/s | "
-        f"itens_feed={feed_items_collected} | novos={len(new_feed_items)} | "
+        f"itens_feed={feed_items_collected} | api_feed={api_feed_items_collected} | web_fallback={web_fallback_items_collected} | novos={len(new_feed_items)} | "
         f"internet={internet_items_collected} | "
         f"analisados_feed={len(analysis_feed_items)} | "
         f"base_total={database_count} | registros_publicos={public_records_count} | alertas={analysis['alerts_count']}"
