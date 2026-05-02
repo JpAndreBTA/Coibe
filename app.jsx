@@ -421,6 +421,7 @@ function comprasUrlForAlert(alert) {
 function normalizeOfficialSource(alert, source, index = 0) {
   const url = String(source?.url || '');
   const label = String(source?.label || '');
+  if (label.toLowerCase().includes('coibe')) return null;
   const isComprasSource = url.includes('dadosabertos.compras.gov.br') || label.toLowerCase().includes('compras.gov');
   if (!isComprasSource) return source;
   return {
@@ -435,6 +436,7 @@ function normalizeOfficialSource(alert, source, index = 0) {
 function officialSourcesForAlert(alert) {
   return (alert?.report?.official_sources || [])
     .map((source, index) => normalizeOfficialSource(alert, source, index))
+    .filter(Boolean)
     .sort((left, right) => {
       const leftUrl = String(left?.url || '').toLowerCase();
       const rightUrl = String(right?.url || '').toLowerCase();

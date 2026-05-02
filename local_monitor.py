@@ -15,7 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -229,6 +229,266 @@ def record_hash(cnpj: Any, event_date: Any, value: Any) -> str:
         ]
     )
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def stable_hash(parts: list[Any]) -> str:
+    raw = "|".join(normalize_text(part) for part in parts)
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def is_coibe_source_label(value: Any) -> bool:
+    return "COIBE" in normalize_text(value)
+
+
+def public_source_label_from_url(url: str, record_type: str = "", fallback: str = "Dados publicos relacionados") -> str:
+    parsed = urlparse(str(url or ""))
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    normalized_type = normalize_text(record_type).lower()
+    if "dadosabertos.compras.gov.br" in host or "compras.gov.br" in host:
+        return "Compras.gov.br Dados Abertos"
+    if "pncp.gov.br" in host:
+        return "PNCP - Portal Nacional de Contratacoes Publicas"
+    if "camara.leg.br" in host:
+        return "Camara dos Deputados - partidos e membros" if "partid" in normalized_type or "partidos" in path else "Camara dos Deputados - Dados Abertos"
+    if "senado.leg.br" in host:
+        return "Senado Federal - Dados Abertos"
+    if "stf.jus.br" in host:
+        return "STF - consulta publica"
+    if "tse.jus.br" in host or "divulgacandcontas" in host:
+        return "TSE - dados eleitorais oficiais"
+    if "tcu.gov.br" in host:
+        return "TCU - pesquisa de processos"
+    if "portaldatransparencia.gov.br" in host:
+        return "Portal da Transparencia - CGU"
+    if "ibge.gov.br" in host:
+        return "IBGE - dados publicos"
+    return fallback if not is_coibe_source_label(fallback) else "Dados publicos relacionados"
+
+
+def source_url_from_context(context: dict[str, Any]) -> str:
+    for key in ("url", "document_url", "api_url"):
+        value = context.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def sanitize_source_text(value: Any, context: dict[str, Any] | None = None, record_type: str = "") -> str:
+    text = str(value or "").strip()
+    if not is_coibe_source_label(text):
+        return text
+    url = source_url_from_context(context or {})
+    return public_source_label_from_url(url, record_type, "Dados publicos relacionados")
+
+
+def sanitize_source_list(values: Any, context: dict[str, Any] | None = None, record_type: str = "") -> list[Any]:
+    if not isinstance(values, list):
+        return []
+    output: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        sanitized = sanitize_source_text(value, context, record_type) if isinstance(value, str) else value
+        key = json.dumps(sanitized, ensure_ascii=False, sort_keys=True, default=json_default)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(sanitized)
+    return output
+
+
+def sanitize_public_evidence_record(evidence: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(evidence)
+    record_type = str(sanitized.get("record_type") or sanitized.get("type") or "")
+    if "source" in sanitized:
+        sanitized["source"] = sanitize_source_text(sanitized.get("source"), sanitized, record_type)
+    if isinstance(sanitized.get("sources"), list):
+        sanitized["sources"] = sanitize_source_list(sanitized.get("sources"), sanitized, record_type)
+    return sanitized
+
+
+def sanitize_nested_source_fields(value: Any, context: dict[str, Any] | None = None, record_type: str = "") -> Any:
+    if isinstance(value, dict):
+        next_value: dict[str, Any] = {}
+        next_context = {**(context or {}), **value}
+        for key, item in value.items():
+            if key in {"source", "label", "kind"} and isinstance(item, str):
+                next_value[key] = sanitize_source_text(item, next_context, record_type)
+            elif key == "sources" and isinstance(item, list):
+                next_value[key] = sanitize_source_list(item, next_context, record_type)
+            else:
+                next_value[key] = sanitize_nested_source_fields(item, next_context, record_type)
+        return next_value
+    if isinstance(value, list):
+        return [sanitize_nested_source_fields(item, context, record_type) for item in value]
+    return value
+
+
+def sanitize_official_sources(sources: Any) -> list[dict[str, Any]]:
+    if not isinstance(sources, list):
+        return []
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        sanitized = dict(source)
+        url = str(sanitized.get("url") or "")
+        record_type = str(sanitized.get("kind") or "")
+        sanitized["label"] = sanitize_source_text(sanitized.get("label"), sanitized, record_type) or public_source_label_from_url(url, record_type)
+        sanitized["kind"] = sanitize_source_text(sanitized.get("kind"), sanitized, record_type) or "fonte_publica"
+        key = "|".join([str(sanitized.get("url") or ""), str(sanitized.get("label") or ""), str(sanitized.get("kind") or "")])
+        if not key.strip("|") or key in seen:
+            continue
+        seen.add(key)
+        output.append(sanitized)
+    return output
+
+
+def sanitize_public_evidence_list(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for evidence in values:
+        if not isinstance(evidence, dict):
+            continue
+        sanitized = sanitize_public_evidence_record(evidence)
+        key = stable_hash([
+            sanitized.get("url") or sanitized.get("document_url"),
+            sanitized.get("record_type") or sanitized.get("type"),
+            sanitized.get("title"),
+            sanitized.get("value"),
+            sanitized.get("estimated_variation"),
+        ])
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(sanitized)
+    return output
+
+
+def sanitize_monitoring_item_record(item: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(item)
+    report = dict(sanitized.get("report")) if isinstance(sanitized.get("report"), dict) else {}
+    report["official_sources"] = sanitize_official_sources(report.get("official_sources"))
+    report["public_evidence"] = sanitize_public_evidence_list(report.get("public_evidence"))
+    red_flags: list[dict[str, Any]] = []
+    for flag in report.get("red_flags", []) if isinstance(report.get("red_flags"), list) else []:
+        if not isinstance(flag, dict):
+            continue
+        next_flag = dict(flag)
+        if isinstance(next_flag.get("evidence"), dict):
+            next_flag["evidence"] = sanitize_public_evidence_record(next_flag["evidence"])
+        red_flags.append(next_flag)
+    report["red_flags"] = red_flags
+    sanitized["report"] = report
+    sanitized["public_evidence"] = sanitize_public_evidence_list(sanitized.get("public_evidence"))
+
+    related_label = ""
+    if report["official_sources"]:
+        related_label = str(report["official_sources"][0].get("label") or "")
+    if not related_label:
+        related_label = next((str(evidence.get("source") or "") for evidence in report["public_evidence"] if evidence.get("source")), "")
+    related_label = related_label or "Dados publicos relacionados"
+    for key in ("source", "entity", "location"):
+        if key in sanitized and is_coibe_source_label(sanitized.get(key)):
+            sanitized[key] = related_label
+
+    insights: list[dict[str, Any]] = []
+    for insight in sanitized.get("agent_insights", []) if isinstance(sanitized.get("agent_insights"), list) else []:
+        if not isinstance(insight, dict):
+            continue
+        next_insight = dict(insight)
+        evidence = dict(next_insight.get("evidence")) if isinstance(next_insight.get("evidence"), dict) else {}
+        if isinstance(evidence.get("sources"), list):
+            evidence["sources"] = sanitize_source_list(evidence.get("sources"), evidence)
+        if "source" in evidence:
+            evidence["source"] = sanitize_source_text(evidence.get("source"), evidence)
+        next_insight["evidence"] = evidence
+        insights.append(next_insight)
+    if insights:
+        sanitized["agent_insights"] = insights
+    return sanitized
+
+
+def sanitize_public_record_row(record: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(record)
+    record_type = str(sanitized.get("record_type") or "")
+    sanitized["source"] = sanitize_source_text(sanitized.get("source"), sanitized, record_type)
+    payload = dict(sanitized.get("payload")) if isinstance(sanitized.get("payload"), dict) else sanitized.get("payload")
+    if isinstance(payload, dict):
+        payload = sanitize_nested_source_fields(payload, sanitized, record_type)
+        if "source" in payload:
+            payload["source"] = sanitize_source_text(payload.get("source"), payload, record_type)
+        if isinstance(payload.get("sources"), list):
+            payload["sources"] = sanitize_official_sources(payload.get("sources"))
+        if isinstance(payload.get("item"), dict):
+            payload["item"] = sanitize_monitoring_item_record(payload["item"])
+        if isinstance(payload.get("evidence"), dict):
+            payload["evidence"] = sanitize_public_evidence_record(payload["evidence"])
+        sanitized["payload"] = payload
+    return sanitized
+
+
+def monitoring_case_dedup_key(item: dict[str, Any]) -> str:
+    report = item.get("report") if isinstance(item.get("report"), dict) else {}
+    urls: list[str] = []
+    for source in report.get("official_sources") if isinstance(report.get("official_sources"), list) else []:
+        if isinstance(source, dict) and source.get("url"):
+            urls.append(str(source["url"]))
+    for evidence in report.get("public_evidence") if isinstance(report.get("public_evidence"), list) else []:
+        if isinstance(evidence, dict) and (evidence.get("url") or evidence.get("document_url")):
+            urls.append(str(evidence.get("url") or evidence.get("document_url")))
+    for url in urls:
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        contract_keys = [
+            query.get("idCompra", [""])[0],
+            query.get("numeroContrato", [""])[0],
+            query.get("niFornecedor", [""])[0],
+            query.get("codigoUnidadeGestora", [""])[0],
+            query.get("dataVigenciaInicialMin", [""])[0],
+            query.get("dataVigenciaInicialMax", [""])[0],
+        ]
+        if any(contract_keys) and ("compras.gov.br" in parsed.netloc.lower() or "pncp.gov.br" in parsed.netloc.lower()):
+            return stable_hash(["case-public-url", parsed.netloc.lower(), parsed.path, *contract_keys])
+    value = normalize_decimal(item.get("value"))
+    variation = normalize_decimal(item.get("estimated_variation"))
+    title = str(item.get("title") or "")
+    political_match = re.match(r"Risco de Superfaturamento\s*-\s*(.*?)\s*-\s*R\$", title, flags=re.IGNORECASE)
+    if political_match and Decimal(value) > 0:
+        return stable_hash(["case-political-money", political_match.group(1), item.get("date"), value, variation])
+    supplier = "".join(char for char in str(item.get("supplier_cnpj") or "") if char.isdigit())
+    return stable_hash(["case", supplier, item.get("date"), value, normalize_text(item.get("entity"))[:80], normalize_text(item.get("object") or item.get("title"))[:120]])
+
+
+def merge_monitoring_case_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    existing_value = Decimal(normalize_decimal(existing.get("value")))
+    incoming_value = Decimal(normalize_decimal(incoming.get("value")))
+    existing_variation = Decimal(normalize_decimal(existing.get("estimated_variation")))
+    incoming_variation = Decimal(normalize_decimal(incoming.get("estimated_variation")))
+    primary = incoming if (incoming_variation, incoming_value, int(incoming.get("risk_score") or 0)) >= (existing_variation, existing_value, int(existing.get("risk_score") or 0)) else existing
+    secondary = existing if primary is incoming else incoming
+    merged = dict(primary)
+    primary_report = primary.get("report") if isinstance(primary.get("report"), dict) else {}
+    secondary_report = secondary.get("report") if isinstance(secondary.get("report"), dict) else {}
+    merged_report = dict(primary_report)
+    for list_key in ("red_flags", "official_sources", "public_evidence"):
+        combined: list[Any] = []
+        seen: set[str] = set()
+        for source_report in (primary_report, secondary_report):
+            values = source_report.get(list_key) if isinstance(source_report.get(list_key), list) else []
+            for value_item in values:
+                key = json.dumps(value_item, ensure_ascii=False, sort_keys=True, default=json_default)
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(value_item)
+        merged_report[list_key] = combined
+    merged["report"] = merged_report
+    merged["coibe_merged_case_ids"] = sorted(set([*(existing.get("coibe_merged_case_ids") or []), str(existing.get("id") or ""), str(incoming.get("id") or "")]) - {""})
+    return sanitize_monitoring_item_record(merged)
 
 
 def ensure_dirs(base_dir: Path) -> dict[str, Path]:
@@ -2145,7 +2405,7 @@ def web_fallback_item_from_record(record: dict[str, Any], index: int, feed_pages
     total_hits = sum(int(value or 0) for value in keyword_hits.values())
     collected_at = str(record.get("collected_at") or brasilia_now().isoformat())
     item_date = collected_at[:10] if len(collected_at) >= 10 else brasilia_now().date().isoformat()
-    source = str(record.get("source") or urlparse(url).hostname or "web_publica")
+    source = sanitize_source_text(record.get("source") or urlparse(url).hostname or "web_publica", {"url": url}, "internet_public_page")
     stable_basis = "|".join(
         [
             str(record.get("record_key") or ""),
@@ -2167,7 +2427,7 @@ def web_fallback_item_from_record(record: dict[str, Any], index: int, feed_pages
         "keyword_hits": keyword_hits,
         "text_excerpt": excerpt[:1000],
     }
-    return {
+    return sanitize_monitoring_item_record({
         "id": f"web-fallback-{stable_id}",
         "date": item_date,
         "title": title,
@@ -2211,7 +2471,7 @@ def web_fallback_item_from_record(record: dict[str, Any], index: int, feed_pages
             "source_record_key": record.get("record_key"),
             "rank": index + 1,
         },
-    }
+    })
 
 
 def build_web_fallback_feed_items(
@@ -2273,7 +2533,7 @@ def flatten_feed(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
-            items.append(item)
+            items.append(sanitize_monitoring_item_record(item) if isinstance(item, dict) else item)
     return items
 
 
@@ -2317,7 +2577,7 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "record_key": "pipeline:readiness",
                 "record_type": "architecture_status",
                 "collected_at": collected_at,
-                "source": "COIBE.IA Backend",
+                "source": "Monitoramento interno da plataforma",
                 "title": "Pipeline readiness",
                 "subtitle": readiness.get("storage_mode"),
                 "payload": readiness,
@@ -2339,8 +2599,8 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     for bucket_name, source_name in [
-        ("political_parties", "COIBE.IA/Camara/TSE - Partidos"),
-        ("political_people", "COIBE.IA/Camara/Senado - Politicos"),
+        ("political_parties", "Câmara dos Deputados / TSE / TCU"),
+        ("political_people", "Câmara dos Deputados / Senado / TSE / STF / TCU"),
     ]:
         response = snapshot.get(bucket_name, {})
         if not isinstance(response, dict):
@@ -2371,7 +2631,7 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             record_type = evidence.get("record_type") or "public_evidence"
             records.append(
-                {
+                sanitize_public_record_row({
                     "record_key": f"evidence:{item_id}:{record_type}:{index}",
                     "record_type": record_type,
                     "collected_at": collected_at,
@@ -2380,7 +2640,7 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                     "subtitle": f"{evidence.get('matches_count', 0)} registro(s) vinculados ao item",
                     "url": evidence.get("url"),
                     "payload": {"item": item, "evidence": evidence},
-                }
+                })
             )
 
     for term, response in snapshot.get("searches", {}).items():
@@ -2418,7 +2678,7 @@ def flatten_public_records(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(record, dict):
             records.append(record)
 
-    return records
+    return [sanitize_public_record_row(record) for record in records if isinstance(record, dict)]
 
 
 def ml_value_anomalies(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -3219,14 +3479,19 @@ def merge_monitoring_database(paths: dict[str, Path], items: list[dict[str, Any]
 
     by_key: dict[str, dict[str, Any]] = {}
     for item in existing + items:
+        item = sanitize_monitoring_item_record(item)
         item["normalized_title"] = normalize_text(item.get("title"))
         item["normalized_entity"] = normalize_text(item.get("entity"))
         item["normalized_supplier"] = normalize_text(item.get("supplier_name") or item.get("supplier_cnpj"))
         item["coibe_dedup_hash"] = record_hash(item.get("supplier_cnpj"), item.get("date"), item.get("value"))
-        key = f"{item.get('id')}:{item.get('date')}"
+        item["coibe_case_dedup_key"] = monitoring_case_dedup_key(item)
+        key = item["coibe_case_dedup_key"]
         if key.strip(":") == "":
             continue
-        by_key[key] = item
+        if key in by_key:
+            by_key[key] = merge_monitoring_case_records(by_key[key], item)
+        else:
+            by_key[key] = item
 
     merged = list(by_key.values())
     merged.sort(key=lambda item: (str(item.get("date") or ""), str(item.get("id") or "")), reverse=True)
@@ -3272,7 +3537,7 @@ def public_record_key(record: dict[str, Any], fallback_index: int = 0) -> str:
 
 
 def normalize_public_record(record: dict[str, Any], fallback_index: int = 0) -> dict[str, Any]:
-    normalized = dict(record)
+    normalized = sanitize_public_record_row(record)
     normalized["record_key"] = public_record_key(normalized, fallback_index)
     normalized["normalized_title"] = normalize_text(normalized.get("title"))
     normalized["normalized_source"] = normalize_text(normalized.get("source"))
@@ -3361,20 +3626,24 @@ def build_library_records(
         )
 
     for item in items:
+        item = sanitize_monitoring_item_record(item)
+        official_sources = item.get("report", {}).get("official_sources") if isinstance(item.get("report"), dict) else []
+        first_source = official_sources[0] if isinstance(official_sources, list) and official_sources else {}
         records.append(
             {
                 "library_key": f"monitoring:{item.get('id')}:{item.get('date')}",
                 "library_type": "monitoring_item",
                 "collected_at": collected_at,
-                "source": "Compras.gov.br Dados Abertos",
+                "source": first_source.get("label") or "Compras.gov.br Dados Abertos",
                 "title": item.get("title"),
-                "url": (item.get("report", {}).get("official_sources") or [{}])[0].get("url"),
+                "url": first_source.get("url"),
                 "public_codes": public_codes_from_item(item),
                 "payload": item,
             }
         )
 
     for record in public_records:
+        record = sanitize_public_record_row(record)
         records.append(
             {
                 "library_key": f"public:{record.get('record_key')}",

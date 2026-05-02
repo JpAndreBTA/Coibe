@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -2078,6 +2078,186 @@ def compact_public_record_title(text: str, limit: int = 150) -> str:
     return cleaned[:limit].rstrip(" -|•,.;") + "..."
 
 
+def is_coibe_source_label(value: Any) -> bool:
+    normalized = normalize_text(value).lower()
+    return "coibe" in normalized
+
+
+def public_source_label_from_url(url: str, record_type: str = "", fallback: str = "Fonte publica oficial") -> str:
+    normalized_url = str(url or "").lower()
+    normalized_type = normalize_text(record_type).lower()
+    if "dadosabertos.compras.gov.br" in normalized_url or "compras.gov.br" in normalized_url:
+        return "Compras.gov.br Dados Abertos"
+    if "pncp.gov.br" in normalized_url:
+        return "PNCP - Portal Nacional de Contratações Públicas"
+    if "camara.leg.br" in normalized_url:
+        if "partid" in normalized_type:
+            return "Câmara dos Deputados - partidos e membros"
+        return "Câmara dos Deputados - Dados Abertos"
+    if "senado.leg.br" in normalized_url:
+        return "Senado Federal - Dados Abertos"
+    if "stf.jus.br" in normalized_url:
+        return "STF - consulta pública"
+    if "tse.jus.br" in normalized_url or "divulgacandcontas" in normalized_url:
+        return "TSE - dados eleitorais oficiais"
+    if "tcu.gov.br" in normalized_url:
+        return "TCU - pesquisa de processos"
+    if "portaldatransparencia.gov.br" in normalized_url:
+        return "Portal da Transparência - CGU"
+    if "servicodados.ibge.gov.br" in normalized_url or "ibge.gov.br" in normalized_url:
+        return "IBGE - dados públicos"
+    return fallback if not is_coibe_source_label(fallback) else "Fonte pública oficial relacionada"
+
+
+def sanitize_monitoring_sources(sources: list[MonitoringSource]) -> list[MonitoringSource]:
+    deduped: dict[tuple[str, str], MonitoringSource] = {}
+    for source in sources:
+        url = str(source.url or "").strip()
+        if not url:
+            continue
+        label = str(source.label or "").strip()
+        kind = str(source.kind or "fonte_publica").strip()
+        if is_coibe_source_label(label):
+            label = public_source_label_from_url(url, kind, "Fonte pública oficial relacionada")
+        if is_coibe_source_label(kind):
+            kind = "Fonte pública oficial relacionada ao cruzamento"
+        key = (label, url)
+        deduped[key] = MonitoringSource(label=label, url=url, kind=kind)
+    return list(deduped.values())
+
+
+def sanitize_public_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(evidence)
+    url = str(sanitized.get("url") or sanitized.get("document_url") or "")
+    record_type = str(sanitized.get("record_type") or sanitized.get("type") or "")
+    if is_coibe_source_label(sanitized.get("source")):
+        sanitized["source"] = public_source_label_from_url(url, record_type, "Dados públicos relacionados")
+    return sanitized
+
+
+def sanitize_source_text(value: Any, context: dict[str, Any] | None = None, record_type: str = "") -> str:
+    text = str(value or "").strip()
+    if not is_coibe_source_label(text):
+        return text
+    context = context or {}
+    url = str(context.get("url") or context.get("document_url") or context.get("api_url") or "")
+    return public_source_label_from_url(url, record_type, "Dados públicos relacionados")
+
+
+def sanitize_nested_source_fields(value: Any, context: dict[str, Any] | None = None, record_type: str = "") -> Any:
+    if isinstance(value, dict):
+        output: dict[str, Any] = {}
+        next_context = {**(context or {}), **value}
+        for key, item in value.items():
+            if key in {"source", "label", "kind"} and isinstance(item, str):
+                output[key] = sanitize_source_text(item, next_context, record_type)
+            elif key == "sources" and isinstance(item, list):
+                seen: set[str] = set()
+                output_sources: list[Any] = []
+                for source in item:
+                    sanitized_source = sanitize_source_text(source, next_context, record_type) if isinstance(source, str) else sanitize_nested_source_fields(source, next_context, record_type)
+                    source_key = json.dumps(sanitized_source, ensure_ascii=False, sort_keys=True, default=json_default)
+                    if source_key in seen:
+                        continue
+                    seen.add(source_key)
+                    output_sources.append(sanitized_source)
+                output[key] = output_sources
+            else:
+                output[key] = sanitize_nested_source_fields(item, next_context, record_type)
+        return output
+    if isinstance(value, list):
+        return [sanitize_nested_source_fields(item, context, record_type) for item in value]
+    return value
+
+
+def sanitize_public_record_row(record: dict[str, Any]) -> dict[str, Any]:
+    sanitized = sanitize_nested_source_fields(record, record, str(record.get("record_type") or ""))
+    if isinstance(sanitized, dict) and is_coibe_source_label(sanitized.get("source")):
+        sanitized["source"] = sanitize_source_text(sanitized.get("source"), sanitized, str(sanitized.get("record_type") or ""))
+    return sanitized if isinstance(sanitized, dict) else record
+
+
+def clean_monitoring_item_title(title: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(title or "")).strip()
+    prefix = "Risco de Superfaturamento - "
+    while cleaned.count(prefix) > 1 and cleaned.startswith(prefix):
+        cleaned = cleaned[len(prefix):].strip()
+    if cleaned.startswith(prefix + prefix):
+        cleaned = prefix + cleaned[len(prefix + prefix):].strip()
+    return cleaned
+
+
+def sanitize_monitoring_item_sources(item: MonitoringItem) -> MonitoringItem:
+    item.title = clean_monitoring_item_title(item.title)
+    item.report.official_sources = sanitize_monitoring_sources(item.report.official_sources or [])
+    deduped_evidence: list[dict[str, Any]] = []
+    seen_evidence: set[str] = set()
+    for evidence in item.report.public_evidence or []:
+        sanitized_evidence = sanitize_public_evidence(evidence)
+        evidence_key = record_fingerprint([
+            sanitized_evidence.get("url") or sanitized_evidence.get("document_url"),
+            sanitized_evidence.get("record_type") or sanitized_evidence.get("type"),
+            sanitized_evidence.get("title"),
+            sanitized_evidence.get("value"),
+            sanitized_evidence.get("estimated_variation"),
+        ])
+        if evidence_key in seen_evidence:
+            continue
+        seen_evidence.add(evidence_key)
+        deduped_evidence.append(sanitized_evidence)
+    item.report.public_evidence = deduped_evidence
+    for flag in item.report.red_flags or []:
+        if isinstance(flag.evidence, dict):
+            flag.evidence = sanitize_public_evidence(flag.evidence)
+    if item.report.official_sources:
+        related_label = item.report.official_sources[0].label
+        if is_coibe_source_label(item.location):
+            item.location = related_label
+        if is_coibe_source_label(item.entity):
+            item.entity = related_label
+    elif is_coibe_source_label(item.location) or is_coibe_source_label(item.entity):
+        evidence_source = next(
+            (
+                str(evidence.get("source") or "")
+                for evidence in item.report.public_evidence or []
+                if str(evidence.get("source") or "") and not is_coibe_source_label(evidence.get("source"))
+            ),
+            "",
+        )
+        related_label = evidence_source or "Dados públicos relacionados"
+        if is_coibe_source_label(item.location):
+            item.location = related_label
+        if is_coibe_source_label(item.entity):
+            item.entity = related_label
+    return item
+
+
+def public_record_official_sources(source: str, url: str, record_type: str, payload: dict[str, Any]) -> list[MonitoringSource]:
+    sources: list[MonitoringSource] = []
+    for raw_source in payload.get("sources") if isinstance(payload.get("sources"), list) else []:
+        if not isinstance(raw_source, dict):
+            continue
+        source_url = str(raw_source.get("url") or "").strip()
+        if not source_url:
+            continue
+        sources.append(
+            MonitoringSource(
+                label=public_source_label_from_url(source_url, record_type, str(raw_source.get("label") or raw_source.get("source") or source)),
+                url=source_url,
+                kind=str(raw_source.get("kind") or raw_source.get("source") or record_type or "fonte_publica"),
+            )
+        )
+    if url:
+        sources.append(
+            MonitoringSource(
+                label=public_source_label_from_url(url, record_type, source),
+                url=url,
+                kind=record_type or "fonte_publica",
+            )
+        )
+    return sanitize_monitoring_sources(sources)
+
+
 def public_record_political_analysis_headline(record_type: str, payload: dict[str, Any]) -> str | None:
     risks = payload.get("risks") if isinstance(payload.get("risks"), list) else []
     weighted_risks: list[tuple[int, dict[str, Any]]] = []
@@ -2159,6 +2339,8 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
     subtitle = str(record.get("subtitle") or payload.get("summary") or payload.get("text_excerpt") or title)
     url = str(record.get("url") or payload.get("url") or "")
     record_type = str(record.get("record_type") or "public_record")
+    if is_coibe_source_label(source):
+        source = public_source_label_from_url(url, record_type, "Dados públicos relacionados")
     title = public_record_political_display_title(record_type, title, payload, subtitle)
     record_key = str(record.get("record_key") or f"{record_type}:{source}:{title}:{index}")
     stable_id = hashlib.sha256(record_key.encode("utf-8", errors="ignore")).hexdigest()[:24]
@@ -2232,7 +2414,7 @@ def public_record_feed_item(record: dict[str, Any], index: int) -> MonitoringIte
                         criteria={"rule": "registro publico coletado/atualizado pelo monitor"},
                     )
                 ],
-                official_sources=[MonitoringSource(label=source, url=url, kind=record_type)] if url else [],
+                official_sources=public_record_official_sources(source, url, record_type, payload),
                 public_evidence=[evidence],
                 generated_at=collected_at,
                 ml_model="coibe-public-record-feed",
@@ -2774,6 +2956,7 @@ def load_local_monitoring_items(
         item.report.red_flags = [normalize_attention_flag_text(flag) for flag in item.report.red_flags]
         item.report.summary = monitoring_summary_for_item(item)
         item = enrich_persisted_public_record_title(item)
+        item = sanitize_monitoring_item_sources(item)
 
         if uf_filter and (item.uf or "").upper() != uf_filter:
             continue
@@ -2820,6 +3003,24 @@ def load_local_monitoring_items(
                 continue
 
         items.append(item)
+
+    by_case: dict[str, dict[str, Any]] = {}
+    for item in items:
+        raw = item.model_dump(mode="json")
+        raw["coibe_case_dedup_key"] = str(raw.get("coibe_case_dedup_key") or monitoring_case_dedup_key_from_raw(raw))
+        key = raw["coibe_case_dedup_key"]
+        if key in by_case:
+            by_case[key] = merge_monitoring_case_records(by_case[key], raw)
+        else:
+            by_case[key] = raw
+    if by_case:
+        deduped_items: list[MonitoringItem] = []
+        for raw in by_case.values():
+            try:
+                deduped_items.append(sanitize_monitoring_item_sources(MonitoringItem.model_validate(raw)))
+            except Exception:
+                continue
+        items = deduped_items
 
     items.sort(key=lambda item: (item.date.isoformat(), item.report.generated_at.isoformat(), item.id), reverse=True)
     return items
@@ -3622,7 +3823,7 @@ def load_cached_universal_search(query: str) -> UniversalSearchResponse | None:
         response.cache_status = "hit"
         response.cached_at = cached_at
         response.public_api_checked = bool(payload.get("public_api_checked", bool(response.results)))
-        response.sources = ["Cache local COIBE.IA", *[source for source in response.sources if source != "Cache local COIBE.IA"]]
+        response.sources = ["Cache local da plataforma", *[source for source in response.sources if source not in {"Cache local COIBE.IA", "Cache local da plataforma"}]]
         return response
     except Exception:
         return None
@@ -3696,7 +3897,7 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
 
     added = 0
     collected_at = brasilia_now().isoformat()
-    source_label = "COIBE.IA/Camara/Senado - Politicos" if record_type == "political_people" else "COIBE.IA/Camara/TSE - Partidos"
+    source_label = "Câmara dos Deputados / Senado / TSE / TCU" if record_type == "political_people" else "Câmara dos Deputados / TSE / TCU"
     for item in items:
         payload = item.model_dump(mode="json")
         display_title = public_record_political_display_title(record_type, item.name, payload, item.subtitle or "")
@@ -3707,7 +3908,7 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
         by_key[record_key] = {
             "record_key": record_key,
             "record_type": record_type,
-            "source": source_label,
+            "source": "Câmara dos Deputados / Senado / TSE / TCU",
             "query": query,
             "title": display_title,
             "subtitle": item.subtitle,
@@ -3719,7 +3920,7 @@ def save_political_scan_public_records(record_type: str, query: str | None, item
             "cached_from": f"api/{record_type}",
             "payload": payload,
             "normalized_title": normalize_text(display_title),
-            "normalized_source": normalize_text(source_label),
+            "normalized_source": normalize_text("Câmara dos Deputados / Senado / TSE / TCU"),
         }
 
     merged = list(by_key.values())
@@ -3762,7 +3963,7 @@ def superpricing_search_results(q: str, limit: int = 8) -> list[UniversalSearchR
                         f"{item.entity} - {item.formatted_value} - "
                         f"variação estimada {item.formatted_variation}"
                     ),
-                    source="COIBE.IA - análise de superfaturamento",
+                    source=item.report.official_sources[0].label if item.report.official_sources else "Compras.gov.br / PNCP",
                     url=item_source_url(item),
                     risk_level=item.risk_level,
                     payload={
@@ -3892,7 +4093,7 @@ def load_public_records() -> list[dict[str, Any]]:
         records = read_data_json(LOCAL_PUBLIC_RECORDS_PATH, [])
     except Exception:
         return []
-    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+    return [sanitize_public_record_row(record) for record in records if isinstance(record, dict)] if isinstance(records, list) else []
 
 
 def similarity(left: str, right: str) -> float:
@@ -3956,6 +4157,100 @@ def item_source_url(item: MonitoringItem) -> str | None:
     return item.report.official_sources[0].url
 
 
+def monitoring_case_dedup_key_from_raw(raw: dict[str, Any]) -> str:
+    title_text = clean_monitoring_item_title(str(raw.get("title") or ""))
+    normalized_title = normalize_text(title_text).lower()
+    urls: list[str] = []
+    report = raw.get("report") if isinstance(raw.get("report"), dict) else {}
+    for source in report.get("official_sources") if isinstance(report.get("official_sources"), list) else []:
+        if isinstance(source, dict) and source.get("url"):
+            urls.append(str(source.get("url")))
+    for evidence in report.get("public_evidence") if isinstance(report.get("public_evidence"), list) else []:
+        if isinstance(evidence, dict) and (evidence.get("url") or evidence.get("document_url")):
+            urls.append(str(evidence.get("url") or evidence.get("document_url")))
+    for flag in report.get("red_flags") if isinstance(report.get("red_flags"), list) else []:
+        evidence = flag.get("evidence") if isinstance(flag, dict) and isinstance(flag.get("evidence"), dict) else {}
+        if evidence.get("url") or evidence.get("document_url"):
+            urls.append(str(evidence.get("url") or evidence.get("document_url")))
+    for url in urls:
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        contract_keys = [
+            query.get("idCompra", [""])[0],
+            query.get("numeroContrato", [""])[0],
+            query.get("niFornecedor", [""])[0],
+            query.get("codigoUnidadeGestora", [""])[0],
+            query.get("dataVigenciaInicialMin", [""])[0],
+            query.get("dataVigenciaInicialMax", [""])[0],
+        ]
+        if any(contract_keys) and ("compras.gov.br" in parsed.netloc.lower() or "pncp.gov.br" in parsed.netloc.lower()):
+            return record_fingerprint(["case-public-url", parsed.netloc.lower(), parsed.path, *contract_keys])
+
+    supplier_digits = "".join(ch for ch in str(raw.get("supplier_cnpj") or "") if ch.isdigit())
+    value = parse_decimal(raw.get("value")) or Decimal("0")
+    variation = parse_decimal(raw.get("estimated_variation")) or Decimal("0")
+    if "risco de superfaturamento" in normalized_title and value > 0:
+        political_money_match = re.match(r"Risco de Superfaturamento\s*-\s*(.*?)\s*-\s*R\$", title_text, flags=re.IGNORECASE)
+        if political_money_match:
+            return record_fingerprint([
+                "case-political-money",
+                political_money_match.group(1),
+                str(raw.get("date") or ""),
+                str(value.quantize(Decimal("0.01"))),
+                str(variation.quantize(Decimal("0.01"))),
+            ])
+    title_basis = normalize_text(raw.get("object") or raw.get("title") or "")[:120]
+    entity_basis = normalize_text(raw.get("entity") or raw.get("location") or "")[:80]
+    if supplier_digits and value > 0:
+        return record_fingerprint([
+            "case",
+            supplier_digits,
+            str(raw.get("date") or ""),
+            str(value.quantize(Decimal("0.01"))),
+            entity_basis,
+            title_basis,
+        ])
+    return record_fingerprint([
+        "case",
+        raw.get("id"),
+        str(raw.get("date") or ""),
+        str(value.quantize(Decimal("0.01"))),
+        entity_basis,
+        title_basis,
+    ])
+
+
+def merge_monitoring_case_records(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    existing_value = parse_decimal(existing.get("value")) or Decimal("0")
+    incoming_value = parse_decimal(incoming.get("value")) or Decimal("0")
+    existing_variation = parse_decimal(existing.get("estimated_variation")) or Decimal("0")
+    incoming_variation = parse_decimal(incoming.get("estimated_variation")) or Decimal("0")
+    primary = incoming if (incoming_variation, incoming_value, int(incoming.get("risk_score") or 0)) >= (existing_variation, existing_value, int(existing.get("risk_score") or 0)) else existing
+    secondary = existing if primary is incoming else incoming
+    merged = dict(primary)
+
+    primary_report = primary.get("report") if isinstance(primary.get("report"), dict) else {}
+    secondary_report = secondary.get("report") if isinstance(secondary.get("report"), dict) else {}
+    merged_report = dict(primary_report)
+    for list_key in ["red_flags", "official_sources", "public_evidence"]:
+        combined: list[Any] = []
+        seen: set[str] = set()
+        for source_report in [primary_report, secondary_report]:
+            values = source_report.get(list_key) if isinstance(source_report.get(list_key), list) else []
+            for value_item in values:
+                fingerprint = record_fingerprint([list_key, value_item])
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                combined.append(value_item)
+        merged_report[list_key] = combined
+    if secondary_report.get("summary") and secondary_report.get("summary") != primary_report.get("summary"):
+        merged_report["summary"] = primary_report.get("summary") or secondary_report.get("summary")
+    merged["report"] = merged_report
+    merged["coibe_merged_case_ids"] = sorted(set([*(existing.get("coibe_merged_case_ids") or []), str(existing.get("id") or ""), str(incoming.get("id") or "")]) - {""})
+    return merged
+
+
 def save_monitoring_items(items: list[MonitoringItem]) -> tuple[int, int]:
     existing_raw: list[dict[str, Any]] = []
     if data_path_exists(LOCAL_MONITOR_DB_PATH):
@@ -3966,7 +4261,19 @@ def save_monitoring_items(items: list[MonitoringItem]) -> tuple[int, int]:
         except Exception:
             existing_raw = []
 
-    by_key = {f"{item.get('id')}:{item.get('date')}": item for item in existing_raw if item.get("id")}
+    by_case: dict[str, dict[str, Any]] = {}
+    existing_case_keys: set[str] = set()
+    for existing in existing_raw:
+        if not existing.get("id"):
+            continue
+        key = str(existing.get("coibe_case_dedup_key") or monitoring_case_dedup_key_from_raw(existing))
+        existing["coibe_case_dedup_key"] = key
+        existing_case_keys.add(key)
+        if key in by_case:
+            by_case[key] = merge_monitoring_case_records(by_case[key], existing)
+        else:
+            by_case[key] = existing
+
     added = 0
     for item in items:
         raw = item.model_dump(mode="json")
@@ -3974,12 +4281,16 @@ def save_monitoring_items(items: list[MonitoringItem]) -> tuple[int, int]:
         raw["normalized_entity"] = normalize_text(item.entity)
         raw["normalized_supplier"] = normalize_text(item.supplier_name or item.supplier_cnpj)
         raw["coibe_dedup_hash"] = public_record_hash(item.supplier_cnpj, item.date, item.value)
-        key = f"{raw.get('id')}:{raw.get('date')}"
-        if key not in by_key:
+        raw["coibe_case_dedup_key"] = monitoring_case_dedup_key_from_raw(raw)
+        key = raw["coibe_case_dedup_key"]
+        if key not in existing_case_keys and key not in by_case:
             added += 1
-        by_key[key] = raw
+        if key in by_case:
+            by_case[key] = merge_monitoring_case_records(by_case[key], raw)
+        else:
+            by_case[key] = raw
 
-    merged = list(by_key.values())
+    merged = list(by_case.values())
     merged.sort(key=lambda row: (str(row.get("date") or ""), str(row.get("id") or "")), reverse=True)
     write_json(LOCAL_MONITOR_DB_PATH, merged)
     return len(merged), added
@@ -5125,10 +5436,7 @@ def build_official_sources(
         )
     sources.extend(querido_sources)
 
-    deduped: dict[tuple[str, str], MonitoringSource] = {}
-    for source in sources:
-        deduped[(source.label, source.url)] = source
-    return list(deduped.values())
+    return sanitize_monitoring_sources(sources)
 
 
 async def contract_to_monitoring_item(
@@ -5405,7 +5713,7 @@ async def search_related_political_people(query: str) -> list[UniversalSearchRes
                 type="politico_relacionado",
                 title=person["title"],
                 subtitle=person["subtitle"],
-                source="COIBE.IA - busca politica relacionada",
+                source="TSE / STF / TCU - pessoa pública relacionada",
                 url=person.get("url"),
                 payload={
                     "query": query,
@@ -5911,8 +6219,8 @@ def local_contract_crosscheck_for_political(
                     "high_value_or_high_risk_matches": len(high_items),
                     "terms_checked": terms,
                 },
-                source="Base COIBE.IA de contratos acumulados",
-                url=items[0].report.official_sources[0].url if items and items[0].report.official_sources else COMPRAS_PUBLIC_PORTAL_URL,
+                source="Compras.gov.br / PNCP - contratos acumulados",
+                url=items[0].report.official_sources[0].url if items and items[0].report.official_sources else COMPRAS_CONTRATOS_URL,
             )
         )
     return details, risks, list(dict.fromkeys([person for person in linked_people if person]))[:8]
@@ -6035,7 +6343,7 @@ def proximity_money_flow_attention(
                     "threshold": str(POLITICAL_HIGH_VALUE_PERSON_THRESHOLD),
                     "examples": [{"name": person, "value": str(value)} for person, value in high_value_people[:4]],
                 },
-                source="COIBE.IA - despesas parlamentares e contratos locais",
+                source="Câmara dos Deputados / Compras.gov.br / PNCP",
                 url=TSE_CONTAS_ELEITORAIS_URL,
             )
         )
@@ -6225,7 +6533,7 @@ def public_related_political_item(person: dict[str, Any]) -> PoliticalScanItem:
                 title="Cruzamento por nomes relacionados",
                 message="Termos relacionados são usados para buscar contratos, partidos, processos públicos e registros oficiais.",
                 evidence={"related_queries": person.get("related_queries", [])},
-                source="COIBE.IA - busca política relacionada",
+                source="TSE / STF / TCU - pessoa pública relacionada",
                 url=str(person.get("url") or "https://www.tse.jus.br/"),
             ),
         ],
@@ -6285,7 +6593,7 @@ def quick_public_related_political_item(person: dict[str, Any]) -> PoliticalScan
                 title="Análise aprofundada em segundo plano",
                 message="O resultado inicial evita espera longa; o monitor local completa cruzamentos e cacheia novas evidências.",
                 evidence={"mode": "quick_public_profile", "party": party},
-                source="COIBE.IA - busca política rápida",
+                source="TSE / STF / TCU - busca pública rápida",
                 url=str(person.get("url") or "https://www.tse.jus.br/"),
             ),
         ],
@@ -7016,7 +7324,7 @@ POLITICAL_PARTY_SOURCES = [
     "TSE - Partidos Políticos",
     "TSE Divulgação de Candidaturas e Contas",
     "TCU Pesquisa de Processos",
-    "COIBE.IA - cruzamento preventivo de despesas públicas",
+    "Cruzamento local de despesas públicas",
 ]
 
 POLITICAL_PEOPLE_SOURCES = [
@@ -7025,7 +7333,7 @@ POLITICAL_PEOPLE_SOURCES = [
     "STF Consulta Processual/Jurisprudência",
     "TCU Pesquisa de Processos",
     "TSE Divulgação de Candidaturas e Contas",
-    "COIBE.IA - cruzamento preventivo de despesas públicas",
+    "Cruzamento local de despesas públicas",
 ]
 
 
@@ -7043,7 +7351,7 @@ def political_item_cache_quality(item: PoliticalScanItem) -> tuple[int, Decimal,
 def normalize_cached_political_detail(detail: dict[str, Any], fallback_party: str | None = None, fallback_person: str | None = None) -> dict[str, Any]:
     if not isinstance(detail, dict):
         return detail
-    output = dict(detail)
+    output = sanitize_nested_source_fields(dict(detail), detail, str(detail.get("type") or ""))
     detail_type = str(output.get("type") or "")
     title = str(output.get("title") or "")
     person = output.get("person") or fallback_person or "recorte"
@@ -7082,6 +7390,8 @@ def normalize_cached_political_detail(detail: dict[str, Any], fallback_party: st
 
 
 def normalize_cached_political_risk(risk: PoliticalRiskFactor) -> PoliticalRiskFactor:
+    risk.source = sanitize_source_text(risk.source, {"url": risk.url}, "political_risk")
+    risk.evidence = sanitize_nested_source_fields(risk.evidence, risk.evidence, "political_risk")
     if risk.title == "Contratos relacionados para conferência":
         matches = risk.evidence.get("matches_count")
         total = parse_decimal(risk.evidence.get("total_related_value"))
@@ -8063,7 +8373,7 @@ async def local_fuzzy_search(q: str = Query(..., min_length=2, max_length=120), 
                         type="contrato",
                         title=item.title,
                         subtitle=f"{item.entity} - {item.formatted_value}",
-                        source="Índice COIBE.IA",
+                        source="Índice local de contratos públicos",
                         url=item_source_url(item),
                         risk_level=item.risk_level,
                         payload={
@@ -8097,7 +8407,7 @@ async def local_fuzzy_search(q: str = Query(..., min_length=2, max_length=120), 
                         type=str(record.get("record_type") or "registro_publico"),
                         title=str(record.get("title") or "Registro publico"),
                         subtitle=record.get("subtitle"),
-                        source=str(record.get("source") or "Base pública COIBE.IA"),
+                        source=sanitize_source_text(record.get("source") or "Base pública local", record, str(record.get("record_type") or "")),
                         url=record.get("url"),
                         risk_level=str(record.get("risk_level") or "baixo"),
                         payload={**record, "score": score},
@@ -8167,7 +8477,7 @@ async def monitoring_feed(
                 has_more=has_more,
                 total_returned=len(items),
                 sources=[
-                    "Base COIBE.IA autoatualizável",
+                    "Base local de contratos públicos",
                     "Compras.gov.br Dados Abertos",
                     "Querido Diario",
                     "PNCP",
@@ -8295,7 +8605,7 @@ async def political_parties(
         return PoliticalScanResponse(
             generated_at=generated_at or brasilia_now(),
             kind="partidos",
-            sources=["Base COIBE.IA autoatualizável", *POLITICAL_PARTY_SOURCES],
+            sources=["Cache local da plataforma", *POLITICAL_PARTY_SOURCES],
             items=items,
             page=page,
             page_size=page_size,
@@ -8377,7 +8687,7 @@ async def political_politicians(
         return PoliticalScanResponse(
             generated_at=generated_at or brasilia_now(),
             kind="politicos",
-            sources=["Base COIBE.IA autoatualizável", *POLITICAL_PEOPLE_SOURCES],
+            sources=["Cache local da plataforma", *POLITICAL_PEOPLE_SOURCES],
             items=items,
             page=page,
             page_size=page_size,
@@ -8473,7 +8783,7 @@ async def monitoring_map(
                     if POSTGIS_ENABLED:
                         await asyncio.to_thread(postgis_upsert_map_points, file_points)
                     return MonitoringMapResponse(
-                        sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE UASG/municipios"],
+                        sources=["Cache local do mapa", "Base local de contratos públicos", "IBGE UASG/municipios"],
                         points=filtered[:page_size],
                         generated_at=brasilia_now(),
                         cache_status="file-hit",
@@ -8509,7 +8819,7 @@ async def monitoring_map(
         write_map_points_cache(all_points)
         await asyncio.to_thread(postgis_upsert_map_points, all_points)
         return MonitoringMapResponse(
-            sources=["Base COIBE.IA autoatualizavel", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "PostGIS opcional"],
+            sources=["Base local de contratos públicos", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "PostGIS opcional"],
             points=points[:page_size],
             generated_at=brasilia_now(),
             cache_status=cache_status,
@@ -8541,7 +8851,7 @@ async def monitoring_state_map(
             states = filter_state_risks(states, q=q, uf=uf)
             if states:
                 return StateMapResponse(
-                    sources=["Cache local do mapa", "Base COIBE.IA autoatualizavel", "IBGE Malhas Territoriais"],
+                    sources=["Cache local do mapa", "Base local de contratos públicos", "IBGE Malhas Territoriais"],
                     states=states[:page_size],
                     generated_at=brasilia_now(),
                     cache_status="file-hit",
@@ -8557,7 +8867,7 @@ async def monitoring_state_map(
         )
         states = filter_state_risks(all_states, q=q, uf=uf)
         return StateMapResponse(
-            sources=["Base COIBE.IA autoatualizavel", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "IBGE Malhas Territoriais"],
+            sources=["Base local de contratos públicos", "Compras.gov.br Dados Abertos", "PNCP", "IBGE UASG/municipios", "IBGE Malhas Territoriais"],
             states=states[:page_size],
             generated_at=brasilia_now(),
             cache_status="local-refresh" if source != "live" else "live-refresh",
